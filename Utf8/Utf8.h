@@ -114,7 +114,7 @@ const   Unicode  ReplacementCharacter = 0xfffd;
 // Reading consists of reversing the steps.
 
 
-//
+// 
 // Byte Order Marks (BOMs)
 //
 
