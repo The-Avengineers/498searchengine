@@ -39,9 +39,6 @@ bool IsValidUtf8First(const Utf8* p) {
 
 size_t IndicatedLength( const Utf8 *p ) {
   // checking if the first byte matches any one of the cases
-  if (!IsValidUtf8First(p)) { // Invalid first byte
-    return 1;
-  }
   if (*p >= 0b00000000 && *p <= 0b01111111) {
     return 1;
   } else if (*p >= 0b11000000 && *p <= 0b11011111) {
@@ -54,10 +51,12 @@ size_t IndicatedLength( const Utf8 *p ) {
     return 5;
   } else if (*p >= 0b11111100 && *p <= 0b11111101) {
     return 6;
+  } else { // Invalid first byte
+    return 1;
   }
 }
 
-Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound = nullptr ) {
+Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
   size_t len = IndicatedLength(*p);
   Utf8 buf[len];
   // 1.  If *pp already points to or past the last valid byte, do not
@@ -88,7 +87,7 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound = nullptr ) {
   return *result;
 }
 
-const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound = nullptr ) {
+const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
   Utf8* ptr = const_cast<Utf8*>(p);
   if (bound == nullptr) {
     while (true) {
@@ -108,7 +107,7 @@ const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound = nullptr ) {
   }
 }
 
-Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound = nullptr ) {
+Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
   Unicode char_to_write = c;
   if (c > 0x7fffffff) {
     c = ReplacementCharacter;
@@ -139,7 +138,7 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound = nullptr ) {
 
 
 // Same functionality as ReadUtf8, w/o advancing p. Consider merging them into one func?
-Unicode GetUtf8( const Utf8 *p, const Utf8 *bound = nullptr ) {
+Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
   size_t len = IndicatedLength(p);
   Utf8 buf[len];
   // 1.  If *pp already points to or past the last valid byte, do not
@@ -170,7 +169,7 @@ Unicode GetUtf8( const Utf8 *p, const Utf8 *bound = nullptr ) {
 }
 
 // TODO: Check OOB behavior
-const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound = nullptr ) {
+const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound) {
   if (bound != nullptr && p + 1 >= bound) {
     return p;
   }
