@@ -1,0 +1,8 @@
+Documents/Html
+Documents/Html/NYTimes.html
+Documents/Text
+Documents/Text/Lincoln
+Documents/Text/Lincoln/GettysburgAddress.txt
+Documents/Text/Shakespeare
+Documents/Text/Shakespeare/Hamlet.txt
+Documents/Text/Shakespeare/Macbeth.txt
