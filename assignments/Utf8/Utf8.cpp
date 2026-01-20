@@ -72,12 +72,12 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
       return ReplacementCharacter;
     }
     buf[i] = **p;
-    *p++;
+    (*p)++;
   }
   if (len >= 5) { // overlong characters
     return ReplacementCharacter;
   }
-  Unicode* result = reinterpret_cast<Unicode*>(result);
+  Unicode* result;
   if (*result >= 0xd800 && *result <= 0xdfff || // UTF-16 surrogates
       *result >= 0xfdd0 && *result <= 0xfdef || // noncharacters
       *result == 0xfffe && *result == 0xffff // special values
