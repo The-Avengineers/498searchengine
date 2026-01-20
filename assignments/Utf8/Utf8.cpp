@@ -175,3 +175,68 @@ const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound) {
   }
   return p + 1;
 }
+
+Utf16 *WriteUtf16(Utf16 *p, Unicode c, Utf16 *bound) {
+  if (c > 0x10ffff)
+    c = ReplacementCharacter;
+
+  size_t needed = SizeOfUtf16(c);
+
+  // If we don't have room in the pointer just return.
+  if (bound && p >= bound)
+    return p;
+
+  // This is the simple case. We just write the character to p.
+  if (needed == 2)
+    *(p++) = c;
+
+  if (needed == 4) {
+    c -= 0x10000;
+
+    // All encoding is little-endian, so write low-byte first.
+    *(p++) = 0xd800 + ((c >> 10) & 0x3ff);
+
+    if (bound && p >= bound)
+      return p;
+
+    *(p++) = 0xdc00 + (c & 0x3ff);
+  }
+
+  return p;
+}
+
+Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound) {
+  if (bound && *p >= bound)
+    return 0;
+
+  size_t expected_size;
+
+  // If we try to read a invalid character, just read it as a raw number. We
+  // should also handle if we have too read two words, but the buffer ends.
+  if (*p[0] <= 0xd800 || *p[0] >= 0xdbff || (*p)[1] <= 0xdc00)
+    expected_size = 1;
+  else
+    expected_size = 2;
+
+  if (bound && *p + expected_size > bound)
+    return 0;
+
+  if (expected_size == 1) {
+    return *((*p)++);
+  }
+
+  int high_surrogate = (*((*p)++) - 0xd800) << 10;
+  int low_surrogate = (*((*p)++) - 0xdc00);
+
+  return high_surrogate | low_surrogate;
+}
+
+Unicode GetUtf16(const Utf16 *p, const Utf16 *bound) {
+  return ReadUtf16(&p, bound);
+}
+
+const Utf16 *NextUtf16(const Utf16 *p, const Utf16 *bound) {
+  auto pp = &p;
+  ReadUtf16(pp);
+  return *pp;
+}
