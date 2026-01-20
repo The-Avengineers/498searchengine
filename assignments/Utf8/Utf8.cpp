@@ -1,5 +1,6 @@
 #include "Utf8.h"
 #include <cassert>
+#include <iostream>
 
 size_t SizeOfUtf8(Unicode c) {
   // The character can be represented the lower 7 bits.
@@ -32,6 +33,7 @@ size_t SizeOfUtf16(Unicode c) {
 bool IsValidUtf8First(const Utf8* p) {
   return (*p >= 0b00000000 && *p <= 0b01111111) ||
          (*p >= 0b11000000 && *p <= 0b11011111) ||
+         (*p >= 0b11100000 && *p <= 0b11101111) ||
          (*p >= 0b11110000 && *p <= 0b11110111) ||
          (*p >= 0b11111000 && *p <= 0b11111011) || 
          (*p >= 0b11111100 && *p <= 0b11111101);
@@ -57,34 +59,69 @@ size_t IndicatedLength( const Utf8 *p ) {
 }
 
 Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
+  char* before = (char*)(*p);
+  // std::cout << "*p before: " << (char*)(*p) << '\n';
   size_t len = IndicatedLength(*p);
+  // std::cout << "len: " << len << '\n';
   Utf8 buf[len];
   // 1.  If *pp already points to or past the last valid byte, do not
   //     advance *pp and return the null character.
-  if (!IsValidUtf8First(*p) || (bound != nullptr && *p >= bound)) {
+  if (bound != nullptr && *p >= bound) {
     return 0; // Null character
   }
-  for (size_t i = 0; i < len; i++) {
-    if (bound != nullptr && *p >= bound) { // *p runs OOB
-      return ReplacementCharacter;
-    }
-    if ((i >= 1) && (**p < 0b10000000 || **p > 0b10111111)) {
-      return ReplacementCharacter;
-    }
-    buf[i] = **p;
+  if (!IsValidUtf8First(*p)) {
     (*p)++;
+    return ReplacementCharacter;
   }
+  const Utf8 *q = *p; // allocating another cursor
+  for (size_t i = 0; i < len; i++) {
+    if (bound != nullptr && q >= bound) { // ran out of bytes
+      *p = q;
+      return ReplacementCharacter;
+    }
+    buf[i] = *q;
+    if (i >= 1 && (buf[i] < 0b10000000 || buf[i] > 0b10111111)) {
+      *p = q + 1;
+      return ReplacementCharacter;
+    }
+    q++;
+  }
+  *p = q;
   if (len >= 5) { // overlong characters
     return ReplacementCharacter;
   }
-  Unicode* result;
-  if (*result >= 0xd800 && *result <= 0xdfff || // UTF-16 surrogates
-      *result >= 0xfdd0 && *result <= 0xfdef || // noncharacters
-      *result == 0xfffe && *result == 0xffff // special values
-    ) {
-    return ReplacementCharacter;
+
+  Unicode result = 0;
+  if (len == 1) {
+    result = buf[0];
+  } else if (len == 2) {
+    result = ((buf[0] & 0x1f) << 6) |
+              (buf[1] & 0x3f);
+    if (result <= 0x7f)
+      result = ReplacementCharacter;
+  } else if (len == 3) {
+    result = ((buf[0] & 0x0f) << 12) |
+             ((buf[1] & 0x3f) << 6) |
+             (buf[2] & 0x3f);
+    if (result <= 0x7ff)
+      result = ReplacementCharacter;
+  } else if (len == 4) {
+    result = ((buf[0] & 0x07) << 18) |
+             ((buf[1] & 0x3f) << 12) |
+             ((buf[2] & 0x3f) << 6) |
+             (buf[3] & 0x3f);
+    if (result <= 0xffff)
+      result = ReplacementCharacter;
+  } else {
+    result = ReplacementCharacter;
   }
-  return *result;
+
+  if (result >= 0xd800 && result <= 0xdfff || // UTF-16 surrogates
+      result >= 0xfdd0 && result <= 0xfdef || // noncharacters
+      result == 0xfffe || result == 0xffff) { // special values
+    result = ReplacementCharacter;
+  }
+  return result;
 }
 
 const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
@@ -105,6 +142,7 @@ const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
       ptr--;
     }
   }
+  
 }
 
 Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {

@@ -5,10 +5,29 @@
 
 void convertUtf8toUtf16(const std::string& content) {
     // When writing Utf16, use little-endian format. 
+    const char bom_le[2] = {
+        static_cast<char>(0xff),
+        static_cast<char>(0xfe)
+    };
+    std::cout.write(bom_le, 2);
     const Utf8* p = reinterpret_cast<const Utf8*>(content.data());
+    // std::cout << "content.size() " << content.size() << '\n';
     const Utf8* bound = p + content.size();
     while (p < bound) {
+        // std::cout << (char*)(p);
         Unicode c = ReadUtf8(&p, bound);
+        // std::cout << "Unicode c: " << (char)(c) << '\n';
+        if (c == '\n') {
+            Utf16 cr_buf[1];
+            Utf16* cr_end = WriteUtf16(cr_buf, '\r', cr_buf + 1);
+            for (Utf16* q = cr_buf; q < cr_end; ++q) {
+                // little-endian
+                char bytes[2];
+                bytes[0] = static_cast<char>(*q & 0xff);
+                bytes[1] = static_cast<char>((*q >> 8) & 0xff);
+                std::cout.write(bytes, 2);
+            }
+        }
         Utf16 buf[2];
         Utf16* end = WriteUtf16(buf, c, buf + 2);
         for (Utf16* q = buf; q < end; ++q) {
