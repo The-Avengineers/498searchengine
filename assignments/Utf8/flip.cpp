@@ -13,11 +13,12 @@ void convertUtf8toUtf16(const std::string& content) {
     const Utf8* p = reinterpret_cast<const Utf8*>(content.data());
     // std::cout << "content.size() " << content.size() << '\n';
     const Utf8* bound = p + content.size();
+    Unicode prev = 0;
     while (p < bound) {
         // std::cout << (char*)(p);
         Unicode c = ReadUtf8(&p, bound);
         // std::cout << "Unicode c: " << (char)(c) << '\n';
-        if (c == '\n') {
+        if (c == '\n' && prev != '\r') {
             Utf16 cr_buf[1];
             Utf16* cr_end = WriteUtf16(cr_buf, '\r', cr_buf + 1);
             for (Utf16* q = cr_buf; q < cr_end; ++q) {
@@ -37,6 +38,7 @@ void convertUtf8toUtf16(const std::string& content) {
             bytes[1] = static_cast<char>((*q >> 8) & 0xff);
             std::cout.write(bytes, 2);
         }
+        prev = c;
     }
 }
 
@@ -45,6 +47,7 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
     // Utf16, your flip utility should flip the byte sex of the data before decoding.
     const size_t byte_len = content.size();
     size_t char_loc = 0;
+    Unicode prev = 0;
     while (char_loc + 1 < byte_len) {
         const unsigned char b0 = static_cast<unsigned char>(content[char_loc]);
         const unsigned char b1 = static_cast<unsigned char>(content[char_loc + 1]);
@@ -68,10 +71,16 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
         const Utf16* p = units;
         const Utf16* bound = units + unit_count;
         Unicode c = ReadUtf16(&p, bound);
+        if (c == '\n' && prev != '\r') {
+            Utf8 cr_buf[1];
+            Utf8* cr_end = WriteUtf8(cr_buf, '\r', cr_buf + 1);
+            std::cout.write(reinterpret_cast<const char*>(cr_buf), cr_end - cr_buf);
+        }
         Utf8 buf[6];
         Utf8* end = WriteUtf8(buf, c, buf + 6);
         std::cout.write(reinterpret_cast<const char*>(buf), end - buf);
         char_loc += static_cast<size_t>(p - units) * 2;
+        prev = c;
     }
 }
 
@@ -79,12 +88,12 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: flip <filename>\nRecognize the input file as either" <<
-        " Utf8 or Utf16, convert it to the opposite encoding, and write the result to stdout\n";
+        " Utf8 or Utf16, convert\nit to the opposite encoding, and write the result to stdout.\n";
         return 1;
     }
     std::ifstream inputFile(argv[1], std::ios::binary);
     if (!inputFile.is_open()) {
-        std::cerr << argv[1] << " not found.\n" << std::endl;
+        std::cerr << argv[1] << " not found." << std::endl;
         return 1;
     }   
     std::string content;
