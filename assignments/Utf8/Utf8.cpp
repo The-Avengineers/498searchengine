@@ -26,7 +26,8 @@ size_t SizeOfUtf16(Unicode c) {
   // The character can be represented as a single UTF-16 codepoint (2 bytes).
   if (c <= 0xffff)
     return 2;
-
+  if (c > 0x10ffff)
+    return 2;
   return 4;
 }
 
@@ -85,10 +86,6 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
     q++;
   }
   *p = q;
-  if (len >= 5) { // overlong characters
-    return ReplacementCharacter;
-  }
-
   Unicode result = 0;
   if (len == 1) {
     result = buf[0];
@@ -109,6 +106,23 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
              ((buf[2] & 0x3f) << 6) |
              (buf[3] & 0x3f);
     if (result <= 0xffff)
+      result = ReplacementCharacter;
+  } else if (len == 5) {
+    result = ((buf[0] & 0x03) << 24) |
+             ((buf[1] & 0x3f) << 18) |
+             ((buf[2] & 0x3f) << 12) |
+             ((buf[3] & 0x3f) << 6) |
+             (buf[4] & 0x3f);
+    if (result <= 0x1fffff)
+      result = ReplacementCharacter;
+  } else if (len == 6) {
+    result = ((buf[0] & 0x01) << 30) |
+             ((buf[1] & 0x3f) << 24) |
+             ((buf[2] & 0x3f) << 18) |
+             ((buf[3] & 0x3f) << 12) |
+             ((buf[4] & 0x3f) << 6) |
+             (buf[5] & 0x3f);
+    if (result <= 0x3ffffff)
       result = ReplacementCharacter;
   } else {
     result = ReplacementCharacter;
@@ -224,10 +238,6 @@ Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
     q++;
   }
 
-  if (len >= 5) { // overlong characters
-    return ReplacementCharacter;
-  }
-
   Unicode result = 0;
   if (len == 1) {
     result = buf[0];
@@ -248,6 +258,23 @@ Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
              ((buf[2] & 0x3f) << 6) |
              (buf[3] & 0x3f);
     if (result <= 0xffff)
+      result = ReplacementCharacter;
+  } else if (len == 5) {
+    result = ((buf[0] & 0x03) << 24) |
+             ((buf[1] & 0x3f) << 18) |
+             ((buf[2] & 0x3f) << 12) |
+             ((buf[3] & 0x3f) << 6) |
+             (buf[4] & 0x3f);
+    if (result <= 0x1fffff)
+      result = ReplacementCharacter;
+  } else if (len == 6) {
+    result = ((buf[0] & 0x01) << 30) |
+             ((buf[1] & 0x3f) << 24) |
+             ((buf[2] & 0x3f) << 18) |
+             ((buf[3] & 0x3f) << 12) |
+             ((buf[4] & 0x3f) << 6) |
+             (buf[5] & 0x3f);
+    if (result <= 0x3ffffff)
       result = ReplacementCharacter;
   } else {
     result = ReplacementCharacter;

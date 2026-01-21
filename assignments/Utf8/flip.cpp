@@ -11,8 +11,13 @@ void convertUtf8toUtf16(const std::string& content) {
     };
     std::cout.write(bom_le, 2);
     const Utf8* p = reinterpret_cast<const Utf8*>(content.data());
-    // std::cout << "content.size() " << content.size() << '\n';
     const Utf8* bound = p + content.size();
+    if (content.size() >= 3 &&
+        p[0] == Utf8BOMString[0] &&
+        p[1] == Utf8BOMString[1] &&
+        p[2] == Utf8BOMString[2]) {
+        p += 3;
+    }
     Unicode prev = 0;
     while (p < bound) {
         // std::cout << (char*)(p);
