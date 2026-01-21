@@ -2,55 +2,64 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cassert>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
-void convertUtf8toUtf16(const std::string& content) {
-    // When writing Utf16, use little-endian format. 
-    const char bom_le[2] = {
-        static_cast<char>(0xff),
-        static_cast<char>(0xfe)
-    };
-    std::cout.write(bom_le, 2);
-    const Utf8* p = reinterpret_cast<const Utf8*>(content.data());
-    const Utf8* bound = p + content.size();
-    if (content.size() >= 3 &&
-        p[0] == Utf8BOMString[0] &&
-        p[1] == Utf8BOMString[1] &&
-        p[2] == Utf8BOMString[2]) {
-        p += 3;
+void convertUtf8toUtf16(const char *content, size_t length) {
+  // When writing Utf16, use little-endian format.
+  const char bom_le[2] = {static_cast<char>(0xff), static_cast<char>(0xfe)};
+  std::cout.write(bom_le, 2);
+
+  char buffer[1024] = {};
+  Utf16 *head = reinterpret_cast<Utf16 *>(buffer);
+  Utf16 *ptr = reinterpret_cast<Utf16 *>(buffer);
+  Utf16 *end = reinterpret_cast<Utf16 *>(&buffer[1022]);
+
+  const Utf8 *p = reinterpret_cast<const Utf8 *>(content);
+  const Utf8 *bound = p + length;
+
+  if (length >= 3 && p[0] == Utf8BOMString[0] && p[1] == Utf8BOMString[1] &&
+      p[2] == Utf8BOMString[2]) {
+    p += 3;
+  }
+
+  while (p < bound) {
+    Unicode c = ReadUtf8(&p, bound);
+    ptr = WriteUtf16(ptr, c);
+
+    if (ptr >= end) {
+      std::cout.write(buffer, (head - ptr) * sizeof(Utf16));
+      ptr = head;
     }
-    Unicode prev = 0;
-    while (p < bound) {
-        // std::cout << (char*)(p);
-        Unicode c = ReadUtf8(&p, bound);
-        // std::cout << "Unicode c: " << (char)(c) << '\n';
-        if (c == '\n' && prev != '\r') {
-            Utf16 cr_buf[1];
-            Utf16* cr_end = WriteUtf16(cr_buf, '\r', cr_buf + 1);
-            for (Utf16* q = cr_buf; q < cr_end; ++q) {
-                // little-endian
-                char bytes[2];
-                bytes[0] = static_cast<char>(*q & 0xff);
-                bytes[1] = static_cast<char>((*q >> 8) & 0xff);
-                std::cout.write(bytes, 2);
-            }
-        }
-        Utf16 buf[2];
-        Utf16* end = WriteUtf16(buf, c, buf + 2);
-        for (Utf16* q = buf; q < end; ++q) {
-            // little-endian
-            char bytes[2];
-            bytes[0] = static_cast<char>(*q & 0xff);
-            bytes[1] = static_cast<char>((*q >> 8) & 0xff);
-            std::cout.write(bytes, 2);
-        }
-        prev = c;
-    }
+  }
+
+  std::cout.write(buffer, (head - ptr) * sizeof(Utf16));
 }
 
-void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
+char *memory_map_file(char *filename, size_t &length) {
+  int fd = open(filename, O_RDONLY);
+  struct stat sb;
+  assert(fd != -1);
+  assert(fstat(fd, &sb) != -1);
+
+  char *data = static_cast<char *>(
+      mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0));
+
+  length = sb.st_size;
+
+  assert(data != MAP_FAILED);
+
+  return data;
+}
+
+void convertUtf16toUtf8(char* content, size_t length, bool is_big_endian) {
     // If the BOM indicates you’re reading big-endian
     // Utf16, your flip utility should flip the byte sex of the data before decoding.
-    const size_t byte_len = content.size();
+    const size_t byte_len = length;
     size_t char_loc = 0;
     bool skipped_bom = false;
     while (char_loc + 1 < byte_len) {
@@ -100,7 +109,7 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
     }
 }
 
- 
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: flip <filename>\nRecognize the input file as either" <<
@@ -111,16 +120,15 @@ int main(int argc, char* argv[]) {
     if (!inputFile.is_open()) {
         std::cerr << argv[1] << " not found." << std::endl;
         return 1;
-    }   
-    std::string content;
-    std::ostringstream oss;
-    oss << inputFile.rdbuf();
-    content = oss.str();
-    inputFile.close();
+    }
+
+    size_t length;
+    char *content = memory_map_file(argv[1], length);
+
     bool is_utf16 = false;
     bool is_big_endian = false;
 
-    if (content.size() >= 2) {
+    if (length >= 2) {
         const unsigned char b0 = static_cast<unsigned char>(content[0]);
         const unsigned char b1 = static_cast<unsigned char>(content[1]);
         if (b0 == 0xff && b1 == 0xfe) {
@@ -129,7 +137,7 @@ int main(int argc, char* argv[]) {
         } else if (b0 == 0xfe && b1 == 0xff) {
             is_utf16 = true;
             is_big_endian = true;
-        } else if (content.size() >= 3 &&
+        } else if (length >= 3 &&
                     b0 == Utf8BOMString[0] &&
                     b1 == Utf8BOMString[1] &&
                     static_cast<unsigned char>(content[2]) == Utf8BOMString[2]) {
@@ -141,8 +149,8 @@ int main(int argc, char* argv[]) {
     // std::cout << "is_utf16:\n" << is_utf16 << std::endl;
     // std::cout << "is_big_endian:\n" << is_big_endian << std::endl;
     if (!is_utf16) {
-        convertUtf8toUtf16(content); // When writing Utf16, use little-endian format. 
+        convertUtf8toUtf16(content, length); // When writing Utf16, use little-endian format.
     } else {
-        convertUtf16toUtf8(content, is_big_endian);
+        convertUtf16toUtf8(content, length, is_big_endian);
     }
 }
