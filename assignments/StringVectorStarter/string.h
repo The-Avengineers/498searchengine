@@ -325,6 +325,8 @@ public:
 
 private:
   // SSO capacity
+  // TODO: what sso capacity do we want
+  // NOTE: SSO being allocated to char array vs vector
   enum { SSO_CAP = 15 };
 
   // Helper to assign from raw char buffer (assumes no '\0' at end)
@@ -339,6 +341,7 @@ private:
       IsSmall = true;
 
       // NOTE: Heap may contain old unused data
+      // TODO: Do we care if we clear heap? Shouldn't matter
       return;
     }
 
@@ -354,6 +357,8 @@ private:
     IsSmall = false;
   }
 
+  // NOTE: all strings null terminated
+  // TODO: Not null terminated strings? We are storing len so should be easy?
   vector<char> Heap;
   size_t Size;
   bool IsSmall;

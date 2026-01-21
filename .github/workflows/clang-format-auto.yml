@@ -1,0 +1,50 @@
+name: Clang-Format Auto-Fix
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+
+jobs:
+  auto-format:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # needed so the action can push a commit
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Run clang-format
+        run: |
+          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp' '*.hh')
+
+          if [ -z "$files" ]; then
+            echo "No C/C++ source files to format."
+            exit 0
+          fi
+
+          clang-format -i $files
+
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+
+          echo "Formatting changes detected, committing..."
+
+          git config user.name "github-actions[bot]"
+          git.config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add $files
+          git commit -m "chore: auto-format C++ sources"
+          git push
