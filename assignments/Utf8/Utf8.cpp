@@ -300,21 +300,11 @@ Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound) {
   if (bound && *p >= bound)
     return 0;
 
-  size_t expected_size;
-
   // If we try to read a invalid character, just read it as a raw number. We
   // should also handle if we have too read two words, but the buffer ends.
-  if (*p[0] < 0xd800 || *p[0] > 0xdbff || (*p)[1] < 0xdc00 || (*p)[1] > 0xdfff)
-    expected_size = 1;
-  else
-    expected_size = 2;
-
-  if (bound && *p + expected_size > bound)
-    return 0;
-
-  if (expected_size == 1) {
+  if (*p[0] < 0xd800 || *p[0] > 0xdbff || (bound && (*p + 1) >= bound) ||
+      (*p)[1] < 0xdc00 || (*p)[1] > 0xdfff)
     return *((*p)++);
-  }
 
   int high_surrogate = (*((*p)++) - 0xd800) << 10;
   int low_surrogate = (*((*p)++) - 0xdc00);
@@ -328,6 +318,6 @@ Unicode GetUtf16(const Utf16 *p, const Utf16 *bound) {
 
 const Utf16 *NextUtf16(const Utf16 *p, const Utf16 *bound) {
   auto pp = &p;
-  ReadUtf16(pp);
+  ReadUtf16(pp, bound);
   return *pp;
 }
