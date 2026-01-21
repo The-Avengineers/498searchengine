@@ -76,9 +76,17 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
             char_loc += static_cast<size_t>(p - units) * 2;
             continue;
         }
-        if (c == '\r') { // avoiding converting '\r' for CRLF / LF issue
-            char_loc += static_cast<size_t>(p - units) * 2;
-            continue;
+        if (c == '\r') { // drop CR only when part of CRLF
+            size_t next_loc = char_loc + static_cast<size_t>(p - units) * 2;
+            if (next_loc + 1 < byte_len) {
+                const unsigned char nb0 = static_cast<unsigned char>(content[next_loc]);
+                const unsigned char nb1 = static_cast<unsigned char>(content[next_loc + 1]);
+                Utf16 next_unit = is_big_endian ? static_cast<Utf16>((nb0 << 8) | nb1) : static_cast<Utf16>((nb1 << 8) | nb0);
+                if (next_unit == '\n') {
+                    char_loc = next_loc;
+                    continue;
+                }
+            }
         }
         Utf8 buf[6];
         Utf8* end = WriteUtf8(buf, c, buf + 6);
@@ -107,23 +115,21 @@ int main(int argc, char* argv[]) {
     bool is_utf16 = false;
     bool is_big_endian = false;
 
-    if (content.size() <= 2) {
-        return 0; // file is empty TODO: check how to handle this scenario
-    }
-
-    const unsigned char b0 = static_cast<unsigned char>(content[0]);
-    const unsigned char b1 = static_cast<unsigned char>(content[1]);
-    if (b0 == 0xff && b1 == 0xfe) {
-        is_utf16 = true;
-        is_big_endian = false;
-    } else if (b0 == 0xfe && b1 == 0xff) {
-        is_utf16 = true;
-        is_big_endian = true;
-    } else if (content.size() >= 3 &&
-                b0 == Utf8BOMString[0] &&
-                b1 == Utf8BOMString[1] &&
-                static_cast<unsigned char>(content[2]) == Utf8BOMString[2]) {
-        is_utf16 = false;
+    if (content.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(content[0]);
+        const unsigned char b1 = static_cast<unsigned char>(content[1]);
+        if (b0 == 0xff && b1 == 0xfe) {
+            is_utf16 = true;
+            is_big_endian = false;
+        } else if (b0 == 0xfe && b1 == 0xff) {
+            is_utf16 = true;
+            is_big_endian = true;
+        } else if (content.size() >= 3 &&
+                    b0 == Utf8BOMString[0] &&
+                    b1 == Utf8BOMString[1] &&
+                    static_cast<unsigned char>(content[2]) == Utf8BOMString[2]) {
+            is_utf16 = false;
+        }
     }
 
     // std::cout << "File Contents:\n" << content << std::endl;

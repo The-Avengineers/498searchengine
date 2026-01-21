@@ -123,7 +123,10 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
 }
 
 const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
-  Utf8* ptr = const_cast<Utf8*>(p);
+  if (p == nullptr) {
+    return nullptr;
+  }
+  const Utf8* ptr = p - 1; // start scanning before p
   if (bound == nullptr) {
     while (true) {
       if (IsValidUtf8First(ptr)) {
@@ -131,16 +134,15 @@ const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
       }
       ptr--;
     }
-  } else if (bound != nullptr) {
-    assert(IsValidUtf8First(p));
+  } else {
     while (ptr >= bound) {
       if (IsValidUtf8First(ptr)) {
         return ptr;
       }
       ptr--;
     }
+    return p;
   }
-  
 }
 
 Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
@@ -259,12 +261,16 @@ Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
   return result;
 }
 
-// TODO: Check OOB behavior
 const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound) {
-  if (bound != nullptr && p + 1 >= bound) {
+  if (p == nullptr) {
+    return nullptr;
+  }
+  const Utf8* q = p;
+  Unicode c = ReadUtf8(&q, bound);
+  if (q == nullptr) {
     return p;
   }
-  return p + 1;
+  return q;
 }
 
 Utf16 *WriteUtf16(Utf16 *p, Unicode c, Utf16 *bound) {
@@ -300,15 +306,22 @@ Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound) {
   if (bound && *p >= bound)
     return 0;
 
-  // If we try to read a invalid character, just read it as a raw number. We
-  // should also handle if we have too read two words, but the buffer ends.
-  if (*p[0] < 0xd800 || *p[0] > 0xdbff || (bound && (*p + 1) >= bound) ||
-      (*p)[1] < 0xdc00 || (*p)[1] > 0xdfff)
+  // Unpaired or out-of-order surrogates are read as literal values.
+  Utf16 first = **p;
+  if (first < 0xd800 || first > 0xdbff) {
     return *((*p)++);
+  }
+  if (bound && (*p + 1) >= bound) {
+    return *((*p)++);
+  }
+  Utf16 second = (*p)[1];
+  if (second < 0xdc00 || second > 0xdfff) {
+    return *((*p)++);
+  }
 
-  int high_surrogate = (*((*p)++) - 0xd800) << 10;
-  int low_surrogate = (*((*p)++) - 0xdc00);
-
+  (*p) += 2;
+  int high_surrogate = (first - 0xd800) << 10;
+  int low_surrogate = (second - 0xdc00);
   return 0x10000 + (high_surrogate | low_surrogate);
 }
 
