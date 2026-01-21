@@ -47,18 +47,18 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
     // Utf16, your flip utility should flip the byte sex of the data before decoding.
     const size_t byte_len = content.size();
     size_t char_loc = 0;
-    Unicode prev = 0;
+    bool skipped_bom = false;
     while (char_loc + 1 < byte_len) {
         const unsigned char b0 = static_cast<unsigned char>(content[char_loc]);
         const unsigned char b1 = static_cast<unsigned char>(content[char_loc + 1]);
         Utf16 units[2];
-        if (is_big_endian) {
+        if (is_big_endian) { // flipping byte sex
             units[0] = static_cast<Utf16>((b0 << 8) | b1);
         } else {
             units[0] = static_cast<Utf16>((b1 << 8) | b0);
         }
         size_t unit_count = 1;
-        if (char_loc + 3 < byte_len) {
+        if (char_loc + 3 < byte_len) { // checking OOB
             const unsigned char b2 = static_cast<unsigned char>(content[char_loc + 2]);
             const unsigned char b3 = static_cast<unsigned char>(content[char_loc + 3]);
             if (is_big_endian) {
@@ -71,16 +71,19 @@ void convertUtf16toUtf8(const std::string& content, bool is_big_endian) {
         const Utf16* p = units;
         const Utf16* bound = units + unit_count;
         Unicode c = ReadUtf16(&p, bound);
-        if (c == '\n' && prev != '\r') {
-            Utf8 cr_buf[1];
-            Utf8* cr_end = WriteUtf8(cr_buf, '\r', cr_buf + 1);
-            std::cout.write(reinterpret_cast<const char*>(cr_buf), cr_end - cr_buf);
+        if (!skipped_bom && c == ByteOrderMark) { // avoiding converting BOM
+            skipped_bom = true;
+            char_loc += static_cast<size_t>(p - units) * 2;
+            continue;
+        }
+        if (c == '\r') { // avoiding converting '\r' for CRLF / LF issue
+            char_loc += static_cast<size_t>(p - units) * 2;
+            continue;
         }
         Utf8 buf[6];
         Utf8* end = WriteUtf8(buf, c, buf + 6);
         std::cout.write(reinterpret_cast<const char*>(buf), end - buf);
         char_loc += static_cast<size_t>(p - units) * 2;
-        prev = c;
     }
 }
 

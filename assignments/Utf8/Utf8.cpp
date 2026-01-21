@@ -59,8 +59,6 @@ size_t IndicatedLength( const Utf8 *p ) {
 }
 
 Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
-  char* before = (char*)(*p);
-  // std::cout << "*p before: " << (char*)(*p) << '\n';
   size_t len = IndicatedLength(*p);
   // std::cout << "len: " << len << '\n';
   Utf8 buf[len];
@@ -146,7 +144,6 @@ const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
 }
 
 Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
-  Unicode char_to_write = c;
   if (c > 0x7fffffff) {
     c = ReplacementCharacter;
   }
@@ -155,55 +152,111 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
     // do nothing and return p.
     return p;
   }
-  // write to the last possible byte until pass the bound
-  Utf8 buf[4];
-
-  buf[0] = (c & 0x000000ff);
-  buf[1] = (c & 0x0000ff00) >> 8;
-  buf[2] = (c & 0x00ff0000) >> 16;
-  buf[3] = (c & 0xff000000) >> 24;
-  // TODO: Check if there is off-by-one
-  for (size_t i = 0; i < 4; i++) {
-    if (bound != nullptr && p + i + 1 >= bound) { 
-    //If p is already at or past the bound, 
-    // do nothing and return p.
-      return p + i;
-    }
-    *(p + i) = buf[i];
+  size_t len = SizeOfUtf8(c);
+  if (bound != nullptr && p + len > bound) {
+    return p;
   }
-  return p + 4;
+  // Valid UTF-8 Sequences:
+  //
+  //   U-00000000 - U-0000007F:   0xxxxxxx 7 bits
+  //   U-00000080 - U-000007FF:   110xxxxx 10xxxxxx 11 bits
+  //   U-00000800 - U-0000FFFF:   1110xxxx 10xxxxxx 10xxxxxx 16 bits
+  //   U-00010000 - U-001FFFFF:   11110xxx 10xxxxxx 10xxxxxx 10xxxxxx 21 bits
+  //   U-00200000 - U-03FFFFFF:   111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 26 bits
+  //   U-04000000 - U-7FFFFFFF:   1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 31 bits
+  //
+  if (len == 1) {
+    *p++ = static_cast<Utf8>(c);
+  } else if (len == 2) {
+    *p++ = static_cast<Utf8>(0xc0 | ((c >> 6) & 0x1f));
+    *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
+  } else if (len == 3) {
+    *p++ = static_cast<Utf8>(0xe0 | ((c >> 12) & 0x0f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
+  } else if (len == 4) {
+    *p++ = static_cast<Utf8>(0xf0 | ((c >> 18) & 0x07));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
+  } else if (len == 5) {
+    *p++ = static_cast<Utf8>(0xf8 | ((c >> 24) & 0x03));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 18) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
+  } else {
+    *p++ = static_cast<Utf8>(0xfc | ((c >> 30) & 0x01));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 24) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 18) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
+    *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
+  }
+  return p;
 }
 
 
 // Same functionality as ReadUtf8, w/o advancing p. Consider merging them into one func?
 Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
   size_t len = IndicatedLength(p);
+  // std::cout << "len: " << len << '\n';
   Utf8 buf[len];
   // 1.  If *pp already points to or past the last valid byte, do not
   //     advance *pp and return the null character.
-  if (!IsValidUtf8First(p) || (bound != nullptr && p >= bound)) {
+  if (bound != nullptr && p >= bound) {
     return 0; // Null character
   }
-  for (size_t i = 0; i < len; i++) {
-    if (bound != nullptr && p >= bound) { // *p runs OOB
-      return ReplacementCharacter;
-    }
-    if ((i >= 1) && (*p < 0b10000000 || *p > 0b10111111)) {
-      return ReplacementCharacter;
-    }
-    buf[i] = *p;
+  if (!IsValidUtf8First(p)) {
+    return ReplacementCharacter;
   }
+  const Utf8 *q = p; // allocating another cursor
+  for (size_t i = 0; i < len; i++) {
+    if (bound != nullptr && q >= bound) { // ran out of bytes
+      return ReplacementCharacter;
+    }
+    buf[i] = *q;
+    if (i >= 1 && (buf[i] < 0b10000000 || buf[i] > 0b10111111)) {
+      return ReplacementCharacter;
+    }
+    q++;
+  }
+
   if (len >= 5) { // overlong characters
     return ReplacementCharacter;
   }
-  Unicode* result = reinterpret_cast<Unicode*>(result);
-  if (*result >= 0xd800 && *result <= 0xdfff || // UTF-16 surrogates
-      *result >= 0xfdd0 && *result <= 0xfdef || // noncharacters
-      *result == 0xfffe && *result == 0xffff // special values
-    ) {
-    return ReplacementCharacter;
+
+  Unicode result = 0;
+  if (len == 1) {
+    result = buf[0];
+  } else if (len == 2) {
+    result = ((buf[0] & 0x1f) << 6) |
+              (buf[1] & 0x3f);
+    if (result <= 0x7f)
+      result = ReplacementCharacter;
+  } else if (len == 3) {
+    result = ((buf[0] & 0x0f) << 12) |
+             ((buf[1] & 0x3f) << 6) |
+             (buf[2] & 0x3f);
+    if (result <= 0x7ff)
+      result = ReplacementCharacter;
+  } else if (len == 4) {
+    result = ((buf[0] & 0x07) << 18) |
+             ((buf[1] & 0x3f) << 12) |
+             ((buf[2] & 0x3f) << 6) |
+             (buf[3] & 0x3f);
+    if (result <= 0xffff)
+      result = ReplacementCharacter;
+  } else {
+    result = ReplacementCharacter;
   }
-  return *result;
+
+  if (result >= 0xd800 && result <= 0xdfff || // UTF-16 surrogates
+      result >= 0xfdd0 && result <= 0xfdef || // noncharacters
+      result == 0xfffe || result == 0xffff) { // special values
+    result = ReplacementCharacter;
+  }
+  return result;
 }
 
 // TODO: Check OOB behavior
@@ -251,7 +304,7 @@ Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound) {
 
   // If we try to read a invalid character, just read it as a raw number. We
   // should also handle if we have too read two words, but the buffer ends.
-  if (*p[0] <= 0xd800 || *p[0] >= 0xdbff || (*p)[1] <= 0xdc00)
+  if (*p[0] < 0xd800 || *p[0] > 0xdbff || (*p)[1] < 0xdc00 || (*p)[1] > 0xdfff)
     expected_size = 1;
   else
     expected_size = 2;
@@ -266,7 +319,7 @@ Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound) {
   int high_surrogate = (*((*p)++) - 0xd800) << 10;
   int low_surrogate = (*((*p)++) - 0xdc00);
 
-  return high_surrogate | low_surrogate;
+  return 0x10000 + (high_surrogate | low_surrogate);
 }
 
 Unicode GetUtf16(const Utf16 *p, const Utf16 *bound) {
