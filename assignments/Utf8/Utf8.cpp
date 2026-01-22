@@ -32,139 +32,120 @@ size_t SizeOfUtf16(Unicode c) {
 }
 
 bool IsValidUtf8First(const Utf8* p) {
-  return (*p >= 0b00000000 && *p <= 0b01111111) ||
-         (*p >= 0b11000000 && *p <= 0b11011111) ||
-         (*p >= 0b11100000 && *p <= 0b11101111) ||
-         (*p >= 0b11110000 && *p <= 0b11110111) ||
-         (*p >= 0b11111000 && *p <= 0b11111011) || 
-         (*p >= 0b11111100 && *p <= 0b11111101);
+  return *p != 0xFE && *p != 0xFF && ((*p <= 0b01111111)
+  || (*p & 0xE0) == 0xC0
+  || (*p & 0xF0) == 0xE0
+  || (*p & 0xF8) == 0xF0
+  || (*p & 0xFC) == 0xF8
+  || (*p & 0xFE) == 0xFC);
 }
 
-size_t IndicatedLength( const Utf8 *p ) {
+size_t inline IndicatedLength( const Utf8 *p ) {
   // checking if the first byte matches any one of the cases
-  if (*p >= 0b00000000 && *p <= 0b01111111) {
+  if (*p <= 0b01111111) {
     return 1;
-  } else if (*p >= 0b11000000 && *p <= 0b11011111) {
+  } else if ((*p & 0xE0) == 0xC0) {
     return 2;
-  } else if (*p >= 0b11100000 && *p <= 0b11101111) {
+  } else if ((*p & 0xF0) == 0xE0) {
     return 3;
-  } else if (*p >= 0b11110000 && *p <= 0b11110111) {
+  } else if ((*p & 0xF8) == 0xF0) {
     return 4;
-  } else if (*p >= 0b11111000 && *p <= 0b11111011) {
+  } else if ((*p & 0xFC) == 0xF8) {
     return 5;
-  } else if (*p >= 0b11111100 && *p <= 0b11111101) {
+  } else if ((*p & 0xFE) == 0xFC) {
     return 6;
   } else { // Invalid first byte
     return 1;
   }
 }
 
+#define PARSE_UTF8(OFFSET) { \
+  if (bound && *p >= bound) \
+    return ReplacementCharacter; \
+  \
+  if((**p & 0xC0) != 0x80) \
+    return ReplacementCharacter; \
+  \
+  c |= static_cast<Unicode>(*(*p)++ & 0x3F) << OFFSET * 6; \
+}
+
 Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
-  size_t len = IndicatedLength(*p);
-  // std::cout << "len: " << len << '\n';
-  Utf8 buf[len];
-  // 1.  If *pp already points to or past the last valid byte, do not
-  //     advance *pp and return the null character.
-  if (bound != nullptr && *p >= bound) {
-    return 0; // Null character
-  }
-  if (!IsValidUtf8First(*p)) {
-    (*p)++;
-    return ReplacementCharacter;
-  }
-  const Utf8 *q = *p; // allocating another cursor
-  for (size_t i = 0; i < len; i++) {
-    if (bound != nullptr && q >= bound) { // ran out of bytes
-      *p = q;
+  Unicode c = ReplacementCharacter;
+
+  if (bound && *p >= bound)
+    return 0;
+
+  if(**p <= 0x7F)
+    return *(*p)++;
+
+  size_t length = IndicatedLength(*p);
+
+  if (length == 2) {
+    c = static_cast<Unicode>(*(*p)++ & 0x1F) << 6;
+    PARSE_UTF8(0);
+
+    if(c <= 0x7f)
       return ReplacementCharacter;
-    }
-    buf[i] = *q;
-    if (i >= 1 && (buf[i] < 0b10000000 || buf[i] > 0b10111111)) {
-      *p = q + 1;
+  } else if (length == 3) {
+    c = static_cast<Unicode>(*(*p)++ & 0xF) << 12;
+    PARSE_UTF8(1);
+    PARSE_UTF8(0);
+
+    if (c <= 0x7ff)
       return ReplacementCharacter;
-    }
-    q++;
-  }
-  *p = q;
-  Unicode result = 0;
-  if (len == 1) {
-    result = buf[0];
-  } else if (len == 2) {
-    result = ((buf[0] & 0x1f) << 6) |
-              (buf[1] & 0x3f);
-    if (result <= 0x7f)
-      result = ReplacementCharacter;
-  } else if (len == 3) {
-    result = ((buf[0] & 0x0f) << 12) |
-             ((buf[1] & 0x3f) << 6) |
-             (buf[2] & 0x3f);
-    if (result <= 0x7ff)
-      result = ReplacementCharacter;
-  } else if (len == 4) {
-    result = ((buf[0] & 0x07) << 18) |
-             ((buf[1] & 0x3f) << 12) |
-             ((buf[2] & 0x3f) << 6) |
-             (buf[3] & 0x3f);
-    if (result <= 0xffff)
-      result = ReplacementCharacter;
-  } else if (len == 5) {
-    result = ((buf[0] & 0x03) << 24) |
-             ((buf[1] & 0x3f) << 18) |
-             ((buf[2] & 0x3f) << 12) |
-             ((buf[3] & 0x3f) << 6) |
-             (buf[4] & 0x3f);
-    if (result <= 0x1fffff)
-      result = ReplacementCharacter;
-  } else if (len == 6) {
-    result = ((buf[0] & 0x01) << 30) |
-             ((buf[1] & 0x3f) << 24) |
-             ((buf[2] & 0x3f) << 18) |
-             ((buf[3] & 0x3f) << 12) |
-             ((buf[4] & 0x3f) << 6) |
-             (buf[5] & 0x3f);
-    if (result <= 0x3ffffff)
-      result = ReplacementCharacter;
+  } else if (length == 4) {
+    c = static_cast<Unicode>(*(*p)++ & 0x7) << 18;
+    PARSE_UTF8(2);
+    PARSE_UTF8(1);
+    PARSE_UTF8(0);
+
+    if (c <= 0xffff)
+      return ReplacementCharacter;
+  } else if (length == 5) {
+    c = static_cast<Unicode>(*(*p)++ & 0x3) << 24;
+    PARSE_UTF8(3);
+    PARSE_UTF8(2);
+    PARSE_UTF8(1);
+    PARSE_UTF8(0);
+
+    if (c <= 0x1fffff)
+      return ReplacementCharacter;
+  } else if (length == 6) {
+    c = static_cast<Unicode>(*(*p)++ & 0x1) << 30;
+    PARSE_UTF8(4);
+    PARSE_UTF8(3);
+    PARSE_UTF8(2);
+    PARSE_UTF8(1);
+    PARSE_UTF8(0);
+
+    if (c <= 0x3ffffff)
+      return ReplacementCharacter;
   } else {
-    result = ReplacementCharacter;
+    (*p)++;
   }
 
-  if (result >= 0xd800 && result <= 0xdfff || // UTF-16 surrogates
-      result >= 0xfdd0 && result <= 0xfdef || // noncharacters
-      result == 0xfffe || result == 0xffff) { // special values
-    result = ReplacementCharacter;
-  }
-  return result;
+  if (c >= 0xd800 && c <= 0xdfff || // UTF-16 surrogates
+      c >= 0xfdd0 && c <= 0xfdef || // noncharacters
+      c == 0xfffe || c == 0xffff)   // special values
+    c = ReplacementCharacter;
+
+  return c;
 }
 
 const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
-  if (p == nullptr) {
-    return nullptr;
-  }
-  const Utf8* ptr = p - 1; // start scanning before p
-  if (bound == nullptr) {
-    while (true) {
-      if (IsValidUtf8First(ptr)) {
-        return ptr;
-      }
-      ptr--;
-    }
-  } else {
-    while (ptr >= bound) {
-      if (IsValidUtf8First(ptr)) {
-        return ptr;
-      }
-      ptr--;
-    }
-    return p;
-  }
+  do
+    p--;
+  while((!bound || p >= bound) && !IsValidUtf8First(p));
+
+  return p;
 }
 
 Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
   if (c > 0x7fffffff) {
     c = ReplacementCharacter;
   }
-  if (bound != nullptr && p >= bound) { 
-    //If p is already at or past the bound, 
+  if (bound != nullptr && p >= bound) {
+    //If p is already at or past the bound,
     // do nothing and return p.
     return p;
   }
@@ -215,116 +196,38 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
 
 // Same functionality as ReadUtf8, w/o advancing p. Consider merging them into one func?
 Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
-  size_t len = IndicatedLength(p);
-  // std::cout << "len: " << len << '\n';
-  Utf8 buf[len];
-  // 1.  If *pp already points to or past the last valid byte, do not
-  //     advance *pp and return the null character.
-  if (bound != nullptr && p >= bound) {
-    return 0; // Null character
-  }
-  if (!IsValidUtf8First(p)) {
-    return ReplacementCharacter;
-  }
-  const Utf8 *q = p; // allocating another cursor
-  for (size_t i = 0; i < len; i++) {
-    if (bound != nullptr && q >= bound) { // ran out of bytes
-      return ReplacementCharacter;
-    }
-    buf[i] = *q;
-    if (i >= 1 && (buf[i] < 0b10000000 || buf[i] > 0b10111111)) {
-      return ReplacementCharacter;
-    }
-    q++;
-  }
-
-  Unicode result = 0;
-  if (len == 1) {
-    result = buf[0];
-  } else if (len == 2) {
-    result = ((buf[0] & 0x1f) << 6) |
-              (buf[1] & 0x3f);
-    if (result <= 0x7f)
-      result = ReplacementCharacter;
-  } else if (len == 3) {
-    result = ((buf[0] & 0x0f) << 12) |
-             ((buf[1] & 0x3f) << 6) |
-             (buf[2] & 0x3f);
-    if (result <= 0x7ff)
-      result = ReplacementCharacter;
-  } else if (len == 4) {
-    result = ((buf[0] & 0x07) << 18) |
-             ((buf[1] & 0x3f) << 12) |
-             ((buf[2] & 0x3f) << 6) |
-             (buf[3] & 0x3f);
-    if (result <= 0xffff)
-      result = ReplacementCharacter;
-  } else if (len == 5) {
-    result = ((buf[0] & 0x03) << 24) |
-             ((buf[1] & 0x3f) << 18) |
-             ((buf[2] & 0x3f) << 12) |
-             ((buf[3] & 0x3f) << 6) |
-             (buf[4] & 0x3f);
-    if (result <= 0x1fffff)
-      result = ReplacementCharacter;
-  } else if (len == 6) {
-    result = ((buf[0] & 0x01) << 30) |
-             ((buf[1] & 0x3f) << 24) |
-             ((buf[2] & 0x3f) << 18) |
-             ((buf[3] & 0x3f) << 12) |
-             ((buf[4] & 0x3f) << 6) |
-             (buf[5] & 0x3f);
-    if (result <= 0x3ffffff)
-      result = ReplacementCharacter;
-  } else {
-    result = ReplacementCharacter;
-  }
-
-  if (result >= 0xd800 && result <= 0xdfff || // UTF-16 surrogates
-      result >= 0xfdd0 && result <= 0xfdef || // noncharacters
-      result == 0xfffe || result == 0xffff) { // special values
-    result = ReplacementCharacter;
-  }
-  return result;
+  return ReadUtf8(&p, bound);
 }
 
 const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound) {
-  if (p == nullptr) {
-    return nullptr;
-  }
-  const Utf8* q = p;
-  Unicode c = ReadUtf8(&q, bound);
-  if (q == nullptr) {
-    return p;
-  }
-  return q;
+  ReadUtf8(&p, bound);
+  return p;
 }
 
 Utf16 *WriteUtf16(Utf16 *p, Unicode c, Utf16 *bound) {
-  if (c > 0x10ffff)
-    c = ReplacementCharacter;
-
-  size_t needed = SizeOfUtf16(c);
-
   // If we don't have room in the pointer just return.
   if (bound && p >= bound)
     return p;
 
-  // This is the simple case. We just write the character to p.
-  if (needed == 2)
-    *(p++) = c;
-
-  if (needed == 4) {
-    c -= 0x10000;
-
-    // All encoding is little-endian, so write low-byte first.
-    *(p++) = 0xd800 + ((c >> 10) & 0x3ff);
-
-    if (bound && p >= bound)
-      return p;
-
-    *(p++) = 0xdc00 + (c & 0x3ff);
+  if (c > 0x10ffff) {
+    *p = ReplacementCharacter;
+    return p + 1;
   }
+
+  if (c <= 0xffff) {
+    *p = c;
+    return p + 1;
+  }
+
+  c -= 0x10000;
+
+  // All encoding is little-endian, so write low-byte first.
+  *(p++) = 0xd800 + ((c >> 10) & 0x3ff);
+
+  if (bound && p >= bound)
+    return p;
+
+  *(p++) = 0xdc00 + (c & 0x3ff);
 
   return p;
 }
