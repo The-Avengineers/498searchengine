@@ -1,7 +1,5 @@
 #include "Utf8.h"
 #include <iostream>
-#include <fstream>
-#include <sstream>
 #include <cassert>
 #include <fcntl.h>
 #include <stdio.h>
@@ -32,12 +30,12 @@ void convertUtf8toUtf16(const char *content, size_t length) {
     ptr = WriteUtf16(ptr, c);
 
     if (ptr >= end) {
-      std::cout.write(buffer, (head - ptr) * sizeof(Utf16));
+      std::cout.write(buffer, (ptr - head) * sizeof(Utf16));
       ptr = head;
     }
   }
 
-  std::cout.write(buffer, (head - ptr) * sizeof(Utf16));
+  std::cout.write(buffer, (ptr - head) * sizeof(Utf16));
 }
 
 char *memory_map_file(char *filename, size_t &length) {
@@ -90,18 +88,6 @@ void convertUtf16toUtf8(char* content, size_t length, bool is_big_endian) {
             char_loc += static_cast<size_t>(p - units) * 2;
             continue;
         }
-        if (c == '\r') { // drop CR only when part of CRLF
-            size_t next_loc = char_loc + static_cast<size_t>(p - units) * 2;
-            if (next_loc + 1 < byte_len) {
-                const unsigned char nb0 = static_cast<unsigned char>(content[next_loc]);
-                const unsigned char nb1 = static_cast<unsigned char>(content[next_loc + 1]);
-                Utf16 next_unit = is_big_endian ? static_cast<Utf16>((nb0 << 8) | nb1) : static_cast<Utf16>((nb1 << 8) | nb0);
-                if (next_unit == '\n') {
-                    char_loc = next_loc;
-                    continue;
-                }
-            }
-        }
         Utf8 buf[6];
         Utf8* end = WriteUtf8(buf, c, buf + 6);
         std::cout.write(reinterpret_cast<const char*>(buf), end - buf);
@@ -114,11 +100,6 @@ int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: flip <filename>\nRecognize the input file as either" <<
         " Utf8 or Utf16, convert\nit to the opposite encoding, and write the result to stdout.\n";
-        return 1;
-    }
-    std::ifstream inputFile(argv[1], std::ios::binary);
-    if (!inputFile.is_open()) {
-        std::cerr << argv[1] << " not found." << std::endl;
         return 1;
     }
 
@@ -145,9 +126,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // std::cout << "File Contents:\n" << content << std::endl;
-    // std::cout << "is_utf16:\n" << is_utf16 << std::endl;
-    // std::cout << "is_big_endian:\n" << is_big_endian << std::endl;
     if (!is_utf16) {
         convertUtf8toUtf16(content, length); // When writing Utf16, use little-endian format.
     } else {
