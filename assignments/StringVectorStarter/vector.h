@@ -309,6 +309,25 @@ public:
     return Size;
   }
 
+  // REQUIRES: Nothing (but T must support += operator, intended for string)
+  // MODIFIES: Nothing
+  // EFFECTS: Joins all elements in the vector using separator.
+  //          Returns a single element of type T with all elements joined.
+  //          Example: vector<string>({"a", "b", "c"}).join(",") returns "a,b,c"
+  T join(const T &separator) const {
+    if (Size == 0) {
+      return T();
+    }
+
+    T result = Data[0];
+    for (size_t i = 1; i < Size; ++i) {
+      result += separator;
+      result += Data[i];
+    }
+
+    return result;
+  }
+
 private:
   T *Data;
   size_t Size;

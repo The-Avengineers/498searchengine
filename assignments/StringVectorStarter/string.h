@@ -323,6 +323,29 @@ public:
   // other
   bool operator>=(const string &other) const { return !(*this < other); }
 
+  // Split
+  // REQUIRES: Nothing
+  // MODIFIES: Nothing
+  // EFFECTS: Splits *this into a vector of strings based on delimiter.
+  //          Returns a vector containing the substrings between delimiters.
+  //          Consecutive delimiters result in empty strings.
+  vector<string> split(char delimiter) const {
+    vector<string> result;
+    string current;
+
+    for (size_t i = 0; i < Size; ++i) {
+      if ((*this)[i] == delimiter) {
+        result.pushBack(current);
+        current = string();  
+      } else {
+        current.pushBack((*this)[i]);
+      }
+    }
+    result.pushBack(current);
+
+    return result;
+  }
+
 private:
   // SSO capacity
   // TODO: what sso capacity do we want
