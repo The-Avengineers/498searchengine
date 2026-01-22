@@ -41,15 +41,15 @@ void convertUtf8toUtf16(const char *content, size_t length) {
 char *memory_map_file(char *filename, size_t &length) {
   int fd = open(filename, O_RDONLY);
   struct stat sb;
-  assert(fd != -1);
+  if(fd == -1)
+      return nullptr;
+
   assert(fstat(fd, &sb) != -1);
 
   char *data = static_cast<char *>(
       mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0));
 
   length = sb.st_size;
-
-  assert(data != MAP_FAILED);
 
   return data;
 }
@@ -105,6 +105,11 @@ int main(int argc, char* argv[]) {
 
     size_t length;
     char *content = memory_map_file(argv[1], length);
+
+    if(!content) {
+      std::cerr << argv[1] << " not found." << std::endl;
+      return 1;
+    }
 
     bool is_utf16 = false;
     bool is_big_endian = false;
