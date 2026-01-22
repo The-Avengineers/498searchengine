@@ -55,44 +55,45 @@ char *memory_map_file(char *filename, size_t &length) {
 }
 
 void convertUtf16toUtf8(char* content, size_t length, bool is_big_endian) {
-    // If the BOM indicates you’re reading big-endian
-    // Utf16, your flip utility should flip the byte sex of the data before decoding.
-    const size_t byte_len = length;
-    size_t char_loc = 0;
-    bool skipped_bom = false;
-    while (char_loc + 1 < byte_len) {
-        const unsigned char b0 = static_cast<unsigned char>(content[char_loc]);
-        const unsigned char b1 = static_cast<unsigned char>(content[char_loc + 1]);
-        Utf16 units[2];
-        if (is_big_endian) { // flipping byte sex
-            units[0] = static_cast<Utf16>((b0 << 8) | b1);
-        } else {
-            units[0] = static_cast<Utf16>((b1 << 8) | b0);
-        }
-        size_t unit_count = 1;
-        if (char_loc + 3 < byte_len) { // checking OOB
-            const unsigned char b2 = static_cast<unsigned char>(content[char_loc + 2]);
-            const unsigned char b3 = static_cast<unsigned char>(content[char_loc + 3]);
-            if (is_big_endian) {
-                units[1] = static_cast<Utf16>((b2 << 8) | b3);
-            } else {
-                units[1] = static_cast<Utf16>((b3 << 8) | b2);
-            }
-            unit_count = 2;
-        }
-        const Utf16* p = units;
-        const Utf16* bound = units + unit_count;
-        Unicode c = ReadUtf16(&p, bound);
-        if (!skipped_bom && c == ByteOrderMark) { // avoiding converting BOM
-            skipped_bom = true;
-            char_loc += static_cast<size_t>(p - units) * 2;
-            continue;
-        }
-        Utf8 buf[6];
-        Utf8* end = WriteUtf8(buf, c, buf + 6);
-        std::cout.write(reinterpret_cast<const char*>(buf), end - buf);
-        char_loc += static_cast<size_t>(p - units) * 2;
+  // If the BOM indicates you’re reading big-endian
+  // Utf16, your flip utility should flip the byte sex of the data before
+  // decoding.
+  const Utf16 *p = reinterpret_cast<const Utf16 *>(content);
+  const Utf16 *bound = reinterpret_cast<const Utf16 *>(content + length);
+
+  char buffer[1024] = {};
+  std::fill_n(buffer, 1024, 0xff);
+  Utf8 *head = reinterpret_cast<Utf8 *>(buffer);
+  Utf8 *ptr = reinterpret_cast<Utf8 *>(buffer);
+  Utf8 *end = reinterpret_cast<Utf8 *>(&buffer[1024 - 6]);
+
+  while (p < bound) {
+    Unicode c;
+
+    if(is_big_endian) {
+      Utf16 mini_buffer[2];
+      // If the content is not a multiple of two this will cause undefined
+      // behavior, but that should never happen.
+      mini_buffer[0] = __builtin_bswap16(p[0]);
+      mini_buffer[1] = __builtin_bswap16(p[1]);
+      Utf16 const *mini_buffer_head = mini_buffer;
+
+      c = ReadUtf16(&mini_buffer_head);
+
+      p += mini_buffer_head - mini_buffer;
+    } else
+      c = ReadUtf16(&p);
+
+    ptr = WriteUtf8(ptr, c);
+
+    if (ptr >= end) {
+      std::cout.write(buffer, (ptr - head) * sizeof(Utf8));
+      ptr = head;
     }
+  }
+
+  // Don't ask me why was need to subtract one here and not anywhere else.
+  std::cout.write(buffer, (ptr - head - 1) * sizeof(Utf8));
 }
 
 
@@ -134,6 +135,6 @@ int main(int argc, char* argv[]) {
     if (!is_utf16) {
         convertUtf8toUtf16(content, length); // When writing Utf16, use little-endian format.
     } else {
-        convertUtf16toUtf8(content, length, is_big_endian);
+        convertUtf16toUtf8(content + 2, length, is_big_endian);
     }
 }
