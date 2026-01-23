@@ -14,6 +14,11 @@ TEST_CASE("testing PreviousUtf8") {
   CHECK(PreviousUtf8(letters_ab) == &letters_ab[-1]);
   CHECK(PreviousUtf8(&letters_ab[1]) == letters_ab);
 
+  Utf8 impossible_bytes[] = {0x20, 0x20, 0xfe, 0x20, 0x20, 0x20};
+  CHECK(PreviousUtf8(&impossible_bytes[1]) - impossible_bytes == 0);
+  CHECK(PreviousUtf8(&impossible_bytes[2]) - impossible_bytes == 1);
+  CHECK(PreviousUtf8(&impossible_bytes[3]) - impossible_bytes == 2);
+
   CHECK(PreviousUtf8(&smiley[3], smiley) == smiley);
   CHECK(PreviousUtf8(&smiley[1], smiley) == smiley);
 }

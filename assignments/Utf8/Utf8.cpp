@@ -32,12 +32,12 @@ size_t SizeOfUtf16(Unicode c) {
 }
 
 bool IsValidUtf8First(const Utf8* p) {
-  return *p != 0xFE && *p != 0xFF && ((*p <= 0b01111111)
+  return *p == 0xFE || *p == 0xFF || (*p <= 0b01111111)
   || (*p & 0xE0) == 0xC0
   || (*p & 0xF0) == 0xE0
   || (*p & 0xF8) == 0xF0
   || (*p & 0xFC) == 0xF8
-  || (*p & 0xFE) == 0xFC);
+  || (*p & 0xFE) == 0xFC;
 }
 
 size_t inline IndicatedLength( const Utf8 *p ) {
@@ -141,18 +141,9 @@ const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
 }
 
 Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
-  if (c > 0x7fffffff) {
+  if (c > 0x7fffffff)
     c = ReplacementCharacter;
-  }
-  if (bound != nullptr && p >= bound) {
-    //If p is already at or past the bound,
-    // do nothing and return p.
-    return p;
-  }
-  size_t len = SizeOfUtf8(c);
-  if (bound != nullptr && p + len > bound) {
-    return p;
-  }
+
   // Valid UTF-8 Sequences:
   //
   //   U-00000000 - U-0000007F:   0xxxxxxx 7 bits
@@ -162,27 +153,28 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
   //   U-00200000 - U-03FFFFFF:   111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 26 bits
   //   U-04000000 - U-7FFFFFFF:   1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 31 bits
   //
-  if (len == 1) {
+  if (c <= 0x7f && (!bound || p < bound)) {
     *p++ = static_cast<Utf8>(c);
-  } else if (len == 2) {
+  } else if (c <= 0x7FF && (!bound || p + 1 < bound)) {
+
     *p++ = static_cast<Utf8>(0xc0 | ((c >> 6) & 0x1f));
     *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
-  } else if (len == 3) {
+  } else if (c <= 0xFFFF && (!bound || p + 2 < bound)) {
     *p++ = static_cast<Utf8>(0xe0 | ((c >> 12) & 0x0f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
-  } else if (len == 4) {
+  } else if (c <= 0x1FFFFF && (!bound || p + 3 < bound)) {
     *p++ = static_cast<Utf8>(0xf0 | ((c >> 18) & 0x07));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
-  } else if (len == 5) {
+  } else if (c <= 0x3FFFFFF && (!bound || p + 4 < bound)) {
     *p++ = static_cast<Utf8>(0xf8 | ((c >> 24) & 0x03));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 18) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
-  } else {
+  } else if((!bound || p + 5 < bound)) {
     *p++ = static_cast<Utf8>(0xfc | ((c >> 30) & 0x01));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 24) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 18) & 0x3f));
