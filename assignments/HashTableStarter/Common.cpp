@@ -43,7 +43,7 @@ Hash *BuildHashTable( const vector< string > &words,
    {
    // YOUR CODE HERE
 
-   return nullptr.
+   return nullptr;
    }
 
 
