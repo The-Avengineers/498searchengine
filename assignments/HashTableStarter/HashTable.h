@@ -66,9 +66,21 @@ template< typename Key, typename Value > class HashTable
          // ( key, value ) entry.  If the key is not already
          // in the hash, add it with the initial value.
 
-         // YOUR CODE HERE
+         uint64_t hashValue = hash(k);
+         uint64_t idx = hashValue % numberOfBuckets;
+         Bucket<Key,Value> * pt = buckets[idx];
 
-         return nullptr;
+         while(pt != nullptr) {
+            if(compareEqual(pt->tuple.key, k)){
+               return &pt->tuple;
+            }
+            pt = pt->next;
+         }
+         Bucket<Key, Value> *newBucket = new Bucket<Key, Value>(k, hashValue, initialValue);
+         newBucket->next = buckets[idx];
+         buckets[idx] = newBucket;
+         uniqueKeys++;
+         return &newBucket->tuple;
          }
 
       Tuple< Key, Value > *Find( const Key k ) const
@@ -77,7 +89,17 @@ template< typename Key, typename Value > class HashTable
          // ( key, value ) enty.  If the key is not already
          // in the hash, return nullptr.
 
-         // YOUR CODE HERE
+
+         uint64_t hashValue = hash(k);
+         uint64_t idx = hashValue % numberOfBuckets;
+         Bucket<Key,Value> * pt = buckets[idx];
+
+         while(pt != nullptr) {
+            if(compareEqual(pt->tuple.key, k)){
+               return &pt->tuple;
+            }
+            pt = pt->next;
+         }
 
          return nullptr;
          }
@@ -88,7 +110,29 @@ template< typename Key, typename Value > class HashTable
          // goodrule of thumb is that the table size should be at least 1.5x the
          // number of unique keys.
 
-         // YOUR CODE HERE
+         size_t newSize = (size_t)(uniqueKeys*loading);
+         if(newSize <= 0){ newSize = 1; }
+         
+         Bucket<Key, Value> ** newBuckets = new Bucket<Key, Value>*[newSize];
+         for(size_t i = 0; i < newSize; ++i){
+            newBuckets[i] = nullptr;
+         }
+
+         for(size_t i = 0; i < numberOfBuckets; ++i){
+            Bucket<Key, Value> * curr = buckets[i];
+            while(curr != nullptr){
+               Bucket<Key, Value> * nxt = curr->next;
+               uint64_t idx = curr->hashValue % newSize;
+               curr->next = newBuckets[idx];
+               newBuckets[idx] = curr;
+               curr = nxt;
+            }
+         }
+
+         delete[] buckets;
+
+         this->buckets = newBuckets;
+         this->numberOfBuckets = newSize;
          }
 
 
@@ -101,13 +145,31 @@ template< typename Key, typename Value > class HashTable
             uint64_t ( *hash )( const Key ),
             size_t numberOfBuckets )
          {
-         // YOUR CODE HERE
+         this->hash = hash;
+         this->compareEqual = compareEqual;
+         this->numberOfBuckets = numberOfBuckets;
+         this->buckets = new Bucket<Key, Value>*[numberOfBuckets];
+
+         for(size_t i = 0; i < numberOfBuckets; ++i){
+            this->buckets[i] = nullptr;
+         }
+
+         this->uniqueKeys = 0;
          }
 
 
       ~HashTable( )
          {
-         // YOUR CODE HERE
+         for(size_t i = 0; i < numberOfBuckets; ++i){
+            Bucket<Key,Value>* curr = buckets[i];
+            while(curr != nullptr){
+               Bucket<Key,Value> * nxt = curr->next;
+               delete curr;
+               curr = nxt;
+            }
+         }
+
+         delete[] buckets;
          }
 
 
@@ -118,10 +180,15 @@ template< typename Key, typename Value > class HashTable
             friend class HashTable;
 
             // YOUR CODE HERE
+            HashTable *table;
+            size_t bucketIdx;
+            Bucket<Key,Value> *currentPtr;
 
             Iterator( HashTable *table, size_t bucket, Bucket<Key, Value> *b )
                {
-               // YOUR CODE HERE
+               this->table = table;
+               this->bucketIdx = bucket;
+               this->currentPtr = b;
                }
 
          public:
@@ -136,44 +203,67 @@ template< typename Key, typename Value > class HashTable
 
             Tuple< Key, Value > &operator*( )
                {
-               // YOUR CODE HERE
+                  return currentPtr->tuple;
                }
 
             Tuple< Key, Value > *operator->( ) const
                {
-               // YOUR CODE HERE
+                  return &currentPtr->tuple;
                }
 
             // Prefix ++
             Iterator &operator++( )
                {
-               // YOUR CODE HERE
+                  if(currentPtr->next != nullptr){
+                     this->currentPtr = currentPtr->next;
+                     return *this;
+                  }
+
+                  this->bucketIdx++;
+                  while(bucketIdx < table->numberOfBuckets && table->buckets[bucketIdx] == nullptr){
+                     this->bucketIdx++;
+                  }
+
+                  if(bucketIdx < table->numberOfBuckets){
+                     this->currentPtr = table->buckets[bucketIdx];
+                  }else{
+                     this->currentPtr = nullptr;
+                  }
+
+                  return *this;
                }
 
             // Postfix ++
             Iterator operator++( int )
                {
-               // YOUR CODE HERE
+               Iterator temp = *this;
+               ++(*this);
+               return temp;
                }
 
             bool operator==( const Iterator &rhs ) const
                {
-               // YOUR CODE HERE
+                  return table == rhs.table && bucketIdx == rhs.bucketIdx && currentPtr == rhs.currentPtr;
                }
 
             bool operator!=( const Iterator &rhs ) const
                {
-               // YOUR CODE HERE
+                  return !(*this == rhs);
                }
          };
 
       Iterator begin( )
          {
-         // YOUR CODE HERE
+            for(size_t i = 0; i < this->numberOfBuckets; ++i){
+               if(buckets[i] != nullptr){
+                  return Iterator(this, i, buckets[i]);
+               }
+            }
+            return Iterator(this, this->numberOfBuckets, nullptr);
          }
 
       Iterator end( )
          {
-         // YOUR CODE HERE
+            return Iterator(this, this->numberOfBuckets, nullptr);
          }
    };

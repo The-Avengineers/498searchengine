@@ -38,12 +38,23 @@ using Pair = Tuple< const char *, size_t >;
 
 // Caller is responsible for deleting the Hash.
 
+bool CompStrings(const char *a, const char *b){
+   return strcmp(a,b) == 0;
+}
+
+
 Hash *BuildHashTable( const vector< string > &words,
       uint64_t ( *hash )( const char *key ) )
    {
    // YOUR CODE HERE
+   Hash* tbl = new Hash(CompStrings, hash, 5000);
 
-   return nullptr;
+   for(const string & word: words) {
+      Pair *ptr = tbl->Find(word.c_str(), 0);
+      ptr->value++;
+   }
+
+   return tbl;
    }
 
 
