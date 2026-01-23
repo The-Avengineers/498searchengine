@@ -1,6 +1,5 @@
 #include "Utf8.h"
 #include <cassert>
-#include <iostream>
 
 size_t SizeOfUtf8(Unicode c) {
   // The character can be represented the lower 7 bits.
@@ -31,16 +30,13 @@ size_t SizeOfUtf16(Unicode c) {
   return 4;
 }
 
-bool IsValidUtf8First(const Utf8* p) {
-  return *p == 0xFE || *p == 0xFF || (*p <= 0b01111111)
-  || (*p & 0xE0) == 0xC0
-  || (*p & 0xF0) == 0xE0
-  || (*p & 0xF8) == 0xF0
-  || (*p & 0xFC) == 0xF8
-  || (*p & 0xFE) == 0xFC;
+bool IsValidUtf8First(const Utf8 *p) {
+  return *p == 0xFE || *p == 0xFF || (*p <= 0b01111111) ||
+         (*p & 0xE0) == 0xC0 || (*p & 0xF0) == 0xE0 || (*p & 0xF8) == 0xF0 ||
+         (*p & 0xFC) == 0xF8 || (*p & 0xFE) == 0xFC;
 }
 
-size_t inline IndicatedLength( const Utf8 *p ) {
+size_t inline IndicatedLength(const Utf8 *p) {
   // checking if the first byte matches any one of the cases
   if (*p <= 0b01111111) {
     return 1;
@@ -59,23 +55,24 @@ size_t inline IndicatedLength( const Utf8 *p ) {
   }
 }
 
-#define PARSE_UTF8(OFFSET) { \
-  if (bound && *p >= bound) \
-    return ReplacementCharacter; \
-  \
-  if((**p & 0xC0) != 0x80) \
-    return ReplacementCharacter; \
-  \
-  c |= static_cast<Unicode>(*(*p)++ & 0x3F) << OFFSET * 6; \
-}
+#define PARSE_UTF8(OFFSET)                                                     \
+  {                                                                            \
+    if (bound && *p >= bound)                                                  \
+      return ReplacementCharacter;                                             \
+                                                                               \
+    if ((**p & 0xC0) != 0x80)                                                  \
+      return ReplacementCharacter;                                             \
+                                                                               \
+    c |= static_cast<Unicode>(*(*p)++ & 0x3F) << OFFSET * 6;                   \
+  }
 
-Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
+Unicode ReadUtf8(const Utf8 **p, const Utf8 *bound) {
   Unicode c = ReplacementCharacter;
 
   if (bound && *p >= bound)
     return 0;
 
-  if(**p <= 0x7F)
+  if (**p <= 0x7F)
     return *(*p)++;
 
   size_t length = IndicatedLength(*p);
@@ -84,7 +81,7 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
     c = static_cast<Unicode>(*(*p)++ & 0x1F) << 6;
     PARSE_UTF8(0);
 
-    if(c <= 0x7f)
+    if (c <= 0x7f)
       return ReplacementCharacter;
   } else if (length == 3) {
     c = static_cast<Unicode>(*(*p)++ & 0xF) << 12;
@@ -132,15 +129,15 @@ Unicode ReadUtf8( const Utf8 **p, const Utf8 *bound) {
   return c;
 }
 
-const Utf8 *PreviousUtf8( const Utf8 *p, const Utf8 *bound) {
+const Utf8 *PreviousUtf8(const Utf8 *p, const Utf8 *bound) {
   do
     p--;
-  while((!bound || p >= bound) && !IsValidUtf8First(p));
+  while ((!bound || p >= bound) && !IsValidUtf8First(p));
 
   return p;
 }
 
-Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
+Utf8 *WriteUtf8(Utf8 *p, Unicode c, Utf8 *bound) {
   if (c > 0x7fffffff)
     c = ReplacementCharacter;
 
@@ -150,8 +147,9 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
   //   U-00000080 - U-000007FF:   110xxxxx 10xxxxxx 11 bits
   //   U-00000800 - U-0000FFFF:   1110xxxx 10xxxxxx 10xxxxxx 16 bits
   //   U-00010000 - U-001FFFFF:   11110xxx 10xxxxxx 10xxxxxx 10xxxxxx 21 bits
-  //   U-00200000 - U-03FFFFFF:   111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 26 bits
-  //   U-04000000 - U-7FFFFFFF:   1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 31 bits
+  //   U-00200000 - U-03FFFFFF:   111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+  //   26 bits U-04000000 - U-7FFFFFFF:   1111110x 10xxxxxx 10xxxxxx 10xxxxxx
+  //   10xxxxxx 10xxxxxx 31 bits
   //
   if (c <= 0x7f && (!bound || p < bound)) {
     *p++ = static_cast<Utf8>(c);
@@ -174,7 +172,7 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
     *p++ = static_cast<Utf8>(0x80 | ((c >> 12) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 6) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | (c & 0x3f));
-  } else if((!bound || p + 5 < bound)) {
+  } else if ((!bound || p + 5 < bound)) {
     *p++ = static_cast<Utf8>(0xfc | ((c >> 30) & 0x01));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 24) & 0x3f));
     *p++ = static_cast<Utf8>(0x80 | ((c >> 18) & 0x3f));
@@ -185,13 +183,13 @@ Utf8 *WriteUtf8( Utf8 *p, Unicode c, Utf8 *bound) {
   return p;
 }
 
-
-// Same functionality as ReadUtf8, w/o advancing p. Consider merging them into one func?
-Unicode GetUtf8( const Utf8 *p, const Utf8 *bound) {
+// Same functionality as ReadUtf8, w/o advancing p. Consider merging them into
+// one func?
+Unicode GetUtf8(const Utf8 *p, const Utf8 *bound) {
   return ReadUtf8(&p, bound);
 }
 
-const Utf8 *NextUtf8( const Utf8 *p, const Utf8 *bound) {
+const Utf8 *NextUtf8(const Utf8 *p, const Utf8 *bound) {
   ReadUtf8(&p, bound);
   return p;
 }
