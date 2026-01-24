@@ -23,6 +23,20 @@ bool optVerbose = false;
 
 
 // YOUR CODE HERE
+uint64_t hashFunc(const char * key){
+   uint64_t hash = 14695981039346656037ULL;  
+      while ( *key )
+            {
+            hash ^= (uint64_t)*key++;
+            hash *= 1099511628211ULL;  
+            }
+   return hash;
+}
+
+
+bool CompareEqual(const char *a, const char *b){
+   return strcmp(a,b) == 0;
+}
 
 
 using Hash = HashTable< const char *, size_t >;
@@ -38,16 +52,11 @@ using Pair = Tuple< const char *, size_t >;
 
 // Caller is responsible for deleting the Hash.
 
-bool CompStrings(const char *a, const char *b){
-   return strcmp(a,b) == 0;
-}
-
-
 Hash *BuildHashTable( const vector< string > &words,
       uint64_t ( *hash )( const char *key ) )
    {
    // YOUR CODE HERE
-   Hash* tbl = new Hash(CompStrings, hash, 5000);
+   Hash* tbl = new Hash(CompareEqual, hash, 5000);
 
    for(const string & word: words) {
       Pair *ptr = tbl->Find(word.c_str(), 0);

@@ -25,7 +25,28 @@ Pair **TopN( Hash *hashtable, int N )
    // are less than N pairs in the hash, remaining pointers
    // will be null.
 
-   // YOUR CODE HERE
 
-   return nullptr;
+   Pair ** top = new Pair*[N];
+   for(size_t i = 0 ; i < N; ++i){
+      top[i] = nullptr;
+   }
+
+   Hash::Iterator it = hashtable->begin();
+   while(it != hashtable->end()){
+      size_t val = it->value;
+      for(size_t i = 0; i < N; ++i){
+         if(top[i] == nullptr){
+            top[i] = &(*it);
+         }else if(val > top[i]->value){
+            for(size_t j = N - 1; j > i; --j){
+               top[j] = top[j - 1];
+            }
+            top[i] = &(*it);
+            break;
+         }
+      }
+      it++;
+   }
+
+   return top;
    }

@@ -14,7 +14,8 @@
 
 
 // YOUR CODE HERE
-
+uint64_t hashFunc(const char *key);
+bool CompareEqual(const char *a, const char *b);
 
 // Build a HashTable of strings and numbers of occurrences, given a vector
 // of strings representing the words.  You may assume the vector and the
@@ -25,7 +26,7 @@
 // Caller is responsible for deleting the Hash.
 
 HashTable< const char *, size_t > *BuildHashTable( const vector< string > &words,
-      uint64_t ( *hash )( const char *key ) );
+      uint64_t ( *hash )( const char *key ) = hashFunc );
 
 
 // Collect words read from a file specified on the command line
