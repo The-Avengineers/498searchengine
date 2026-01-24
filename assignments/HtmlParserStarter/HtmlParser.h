@@ -89,7 +89,291 @@ class HtmlParser
       std::string base;
 
    private:
-      // YOUR CODE HERE
+      // curr ptr
+      const char* curr;
+      // end ptr
+      const char* end;
+
+      bool curr_in_title;
+      bool curr_in_anchor;
+
+
+      void add_to_words(const char *start_, const char *end_) {
+            
+         std::string word(start_, end_ - start_);
+         if (curr_in_title) {
+            titleWords.push_back(word);
+         }
+         else {
+            words.push_back(word);
+         }
+         if (curr_in_anchor && !links.empty()) {
+            links.back().anchorText.push_back(word);
+         }
+
+      }
+
+      void discard_section(const char* lowercaseName, size_t len) {
+         while (curr < end) {
+            if (*curr == '<' && curr + 1 < end && *(curr + 1) == '/') {
+
+               const char *tag_start = curr + 2;
+               const char *p = tag_start;
+               while (p < end && *p != '>' && *p != '/' && (*p) != ' ') {
+                  p++;
+               }
+               
+               size_t new_len = p - tag_start;
+               if (new_len == len) {
+                  bool match = true;
+                  for (size_t i = 0; i < len && match; i++) {
+                     if (tolower(tag_start[i]) != lowercaseName[i]) {
+                        match = false;
+                     }
+                  }
+                  
+                  if (match) {
+                     while (curr < end && *curr != '>') {
+                        curr++;
+                     }
+                     if (curr < end) {
+                        curr++; 
+                     }
+                     return;
+                  }
+               }
+            }
+            curr++;
+         }
+      }
+
+      std::string get_src(const char *start, const char *tag_end) {
+         const char *p = start;
+         
+         while (p + 4 < tag_end) {
+            if (tolower(*p) == 's' && tolower(p[1]) == 'r' && tolower(p[2]) == 'c') {
+               p += 3;
+               
+               while (p < tag_end && *p == ' ') {
+                  p++;
+               }
+               
+               if (p < tag_end && *p == '=') {
+                  p++; 
+                  
+                  while (p < tag_end && *p == ' ') {
+                     p++;
+                  }
+                  
+                  if (p < tag_end) {
+                     char quote = *p;
+                     if (quote == '"' || quote == '\'') {
+                        p++; 
+                        const char *valueStart = p;
+               
+                        while (p < tag_end && *p != quote) {
+                           p++;
+                        }
+                        return std::string(valueStart, p - valueStart);
+                     }
+                     else {
+                        const char *valueStart = p;
+                        while (p < tag_end && *p != ' ' && *p != '>') {
+                           p++;
+                        }
+                        
+                        return std::string (valueStart, p - valueStart);
+                     }
+                  }
+               }
+            }
+            p++;
+         }
+         return std::string();
+      }
+
+      std::string get_href(const char *start, const char *tag_end) {
+         const char *p = start;
+         
+         while (p + 5 < tag_end) {
+            if (tolower(*p) == 'h' && tolower(p[1]) == 'r' &&
+               tolower(p[2]) == 'e' && tolower(p[3]) == 'f') {
+
+               p += 4; 
+               while (p < tag_end && *p == ' ') {
+                  p++;
+               }
+               if (p < tag_end && *p == '=') {
+                  p++;
+                  
+                  while (p < tag_end && *p == ' ') {
+                     p++;
+                  }
+                  
+                  if (p < tag_end) {
+                     char quote = *p;
+                     if (quote == '"' || quote == '\'') {
+                        p++;
+                        const char *value_start = p;
+                        while (p < tag_end && *p != quote) {
+                           p++;
+                        }
+                        return std::string(value_start, p - value_start);
+                     }
+                     else {
+                        const char *value_start = p;
+                        while (p < tag_end && *p != ' ' && *p != '>') {
+                           p++;
+                        }
+                        return std::string(value_start, p - value_start);
+                     }
+                  }
+               }
+            }
+            p++;
+         }
+         return std::string();
+         
+      }
+
+      bool process_tag() {
+         const char *start_of_tag = curr;
+         curr++;
+         
+         if (curr >= end) {
+            curr = start_of_tag;
+            return false;
+         }
+         
+         bool is_closing = false;
+         if (*curr == '/') {
+            is_closing = true;
+            curr++;
+            if (curr >= end) {
+               curr = start_of_tag;
+               return false;
+            }
+         }
+         
+         const char *start_of_name = curr;
+         
+      
+         if (!is_closing && curr + 2 < end && *curr == '!' && *(curr + 1) == '-' 
+               && *(curr + 2) == '-') {
+
+            curr += 3; // skip !-- bc comment
+            while (curr < end) {
+               if (*curr == '-' && curr + 2 < end && *(curr + 1) == '-' 
+                     && *(curr + 2) == '>') {
+
+                  curr += 3;
+                  break;
+                  }
+               curr++;
+            }
+            return true;
+         }
+         
+         // read tag
+         while (curr < end && *curr != '>' &&  *curr != '/' && *curr != ' ') {
+            curr++;
+         }
+         
+         const char *name_end = curr;
+         
+         // empty tag
+         if (start_of_name == name_end) {
+            curr = start_of_tag;
+            return false;
+         }
+         
+         size_t name_len = name_end - start_of_name;
+         char lowercase_name[32];
+         if (name_len >= sizeof(lowercase_name)) {
+            // wayy to long
+            curr = start_of_tag;
+            return false;
+         }
+         
+         for (size_t i = 0; i < name_len; i++) {
+            lowercase_name[i] = tolower(start_of_name[i]);
+         }
+         lowercase_name[name_len] = '\0';
+         
+         // get action
+         DesiredAction action = LookupPossibleTag(lowercase_name, lowercase_name + name_len);
+         
+         if (action == DesiredAction::OrdinaryText) {
+            curr = start_of_tag;
+            return false;
+            }
+         
+         const char *attr_start = curr;
+         while (curr < end && *curr != '>') {
+            curr++;
+         }
+         const char *tag_end = curr;
+         
+         if (curr < end) {
+            curr++; 
+         }
+         
+         // Handle the tag based on its action
+         switch (action) {
+            case DesiredAction::Discard:
+               break;
+               
+            case DesiredAction::DiscardSection:
+               // discard everything
+               if (!is_closing) {
+                  discard_section(lowercase_name, name_len);
+               }
+               break;
+               
+            case DesiredAction::Title:
+               if (is_closing) {
+                  curr_in_title = false;
+               }
+               else {
+                  curr_in_title = true;
+               }
+               break;
+               
+            case DesiredAction::Anchor:
+               if (is_closing) {
+                  curr_in_anchor = false;
+               }
+               else {
+                  std::string href = get_href(attr_start, tag_end);
+                  if (!href.empty()) {
+                     links.push_back(Link(href));
+                     curr_in_anchor = true;
+                  }
+               }
+               break;
+               
+            case DesiredAction::Base:
+               if (!is_closing && base.empty()) {
+                  std::string href = get_href(attr_start, tag_end);
+                  base = href;
+                  
+               }
+               break;
+               
+            case DesiredAction::Embed:
+               if (!is_closing) {
+                  std::string src = get_src(attr_start, tag_end);
+                  if (!src.empty())
+                     links.push_back(Link(src));
+                  }
+               break;
+               
+            default:
+               break;
+            }
+         
+         return true;
+   }     
 
 
    public:
@@ -99,10 +383,43 @@ class HtmlParser
       // all the HTML tags and producing the list of words in body,
       // words in title, and links found on the page.
 
-      HtmlParser( const char *buffer, size_t length ) // YOUR CODE HERE
+      HtmlParser( const char *buffer, size_t length ) 
+            : curr(buffer), end(buffer + length), curr_in_title(false),
+            curr_in_anchor(false)
          {
-         // YOUR CODE HERE
 
+            const char* start_word_ptr = nullptr;
+            while (curr < end) {
+               char c = *curr;
+               if (c == '<') {
+                  if (start_word_ptr) {
+                     add_to_words(start_word_ptr, curr);
+                     start_word_ptr = nullptr;
+                  }
+                  if (!process_tag()) {
+                     if (!start_word_ptr) {
+                        start_word_ptr = curr;
+                     }
+                     curr++;
+                  }
+               }
+               else if (c == ' ') {
+                  if (start_word_ptr) {
+                     add_to_words(start_word_ptr, curr);
+                     start_word_ptr = nullptr;
+                  }
+                  curr++;
+               }
+               else {
+                  if (!start_word_ptr) {
+                     start_word_ptr = curr;
+                  }
+                  curr++;
+               }
+            }
+            if (start_word_ptr) {
+               add_to_words(start_word_ptr, curr);
+            }
 
          }
    };
