@@ -136,7 +136,18 @@ const char *Mimetype( const string filename )
    // Return the Mimetype associated with any extension on the filename.
 
    //    YOUR CODE HERE
-
+   // CHECK: Do more formatting check here?
+   size_t last_dot_pos = filename.find_last_of('.');
+   string ext = "";
+   if (last_dot_pos == std::string::npos) {
+      return "application/octet-stream";
+   }
+   ext = filename.substr(last_dot_pos);
+   for (size_t i = 0; i < 66; i++) { // 66 == the number of elements in MimeTable
+      if (ext == MimeTable[i].Extension) {
+         return MimeTable[i].Mimetype;
+      }
+   }
 
    // Anything not matched is an "octet-stream", treated as
    // an unknown binary, which browsers treat as a download.
@@ -232,6 +243,9 @@ bool SafePath( const char *path )
    // website.
 
    //    YOUR CODE HERE
+   if (strstr(path, "..") != NULL) { // checking if it contains the substr ".."
+      return false;
+   }
 
    return true;
    }
