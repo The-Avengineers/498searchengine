@@ -14,6 +14,7 @@
 
 
 // YOUR CODE HERE
+//function stubs for the hash function and comparator
 uint64_t hashFunc(const char *key);
 bool CompareEqual(const char *a, const char *b);
 

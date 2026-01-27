@@ -23,6 +23,7 @@ bool optVerbose = false;
 
 
 // YOUR CODE HERE
+//using the fnv-1a hash function
 uint64_t hashFunc(const char * key){
    uint64_t hash = 14695981039346656037ULL;  
       while ( *key )
@@ -33,7 +34,7 @@ uint64_t hashFunc(const char * key){
    return hash;
 }
 
-
+//function to compare whether strings are equal
 bool CompareEqual(const char *a, const char *b){
    return strcmp(a,b) == 0;
 }
@@ -58,6 +59,7 @@ Hash *BuildHashTable( const vector< string > &words,
    // YOUR CODE HERE
    Hash* tbl = new Hash(CompareEqual, hash, 5000);
 
+   //for each word find if it's in the tbl, (if not then add w/ value 0) and iterate that value
    for(const string & word: words) {
       Pair *ptr = tbl->Find(word.c_str(), 0);
       ptr->value++;
