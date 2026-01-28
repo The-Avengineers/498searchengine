@@ -376,6 +376,11 @@ int main( int argc, char **argv )
 
 
    //    YOUR CODE HERE
+   listenSocket = socket(AF_INET, SOCK_STREAM, 0); // SOCK_STREAM specifies a byte stream (TCP)
+   if (listenSocket == -1) {
+      std::cerr << "Error creating socket" << std::endl;
+      return 1;
+   }
 
 
    // Bind the listen socket to the IP address and protocol
@@ -383,12 +388,23 @@ int main( int argc, char **argv )
 
 
    //    YOUR CODE HERE
+   if (bind(listenSocket, (struct sockaddr*)&listenAddress, sizeof(listenAddress)) == -1) {
+        std::cerr << "Error binding to socket" << std::endl;
+        close(listenSocket);
+        return 1;
+   }
 
 
    // Begin listening for clients to connect to us.
 
 
    //    YOUR CODE HERE
+   if (listen(listenSocket, SOMAXCONN) == -1) {
+      std::cerr << "Error listening on socket" << std::endl;
+      close(listenSocket);
+      return 1;
+   }
+
 
 
    // The second argument to listen( ) specifies the maximum
@@ -407,7 +423,27 @@ int main( int argc, char **argv )
 
    //    YOUR CODE HERE
 
+   while (true) {
+      talkSocket = accept(listenSocket, (struct sockaddr*)&talkAddress, &talkAddressLength);
+      if (talkSocket == -1) {
+         perror("talkSocket accepting failed");
+         continue;
+      }
 
+
+      pthread_t tid;
+      int* hp_client_socket = (int*)malloc(sizeof(int));
+      *hp_client_socket = talkSocket;
+      if (pthread_create(&tid, NULL, Talk, (void *)hp_client_socket) != 0) {
+         perror("pthread_create failed");
+         close(talkSocket);
+         free(hp_client_socket);
+         continue;
+      }
+      pthread_detach(tid); 
+   }
+
+   
 
       {
       // When creating a child thread, you get to pass a void *,
@@ -428,7 +464,7 @@ int main( int argc, char **argv )
       // demonstrate what to do in the general case.)
 
 
-      //    YOIUR CODE HERE
+      //    YOUR CODE HERE
       }
 
    close( listenSocket );
