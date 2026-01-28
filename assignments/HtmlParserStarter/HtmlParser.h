@@ -157,7 +157,7 @@ class HtmlParser
       std::string get_src(const char *start, const char *tag_end) {
          const char *s = start;
          
-         while (s + 4 < tag_end) {
+         while (s + 3 <= tag_end) {
             if ((s == start || is_whitespace(*(s-1))) && tolower(*s) == 's' && 
                tolower(s[1]) == 'r' && tolower(s[2]) == 'c') {
 
@@ -205,7 +205,7 @@ class HtmlParser
       std::string get_href(const char *start, const char *tag_end) {
          const char *s = start;
          
-         while (s + 5 < tag_end) {
+         while (s + 4 <= tag_end) {
             if ((s == start || is_whitespace(*(s-1))) && tolower(*s) == 'h' && 
                tolower(s[1]) == 'r' && tolower(s[2]) == 'e' && tolower(s[3]) == 'f') {
 
