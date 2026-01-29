@@ -99,7 +99,7 @@ class HtmlParser
 
       // check for spaces, tabs, newlines, returns
       bool is_whitespace(char c) {
-         return c == ' ' || c == '\n' || c == '\t' || c == '\r';
+         return std::isspace(static_cast<unsigned char>(c));
       }
 
       // add to correct data structures
