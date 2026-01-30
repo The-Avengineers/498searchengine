@@ -470,7 +470,7 @@ void *Talk(void *talkSocket) {
       ssize_t w = send(sock, fileBuf + sent, size_t(r) - sent, 0);
       if (w <= 0) {
         close(fd);
-        close(socK);
+        close(sock);
         return nullptr;
       }
       sent += (size_t)w;
