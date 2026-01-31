@@ -330,13 +330,37 @@ class HtmlParser
             }
          
          const char *attr_start = curr;
-         while (curr < end && *curr != '>') {
+         bool in_quotes = false;
+         char quote_ch = '\0';
+
+         while (curr < end) {
+            char ch = *curr;
+            if (!in_quotes && (ch == '"' || ch == '\'')) {
+               in_quotes = true;
+               quote_ch = ch;
+            } else if (in_quotes && ch == quote_ch) {
+               in_quotes = false;
+            } else if (!in_quotes && ch == '>') {
+               break;
+            }
             curr++;
          }
+
          const char *tag_end = curr;
-         
+
+         bool self_closing = false;
+         {
+            const char *t = tag_end;
+            while (t > start_of_tag && std::isspace(static_cast<unsigned char>(*(t - 1)))) {
+               t--;
+            }
+            if (t > start_of_tag && *(t - 1) == '/') {
+               self_closing = true;
+            }
+         }
+
          if (curr < end) {
-            curr++; 
+            curr++;  
          }
       
          // Handle the tag based on its action
@@ -352,7 +376,7 @@ class HtmlParser
                break;
                
             case DesiredAction::Title:
-               if (is_closing) {
+               if (is_closing || self_closing) {
                   curr_in_title = false;
                }
                else {
@@ -369,17 +393,20 @@ class HtmlParser
                   std::string href = get_href(attr_start, tag_end);
                   if (!href.empty()) {
                      links.push_back(Link(href));
-                     curr_in_anchor = true;
                      res = tag_result::anchor_open;
                   }
+                  curr_in_anchor = (!self_closing && !href.empty());
                }
                break;
                
             case DesiredAction::Base:
                if (!is_closing && !seen_base) {
                   std::string href = get_href(attr_start, tag_end);
-                  base = href;
-                  seen_base = true;
+                  if (!href.empty()) {
+                     base = href;
+                     seen_base = true;
+                  }
+
                }
                break;
                
