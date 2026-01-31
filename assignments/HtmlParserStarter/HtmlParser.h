@@ -98,13 +98,20 @@ class HtmlParser
       bool curr_in_anchor;
       bool seen_base;
 
+      enum class tag_result {
+         not_tag,        
+         no_anchor_change,
+         anchor_open,
+         anchor_closed
+      };
+
       // check for spaces, tabs, newlines, returns
       bool is_whitespace(char c) {
          return std::isspace(static_cast<unsigned char>(c));
       }
 
       // add to correct data structures
-      void add_to_words(const char *start_, const char *end_, bool in_title, bool in_anchor) {
+      void add_to_words(const char *start_, const char *end_, bool in_title, int anchor_link_idx) {
             
          std::string word(start_, end_ - start_);
          if (in_title) {
@@ -113,8 +120,9 @@ class HtmlParser
          else {
             words.push_back(word);
          }
-         if (in_anchor && !links.empty()) {
-            links.back().anchorText.push_back(word);
+         if (anchor_link_idx >= 0 && static_cast<size_t>(anchor_link_idx) < 
+                                                         links.size()) {
+            links[anchor_link_idx].anchorText.push_back(word);
          }
 
       }
@@ -248,13 +256,14 @@ class HtmlParser
       }
 
       // proccess the tag
-      bool process_tag() {
+      tag_result process_tag() {
+         tag_result res = tag_result::no_anchor_change;
          const char *start_of_tag = curr;
          curr++;
          
          if (curr >= end) {
             curr = start_of_tag;
-            return false;
+            return tag_result::not_tag;
          }
          
          bool is_closing = false;
@@ -263,7 +272,7 @@ class HtmlParser
             curr++;
             if (curr >= end) {
                curr = start_of_tag;
-               return false;
+               return tag_result::not_tag;
             }
          }
          
@@ -283,7 +292,7 @@ class HtmlParser
                   }
                curr++;
             }
-            return true;
+            return tag_result::no_anchor_change;
          }
          
          // read tag
@@ -296,7 +305,7 @@ class HtmlParser
          // empty tag
          if (start_of_name == name_end) {
             curr = start_of_tag;
-            return false;
+            return tag_result::not_tag;
          }
          
          size_t name_len = name_end - start_of_name;
@@ -304,7 +313,7 @@ class HtmlParser
          if (name_len >= sizeof(lowercase_name)) {
             // wayy to long
             curr = start_of_tag;
-            return false;
+            return tag_result::not_tag;
          }
          
          for (size_t i = 0; i < name_len; i++) {
@@ -317,7 +326,7 @@ class HtmlParser
          
          if (action == DesiredAction::OrdinaryText) {
             curr = start_of_tag;
-            return false;
+            return tag_result::not_tag;
             }
          
          const char *attr_start = curr;
@@ -354,12 +363,14 @@ class HtmlParser
             case DesiredAction::Anchor:
                if (is_closing) {
                   curr_in_anchor = false;
+                  res = tag_result::anchor_closed;
                }
                else {
                   std::string href = get_href(attr_start, tag_end);
                   if (!href.empty()) {
                      links.push_back(Link(href));
                      curr_in_anchor = true;
+                     res = tag_result::anchor_open;
                   }
                }
                break;
@@ -384,7 +395,7 @@ class HtmlParser
                break;
             }
          
-         return true;
+         return res;
    }     
 
 
@@ -401,16 +412,24 @@ class HtmlParser
          {
 
             const char* start_word_ptr = nullptr;
+            int idx = -1;
             while (curr < end) {
                char c = *curr;
                if (c == '<') {
                   const char* tag_start = curr;
                   bool was_in_title = curr_in_title;
-                  bool was_in_anchor = curr_in_anchor;
-                  if (process_tag()) {
+                  int anchor_idx = idx;
+                  tag_result res = process_tag();
+                  if (res != tag_result::not_tag) {
                      if (start_word_ptr) {
-                        add_to_words(start_word_ptr, tag_start, was_in_title, was_in_anchor);
+                        add_to_words(start_word_ptr, tag_start, was_in_title, anchor_idx);
                         start_word_ptr = nullptr;
+                     }
+                     if (res == tag_result::anchor_open) {
+                        idx = links.size() - 1;
+                     } 
+                     else if (res == tag_result::anchor_closed) {
+                        idx = -1;
                      }
                   }
                   else {
@@ -422,7 +441,7 @@ class HtmlParser
                }
                else if (is_whitespace(c)) {
                   if (start_word_ptr) {
-                     add_to_words(start_word_ptr, curr, curr_in_title, curr_in_anchor);
+                     add_to_words(start_word_ptr, curr, curr_in_title, idx);
                      start_word_ptr = nullptr;
                   }
                   curr++;
@@ -435,7 +454,7 @@ class HtmlParser
                }
             }
             if (start_word_ptr) {
-               add_to_words(start_word_ptr, curr, curr_in_title, curr_in_anchor);
+               add_to_words(start_word_ptr, curr, curr_in_title, idx);
             }
 
          }

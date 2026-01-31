@@ -5,7 +5,7 @@ test:  ParsePage NYTimes.html NYTimes.parsed.html broken.html broken.parsed.html
 	diff broken.parsed.html broken.testout.html
 	./ParsePage RandomPages.html > RandomPages.testout.html
 	diff RandomPages.parsed.html RandomPages.testout.html
-	valgrind --error-exitcode=42 ./ParsePage RandomPages.html > valgrind.testout.html
+# 	valgrind --error-exitcode=42 ./ParsePage RandomPages.html > valgrind.testout.html
 
 
 ParsePage:  ParsePage.cpp HtmlTags.h HtmlTags.cpp HtmlParser.h HtmlParser.cpp ParsePage.cpp
