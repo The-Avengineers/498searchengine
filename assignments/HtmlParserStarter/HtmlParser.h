@@ -96,6 +96,7 @@ class HtmlParser
 
       bool curr_in_title;
       bool curr_in_anchor;
+      bool seen_base;
 
       // check for spaces, tabs, newlines, returns
       bool is_whitespace(char c) {
@@ -364,10 +365,10 @@ class HtmlParser
                break;
                
             case DesiredAction::Base:
-               if (!is_closing && base.empty()) {
+               if (!is_closing && !seen_base) {
                   std::string href = get_href(attr_start, tag_end);
                   base = href;
-                  
+                  seen_base = true;
                }
                break;
                
@@ -396,7 +397,7 @@ class HtmlParser
 
       HtmlParser( const char *buffer, size_t length ) 
             : curr(buffer), end(buffer + length), curr_in_title(false),
-            curr_in_anchor(false)
+            curr_in_anchor(false), seen_base(false)
          {
 
             const char* start_word_ptr = nullptr;
