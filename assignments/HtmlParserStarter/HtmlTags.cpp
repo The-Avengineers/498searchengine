@@ -11,37 +11,29 @@
 // the corresponding action.
 // If the name is not found, return OrdinaryText.
 
-// compare words to find tag
-// requires start and end pointer for the name and the start pointer for tag
-// modifys nothing
-// returns positive number if name is longer than tag or characters dont match
-// returns negative if name is shorter than tag or characters dont match
-// returns 0 if they match
-[[gnu::always_inline]] inline int compare(const char *name, const char *nameEnd, 
+// Case-insensitive compare between [name, nameEnd) and tag string.
+// Returns <0 if name is "less", >0 if name is "greater", 0 if equal.
+[[gnu::always_inline]] inline int compare(const char *name, const char *nameEnd,
       const char *tag) {
-
-         // loop through length of the name and hope they match
-         while (name < nameEnd && *tag) 
-         {
-            const char name_curr = *name;
-            const char tag_curr = *tag;
-            if (tag_curr != name_curr) {
-               // if they dont match return alphabetical distance
-               return name_curr - tag_curr;
-            }
-            name++;
-            tag++;
-         }
-         if (name < nameEnd) {
-            return 1;
-         }
-         else if (*tag) {
-            return -1;
-         }
-         else {
-            return 0;
-         }
+   while (name < nameEnd && *tag) {
+      unsigned char n = static_cast<unsigned char>(*name);
+      unsigned char t = static_cast<unsigned char>(*tag);
+      int n_lower = ::tolower(n);
+      int t_lower = ::tolower(t);
+      if (n_lower != t_lower) {
+         return n_lower - t_lower;
+      }
+      ++name;
+      ++tag;
    }
+   if (name < nameEnd) {
+      return 1;
+   }
+   if (*tag) {
+      return -1;
+   }
+   return 0;
+}
 
 // binary search to find a tag
 // requires start and end pointer for the name and the start pointer for tag

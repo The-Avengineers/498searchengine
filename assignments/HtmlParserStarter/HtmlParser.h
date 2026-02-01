@@ -4,6 +4,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 #include "HtmlTags.h"
 
 // This is a simple HTML parser class.  Given a text buffer containing
@@ -28,6 +29,8 @@
 //    be any whitespace.
 //
 // 3. The name is terminated by whitespace, > or / and is case-insensitive.
+//    The exception is <!--, which starts a comment and is not required
+//    to be terminated.
 //
 // 4. If the name is terminated by whitepace, arbitrary text representing
 //    various arguments may follow, terminated by a > or />.
@@ -44,7 +47,7 @@
 //
 // 9. <!--, <title>, <a>, <base> and <embed> require special processing.
 //
-//      <-- is the beginng of a comment.  Everything up to the ending -->
+//      <!-- is the beginng of a comment.  Everything up to the ending -->
 //          is discarded.
 //
 //      <title> should cause all the words between the opening and closing
@@ -73,43 +76,37 @@ class Link
    public:
       std::string URL;
       std::vector< std::string > anchorText;
-
       Link( std::string URL ) : URL( URL )
          {
          }
    };
-
-
 class HtmlParser
    {
    public:
-
       std::vector< std::string > words, titleWords;
       std::vector< Link > links;
       std::string base;
-
    private:
       // curr ptr
       const char* curr;
       // end ptr
       const char* end;
-
       bool curr_in_title;
       bool curr_in_anchor;
       bool seen_base;
-
       enum class tag_result {
          not_tag,        
          no_anchor_change,
          anchor_open,
          anchor_closed
       };
-
+      static inline char lower_ascii(unsigned char c) {
+         return static_cast<char>(std::tolower(c));
+      }
       // check for spaces, tabs, newlines, returns
       bool is_whitespace(char c) {
          return std::isspace(static_cast<unsigned char>(c));
       }
-
       // add to correct data structures
       void add_to_words(const char *start_, const char *end_, bool in_title, int anchor_link_idx) {
             
@@ -124,14 +121,11 @@ class HtmlParser
                                                          links.size()) {
             links[anchor_link_idx].anchorText.push_back(word);
          }
-
       }
-
       // move curr past the section
       void discard_section(const char* lowercaseName, size_t len) {
          while (curr < end) {
             if (*curr == '<' && curr + 1 < end && *(curr + 1) == '/') {
-
                const char *tag_start = curr + 2;
                const char *p = tag_start;
                while (p < end && *p != '>' && *p != '/' && !is_whitespace(*p)) {
@@ -142,7 +136,7 @@ class HtmlParser
                if (new_len == len) {
                   bool match = true;
                   for (size_t i = 0; i < len && match; i++) {
-                     if (tolower(tag_start[i]) != lowercaseName[i]) {
+                     if (lower_ascii((unsigned char)tag_start[i]) != lowercaseName[i]) {
                         match = false;
                      }
                   }
@@ -161,15 +155,13 @@ class HtmlParser
             curr++;
          }
       }
-
       // get src
       std::string get_src(const char *start, const char *tag_end) {
          const char *s = start;
          
          while (s + 3 <= tag_end) {
-            if ((s == start || is_whitespace(*(s-1))) && tolower(*s) == 's' && 
-               tolower(s[1]) == 'r' && tolower(s[2]) == 'c') {
-
+            if ((s == start || is_whitespace(*(s-1))) && lower_ascii((unsigned char)*s) == 's' && 
+               lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'c') {
                s += 3;
                
                while (s < tag_end && is_whitespace(*s)) {
@@ -183,25 +175,13 @@ class HtmlParser
                      s++;
                   }
                   
-                  if (s < tag_end) {
-                     char quote = *s;
-                     if (quote == '"' || quote == '\'') {
-                        s++; 
-                        const char *valueStart = s;
-               
-                        while (s < tag_end && *s != quote) {
-                           s++;
-                        }
-                        return std::string(valueStart, s - valueStart);
+                  if (s < tag_end && *s == '"') {
+                     s++;
+                     const char *valueStart = s;
+                     while (s < tag_end && *s != '"') {
+                        s++;
                      }
-                     else if (*s != '<'){
-                        const char *valueStart = s;
-                        while (s < tag_end && *s != '>' && !is_whitespace(*s)) {
-                           s++;
-                        }
-                        
-                        return std::string (valueStart, s - valueStart);
-                     }
+                     return std::string(valueStart, s - valueStart);
                   }
                }
             }
@@ -209,15 +189,13 @@ class HtmlParser
          }
          return std::string();
       }
-
       // get href
       std::string get_href(const char *start, const char *tag_end) {
          const char *s = start;
          
          while (s + 4 <= tag_end) {
-            if ((s == start || is_whitespace(*(s-1))) && tolower(*s) == 'h' && 
-               tolower(s[1]) == 'r' && tolower(s[2]) == 'e' && tolower(s[3]) == 'f') {
-
+            if ((s == start || is_whitespace(*(s-1))) && lower_ascii((unsigned char)*s) == 'h' && 
+               lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'e' && lower_ascii((unsigned char)s[3]) == 'f') {
                s += 4; 
                while (s < tag_end && is_whitespace(*s)) {
                   s++;
@@ -229,23 +207,13 @@ class HtmlParser
                      s++;
                   }
                   
-                  if (s < tag_end) {
-                     char quote = *s;
-                     if (quote == '"' || quote == '\'') {
+                  if (s < tag_end && *s == '"') {
+                     s++;
+                     const char *value_start = s;
+                     while (s < tag_end && *s != '"') {
                         s++;
-                        const char *value_start = s;
-                        while (s < tag_end && *s != quote) {
-                           s++;
-                        }
-                        return std::string(value_start, s - value_start);
                      }
-                     else if (*s != '<'){
-                        const char *value_start = s;
-                        while (s < tag_end && *s != '>' && !is_whitespace(*s)) {
-                           s++;
-                        }
-                        return std::string(value_start, s - value_start);
-                     }
+                     return std::string(value_start, s - value_start);
                   }
                }
             }
@@ -254,7 +222,6 @@ class HtmlParser
          return std::string();
          
       }
-
       // proccess the tag
       tag_result process_tag() {
          tag_result res = tag_result::no_anchor_change;
@@ -281,12 +248,10 @@ class HtmlParser
       
          if (!is_closing && curr + 2 < end && *curr == '!' && *(curr + 1) == '-' 
                && *(curr + 2) == '-') {
-
             curr += 3; // skip !-- bc comment
             while (curr < end) {
                if (*curr == '-' && curr + 2 < end && *(curr + 1) == '-' 
                      && *(curr + 2) == '>') {
-
                   curr += 3;
                   break;
                   }
@@ -317,7 +282,7 @@ class HtmlParser
          }
          
          for (size_t i = 0; i < name_len; i++) {
-            lowercase_name[i] = tolower(start_of_name[i]);
+            lowercase_name[i] = lower_ascii((unsigned char)start_of_name[i]);
          }
          lowercase_name[name_len] = '\0';
          
@@ -332,12 +297,17 @@ class HtmlParser
          const char *attr_start = curr;
          bool in_quotes = false;
          char quote_ch = '\0';
-
          while (curr < end) {
             char ch = *curr;
             if (!in_quotes && (ch == '"' || ch == '\'')) {
-               in_quotes = true;
-               quote_ch = ch;
+               // Ignore stray quote immediately before tag end like class="..."" >
+               if ((curr + 1 < end && curr[1] == '>') ||
+                   (curr + 2 < end && curr[1] == '/' && curr[2] == '>')) {
+                  // do nothing
+               } else {
+                  in_quotes = true;
+                  quote_ch = ch;
+               }
             } else if (in_quotes && ch == quote_ch) {
                in_quotes = false;
             } else if (!in_quotes && ch == '>') {
@@ -345,9 +315,7 @@ class HtmlParser
             }
             curr++;
          }
-
          const char *tag_end = curr;
-
          bool self_closing = false;
          {
             const char *t = tag_end;
@@ -358,7 +326,6 @@ class HtmlParser
                self_closing = true;
             }
          }
-
          if (curr < end) {
             curr++;  
          }
@@ -406,7 +373,6 @@ class HtmlParser
                      base = href;
                      seen_base = true;
                   }
-
                }
                break;
                
@@ -424,20 +390,15 @@ class HtmlParser
          
          return res;
    }     
-
-
    public:
-
       // The constructor is given a buffer and length containing
       // presumed HTML.  It will parse the buffer, stripping out
       // all the HTML tags and producing the list of words in body,
       // words in title, and links found on the page.
-
       HtmlParser( const char *buffer, size_t length ) 
             : curr(buffer), end(buffer + length), curr_in_title(false),
             curr_in_anchor(false), seen_base(false)
          {
-
             const char* start_word_ptr = nullptr;
             int idx = -1;
             while (curr < end) {
@@ -483,6 +444,5 @@ class HtmlParser
             if (start_word_ptr) {
                add_to_words(start_word_ptr, curr, curr_in_title, idx);
             }
-
          }
    };
