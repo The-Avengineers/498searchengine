@@ -14,25 +14,63 @@
 
 Expression *Parser::FindFactor( )
    {
-   // TODO
-   return nullptr;
+   if ( stream.Match('(')){
+      Expression *inner = FindAdd();
+      if (!inner){
+         return nullptr;
+      }
+      if (!stream.Match(')')){
+         delete inner;
+         return nullptr;
+      }
+      return inner;
+   }
+   return stream.ParseNumber( );
    }
 
 Expression *Parser::FindAdd( )
    {
-   // TODO
-   return nullptr;
+   Expression *left = FindMultiply();
+   if (!left){
+      return nullptr;
+   }
+
+   while (stream.Match('+')){
+      Expression *right = FindMultiply();
+      if (!right){
+         delete left;
+         return nullptr;
+      }
+      left = new Addition(left, right);
+   }
+   return left;
    }
 
 Expression *Parser::FindMultiply( )
    {
-   // TODO
-   return nullptr;
+   Expression *left = FindFactor();
+   if (!left){
+      return nullptr;
+   }
+
+   while (stream.Match('*')){
+      Expression *right = FindAdd();
+      if (!right){
+         delete left;
+         return nullptr;
+      }
+      left = new Multiplication(left, right);
+   }
+   return left;
    }
 
 Expression *Parser::Parse( )
    {
-   // TODO
+   Expression *exp = FindAdd();
+   if (exp){
+      return exp;
+   }
+   delete exp;
    return nullptr;
    }
 

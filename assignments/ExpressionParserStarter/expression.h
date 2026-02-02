@@ -42,4 +42,39 @@ public:
    };
 // class Number
 
+
+class Addition: public Expression 
+   {
+protected:
+
+   Expression *left;
+   Expression *right;
+
+public:
+
+   Addition(Expression *l, Expression *r);
+
+   ~Addition();
+
+   int64_t Eval() const override;
+   };
+// addition
+
+class Multiplication: public Expression
+   {
+protected:
+
+   Expression *left;
+   Expression *right;
+
+public:
+
+   Multiplication(Expression *l, Expression *r );
+
+   ~Multiplication();
+
+   int64_t Eval() const override;
+   };
+// multiplication
+
 #endif /* EXPRESSION_H_ */

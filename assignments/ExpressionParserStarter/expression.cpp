@@ -22,3 +22,35 @@ int64_t Number::Eval( ) const
    {
    return value;
    }
+
+Addition::Addition(Expression *l, Expression *r) :
+      left(l), right(r)
+   {
+   }
+
+Addition::~Addition( )
+   {
+   delete left;
+   delete right;
+   }
+
+int64_t Addition::Eval( ) const
+   {
+   return left->Eval() + right->Eval();
+   }
+
+Multiplication::Multiplication(Expression *l, Expression *r) :
+      left(l), right(r)
+   {
+   }
+
+Multiplication::~Multiplication( )
+   {
+   delete left;
+   delete right;
+   }
+
+int64_t Multiplication::Eval( ) const
+   {
+   return left->Eval() * right->Eval();
+   }
