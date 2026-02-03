@@ -14,7 +14,7 @@
 
 Expression *Parser::FindFactor( )
    {
-   if ( stream.Match('(')){
+   if (stream.Match('(')){
       Expression *inner = FindAdd();
       if (!inner){
          return nullptr;
@@ -24,6 +24,13 @@ Expression *Parser::FindFactor( )
          return nullptr;
       }
       return inner;
+   }
+   if (stream.Match('-')){
+      Expression *inner = FindFactor();
+      if (!inner){
+         return nullptr;
+      }
+      return new Subtraction(new Number(0), inner);
    }
    return stream.ParseNumber( );
    }
@@ -35,13 +42,26 @@ Expression *Parser::FindAdd( )
       return nullptr;
    }
 
-   while (stream.Match('+')){
-      Expression *right = FindMultiply();
-      if (!right){
-         delete left;
-         return nullptr;
+   while (true){
+      if (stream.Match('+')){
+         Expression *right = FindMultiply();
+         if (!right){
+            delete left;
+            return nullptr;
+         }
+         left = new Addition(left, right);
       }
-      left = new Addition(left, right);
+      else if (stream.Match('-')){
+         Expression *right = FindMultiply();
+         if (!right){
+            delete left;
+            return nullptr;
+         }
+         left = new Subtraction(left, right);
+      }
+      else {
+         break;
+      }
    }
    return left;
    }
@@ -54,7 +74,7 @@ Expression *Parser::FindMultiply( )
    }
 
    while (stream.Match('*')){
-      Expression *right = FindAdd();
+      Expression *right = FindFactor();
       if (!right){
          delete left;
          return nullptr;
@@ -67,7 +87,7 @@ Expression *Parser::FindMultiply( )
 Expression *Parser::Parse( )
    {
    Expression *exp = FindAdd();
-   if (exp){
+   if (exp && stream.AllConsumed()){
       return exp;
    }
    delete exp;

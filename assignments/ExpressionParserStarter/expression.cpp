@@ -54,3 +54,19 @@ int64_t Multiplication::Eval( ) const
    {
    return left->Eval() * right->Eval();
    }
+
+Subtraction::Subtraction(Expression *l, Expression *r) :
+      left(l), right(r)
+   {
+   }
+
+Subtraction::~Subtraction( )
+   {
+   delete left;
+   delete right;
+   }
+
+int64_t Subtraction::Eval( ) const
+   {
+   return left->Eval() - right->Eval();
+   }

@@ -77,4 +77,21 @@ public:
    };
 // multiplication
 
+class Subtraction: public Expression
+   {
+protected:
+
+   Expression *left;
+   Expression *right;
+
+public:
+
+   Subtraction(Expression *l, Expression *r);
+
+   ~Subtraction();
+
+   int64_t Eval() const override;
+   };
+// subtraction
+
 #endif /* EXPRESSION_H_ */
