@@ -70,3 +70,19 @@ int64_t Subtraction::Eval( ) const
    {
    return left->Eval() - right->Eval();
    }
+
+Division::Division(Expression *l, Expression *r) :
+      left(l), right(r)
+   {
+   }
+
+Division::~Division( )
+   {
+   delete left;
+   delete right;
+   }
+
+int64_t Division::Eval( ) const
+   {
+   return left->Eval() / right->Eval();
+   }

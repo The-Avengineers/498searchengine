@@ -94,4 +94,21 @@ public:
    };
 // subtraction
 
+class Division: public Expression
+   {
+protected:
+
+   Expression *left;
+   Expression *right;
+
+public:
+
+   Division(Expression *l, Expression *r);
+
+   ~Division();
+
+   int64_t Eval() const override;
+   };
+
+
 #endif /* EXPRESSION_H_ */

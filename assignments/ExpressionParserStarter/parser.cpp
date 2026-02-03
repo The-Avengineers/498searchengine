@@ -15,7 +15,7 @@
 Expression *Parser::FindFactor( )
    {
    if (stream.Match('(')){
-      Expression *inner = FindAdd();
+      Expression *inner = FindAddSub();
       if (!inner){
          return nullptr;
       }
@@ -35,58 +35,67 @@ Expression *Parser::FindFactor( )
    return stream.ParseNumber( );
    }
 
-Expression *Parser::FindAdd( )
+Expression *Parser::FindAddSub( )
    {
-   Expression *left = FindMultiply();
+   Expression *left = FindMulDiv();
    if (!left){
       return nullptr;
    }
 
    while (true){
       if (stream.Match('+')){
-         Expression *right = FindMultiply();
+         Expression *right = FindMulDiv();
          if (!right){
             delete left;
             return nullptr;
          }
          left = new Addition(left, right);
-      }
-      else if (stream.Match('-')){
-         Expression *right = FindMultiply();
+      } else if (stream.Match('-')){
+         Expression *right = FindMulDiv();
          if (!right){
             delete left;
             return nullptr;
          }
          left = new Subtraction(left, right);
-      }
-      else {
+      } else {
          break;
       }
    }
    return left;
    }
 
-Expression *Parser::FindMultiply( )
+Expression *Parser::FindMulDiv()
    {
    Expression *left = FindFactor();
    if (!left){
       return nullptr;
    }
-
-   while (stream.Match('*')){
-      Expression *right = FindFactor();
-      if (!right){
-         delete left;
-         return nullptr;
+   while(true){
+      if (stream.Match('*')){
+         Expression *right = FindFactor();
+         if (!right){
+            delete left;
+            return nullptr;
+         }
+         left = new Multiplication(left, right);
+      } else if (stream.Match('/')){
+         Expression *right = FindFactor();
+         if (!right){
+            delete left;
+            return nullptr;
+         }
+         left = new Division(left, right);
+      } else {
+         break;
       }
-      left = new Multiplication(left, right);
    }
+   
    return left;
    }
 
 Expression *Parser::Parse( )
    {
-   Expression *exp = FindAdd();
+   Expression *exp = FindAddSub();
    if (exp && stream.AllConsumed()){
       return exp;
    }

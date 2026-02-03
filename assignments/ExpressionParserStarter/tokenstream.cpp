@@ -19,6 +19,7 @@ bool CharIsRelevant( char c )
       case '-':
       case '+':
       case '*':
+      case '/':
       case '(':
       case ')':
          return true;

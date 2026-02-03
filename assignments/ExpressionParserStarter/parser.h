@@ -49,9 +49,9 @@ class Parser
     */
    Expression *FindFactor( );
 
-   Expression *FindAdd( );
+   Expression *FindAddSub( );
 
-   Expression *FindMultiply( );
+   Expression *FindMulDiv( );
 
 public:
 
