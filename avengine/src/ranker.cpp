@@ -1,25 +1,30 @@
 #include <avengine/ranker.h>
 
-namespace avengine {
+namespace avengine
+{
 
-void Ranker::AddStrategy(const Strategy *strategy, double weight) {
+void Ranker::AddStrategy(const Strategy* strategy, double weight)
+{
   WeightedStrategy entry;
   entry.strategy = strategy;
   entry.weight = weight;
   Strategies.pushBack(entry);
 }
 
-void Ranker::ClearStrategies() {
+void Ranker::ClearStrategies()
+{
   Strategies.clear();
 }
 
-double Ranker::Score(const string &url,
-                     const vector<vector<size_t>> &term_positions) const {
+double Ranker::Score(const string& url, const vector<vector<size_t>>& term_positions) const
+{
   double combined = 0.0;
 
-  for (size_t i = 0; i < Strategies.size(); ++i) {
-    const WeightedStrategy &entry = Strategies[i];
-    if (entry.strategy == nullptr) {
+  for (size_t i = 0; i < Strategies.size(); ++i)
+  {
+    const WeightedStrategy& entry = Strategies[i];
+    if (entry.strategy == nullptr)
+    {
       return 0.0;
     }
 
@@ -29,4 +34,4 @@ double Ranker::Score(const string &url,
   return combined;
 }
 
-} 
+} // namespace avengine

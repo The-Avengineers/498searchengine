@@ -41,6 +41,6 @@ public:
   int64_t Eval() const override;
 };
 // class Number
-}
+} // namespace avengine
 
 #endif /* EXPRESSION_H_ */
