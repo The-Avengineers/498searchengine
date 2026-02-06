@@ -2,19 +2,17 @@ name: Clang-Format Auto-Fix
 
 on:
   push:
-    branches-ignore:
-      - main
-      - master
+    branches-ignore: [main, master]
+
+permissions:
+  contents: write
 
 jobs:
-  auto-format:
+  autofix:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write   # needed so the action can push a commit
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -24,27 +22,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-format
 
-      - name: Run clang-format
+      - name: Format avengine sources
+        working-directory: avengine
         run: |
-          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp' '*.hh')
-
+          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp')
           if [ -z "$files" ]; then
-            echo "No C/C++ source files to format."
+            echo "No C/C++ files found."
             exit 0
           fi
+          echo "$files" | xargs -r clang-format -i
 
-          clang-format -i $files
-
+      - name: Commit changes if any
+        run: |
           if git diff --quiet; then
-            echo "No formatting changes needed."
+            echo "No formatting changes."
             exit 0
           fi
-
-          echo "Formatting changes detected, committing..."
 
           git config user.name "github-actions[bot]"
-          git.config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add $files
-          git commit -m "chore: auto-format C++ sources"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add avengine
+          git commit -m "chore: auto-format avengine C/C++ sources"
           git push

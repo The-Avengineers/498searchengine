@@ -1,0 +1,39 @@
+name: Clang-Tidy
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build clang-tidy clang-tools
+
+      - name: Configure (GCC, avengine)
+        run: |
+          cmake -S avengine -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Run clang-tidy (avengine only)
+        run: |
+          files=$(git -C avengine ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp')
+          if [ -z "$files" ]; then
+            echo "No C/C++ files found."
+            exit 0
+          fi
+
+          # Prefix paths since run-clang-tidy is launched from repo root
+          prefixed_files=$(echo "$files" | sed 's|^|avengine/|')
+          run-clang-tidy -p build $prefixed_files

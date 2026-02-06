@@ -5,36 +5,22 @@
 
 // Nicole Hamilton  nham@umich.edu
 
-
-#include <iostream>
 #include <chrono>
+#include <iostream>
 
-class Timer
-   {
-   private:
+class Timer {
+private:
+  std::chrono::high_resolution_clock::time_point start, finish;
 
-      std::chrono::high_resolution_clock::time_point start, finish;
+public:
+  void Start() { start = std::chrono::high_resolution_clock::now(); }
 
-   public:
+  void Finish() { finish = std::chrono::high_resolution_clock::now(); }
 
-      void Start( )
-         {
-         start = std::chrono::high_resolution_clock::now( );
-         }
+  unsigned long Elapsed() { return (finish - start).count(); }
 
-      void Finish( )
-         {
-         finish = std::chrono::high_resolution_clock::now( );
-         }
-
-      unsigned long Elapsed( )
-         {
-         return ( finish - start ).count( );
-         }
-
-      void PrintElapsed( )
-         {
-         std::cout << "Elapsed time = " << Elapsed( ) <<
-            " ticks" << std::endl << std::endl;
-         }
-   };
+  void PrintElapsed() {
+    std::cout << "Elapsed time = " << Elapsed() << " ticks" << std::endl
+              << std::endl;
+  }
+};

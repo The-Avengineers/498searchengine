@@ -2,16 +2,14 @@ name: Clang-Format Check
 
 on:
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
 
 jobs:
-  clang-format:
+  format-check:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install clang-format
@@ -19,21 +17,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-format
 
-      - name: Run clang-format check
+      - name: Check formatting (avengine only)
+        working-directory: avengine
         run: |
-          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp' '*.hh')
-
+          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp')
           if [ -z "$files" ]; then
-            echo "No C/C++ source files to format."
+            echo "No C/C++ files found."
             exit 0
           fi
 
-          clang-format -i $files
+          # Check without modifying files
+          echo "$files" | xargs -r clang-format --dry-run --Werror
 
-          if ! git diff --quiet; then
-            echo "::error ::Code is not clang-formatted. Please run clang-format locally and commit the changes."
-            git --no-pager diff
-            exit 1
-          fi
-
-          echo "All files are properly formatted."
+          echo "Formatting check passed."

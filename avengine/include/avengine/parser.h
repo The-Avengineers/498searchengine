@@ -34,40 +34,40 @@
 #include <avengine/expression.h>
 #include <avengine/tokenstream.h>
 
-namespace avengine {
+namespace avengine
+{
 
 /**
  * The actual expression parser
  */
 class Parser
-   {
-   // Stream of tokens to consume input from
-   TokenStream stream;
+{
+  // Stream of tokens to consume input from
+  TokenStream stream;
 
-   /**
-    * Find the appropriate nonterminal
-    *
-    * Return nullptr if it could not be found
-    */
-   Expression *FindFactor( );
+  /**
+   * Find the appropriate nonterminal
+   *
+   * Return nullptr if it could not be found
+   */
+  Expression* FindFactor();
 
-   Expression *FindAdd( );
+  Expression* FindAdd();
 
-   Expression *FindMultiply( );
+  Expression* FindMultiply();
 
 public:
+  /**
+   * Construct parser based on given input
+   */
+  Parser(const std::string& in);
 
-   /**
-    * Construct parser based on given input
-    */
-   Parser( const std::string &in );
-
-   /**
-    * The public interface of the parser. Call this function,
-    * rather than the private internal functions.
-    */
-   Expression *Parse( );
-   };
+  /**
+   * The public interface of the parser. Call this function,
+   * rather than the private internal functions.
+   */
+  Expression* Parse();
+};
 // class Parser
 
 } // namespace avengine
