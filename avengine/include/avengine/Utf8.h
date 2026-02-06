@@ -10,7 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace avengine {
+namespace avengine
+{
 
 //
 // Basic Types
@@ -162,7 +163,7 @@ size_t SizeOfUtf16(Unicode c);
 // IndicatedLength looks at the first byte of a Utf8 sequence and
 // determines the expected length.  Return 1 for an invalid first byte.
 
-size_t IndicatedLength(const Utf8 *p);
+size_t IndicatedLength(const Utf8* p);
 
 // Read the next Utf8 character beginning at **pp and bump *pp past
 // the end of the character.  if bound != null, bound points one past
@@ -178,13 +179,13 @@ size_t IndicatedLength(const Utf8 *p);
 // surrogates), "noncharacters" 0xfdd0 to 0xfdef, and the values 0xfffe
 // and 0xffff should be returned as the replacement character.
 
-Unicode ReadUtf8(const Utf8 **p, const Utf8 *bound = nullptr);
+Unicode ReadUtf8(const Utf8** p, const Utf8* bound = nullptr);
 
 // Scan backward for the first PREVIOUS byte which could
 // be the start of a UTF-8 character.  If bound != null,
 // bound points to the first (leftmost) valid byte.
 
-const Utf8 *PreviousUtf8(const Utf8 *p, const Utf8 *bound = nullptr);
+const Utf8* PreviousUtf8(const Utf8* p, const Utf8* bound = nullptr);
 
 // Write a Unicode character in UTF-8, returning one past
 // the the last byte that was written.
@@ -195,7 +196,7 @@ const Utf8 *PreviousUtf8(const Utf8 *p, const Utf8 *bound = nullptr);
 //
 // If c > 0x7fffffff (31 bits) write the replacement character.
 
-Utf8 *WriteUtf8(Utf8 *p, Unicode c, Utf8 *bound = nullptr);
+Utf8* WriteUtf8(Utf8* p, Unicode c, Utf8* bound = nullptr);
 
 // Read a Utf16 little-endian character beginning at **pp and
 // bump *pp past the end of the character.  if bound != null,
@@ -206,7 +207,7 @@ Utf8 *WriteUtf8(Utf8 *p, Unicode c, Utf8 *bound = nullptr);
 // a low surrogate. Unpaired or out-of-order surrogates are
 // read as literal values.
 
-Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound = nullptr);
+Unicode ReadUtf16(const Utf16** p, const Utf16* bound = nullptr);
 
 // Write a Unicode character in UTF-16, returning one past
 // the the last byte that was written.
@@ -217,15 +218,15 @@ Unicode ReadUtf16(const Utf16 **p, const Utf16 *bound = nullptr);
 //
 // If c > 0x10ffff (21 bits) write the replacement character.
 
-Utf16 *WriteUtf16(Utf16 *p, Unicode c, Utf16 *bound = nullptr);
+Utf16* WriteUtf16(Utf16* p, Unicode c, Utf16* bound = nullptr);
 
 // Wrappers that read the character but don't advance the pointer.
 
-Unicode GetUtf8(const Utf8 *p, const Utf8 *bound = nullptr);
-Unicode GetUtf16(const Utf16 *p, const Utf16 *bound = nullptr);
+Unicode GetUtf8(const Utf8* p, const Utf8* bound = nullptr);
+Unicode GetUtf16(const Utf16* p, const Utf16* bound = nullptr);
 
 // Wrappers that advance the pointer but throw away the value.
 
-const Utf8 *NextUtf8(const Utf8 *p, const Utf8 *bound = nullptr);
-const Utf16 *NextUtf16(const Utf16 *p, const Utf16 *bound = nullptr);
-}
+const Utf8* NextUtf8(const Utf8* p, const Utf8* bound = nullptr);
+const Utf16* NextUtf16(const Utf16* p, const Utf16* bound = nullptr);
+} // namespace avengine

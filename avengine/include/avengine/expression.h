@@ -12,36 +12,34 @@
 
 #include <stdint.h>
 
-namespace avengine {
+namespace avengine
+{
 
 /**
  * Just a plain old expression
  */
 class Expression
-   {
+{
 public:
+  virtual ~Expression();
 
-   virtual ~Expression( );
-
-   virtual int64_t Eval( ) const = 0;
-   };
+  virtual int64_t Eval() const = 0;
+};
 // class Expression
 
 /**
  * A number
  */
-class Number: public Expression
-   {
+class Number : public Expression
+{
 protected:
-
-   int64_t value;
+  int64_t value;
 
 public:
+  Number(int64_t val);
 
-   Number( int64_t val );
-
-   int64_t Eval( ) const override;
-   };
+  int64_t Eval() const override;
+};
 // class Number
 
 #endif /* EXPRESSION_H_ */

@@ -12,34 +12,32 @@
 #include <avengine/expression.h>
 #include <avengine/parser.h>
 
-namespace avengine {
+namespace avengine
+{
 
-Expression *Parser::FindFactor( )
-   {
-   // TODO
-   return nullptr;
-   }
-
-Expression *Parser::FindAdd( )
-   {
-   // TODO
-   return nullptr;
-   }
-
-Expression *Parser::FindMultiply( )
-   {
-   // TODO
-   return nullptr;
-   }
-
-Expression *Parser::Parse( )
-   {
-   // TODO
-   return nullptr;
-   }
-
-Parser::Parser( const std::string &in ) :
-      stream( in )
-   {
-   }
+Expression* Parser::FindFactor()
+{
+  // TODO
+  return nullptr;
 }
+
+Expression* Parser::FindAdd()
+{
+  // TODO
+  return nullptr;
+}
+
+Expression* Parser::FindMultiply()
+{
+  // TODO
+  return nullptr;
+}
+
+Expression* Parser::Parse()
+{
+  // TODO
+  return nullptr;
+}
+
+Parser::Parser(const std::string& in) : stream(in) {}
+} // namespace avengine

@@ -1,0 +1,21 @@
+name: clang-static-analyzer
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  scan-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build clang-tools
+
+      - name: Analyze build
+        run: |
+          scan-build --status-bugs cmake -S . -B build-sa -G Ninja -DCMAKE_CXX_COMPILER=g++
+          scan-build --status-bugs cmake --build build-sa

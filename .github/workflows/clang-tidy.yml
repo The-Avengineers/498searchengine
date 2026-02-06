@@ -1,0 +1,28 @@
+name: clang-tidy
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build clang-tidy clang-tools
+
+      - name: Configure (GCC)
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy
+        run: |
+          files=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp')
+          if [ -z "$files" ]; then
+            echo "No C/C++ files."
+            exit 0
+          fi
+          run-clang-tidy -p build $files
