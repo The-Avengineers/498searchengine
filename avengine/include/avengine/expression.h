@@ -43,6 +43,6 @@ public:
    int64_t Eval( ) const override;
    };
 // class Number
+}
 
 #endif /* EXPRESSION_H_ */
-}

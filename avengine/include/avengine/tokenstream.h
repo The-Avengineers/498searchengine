@@ -75,6 +75,6 @@ public:
     */
    Number *ParseNumber( );
    };
-
-#endif /* TOKENSTREAM_H_ */
 }
+#endif /* TOKENSTREAM_H_ */
+
