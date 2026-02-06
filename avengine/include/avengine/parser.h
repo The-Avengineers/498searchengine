@@ -70,5 +70,6 @@ public:
 };
 // class Parser
 
+} // namespace avengine
+
 #endif /* PARSER_H_ */
-}

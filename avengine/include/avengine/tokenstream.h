@@ -78,3 +78,5 @@ public:
 
 #endif /* TOKENSTREAM_H_ */
 }
+#endif /* TOKENSTREAM_H_ */
+
