@@ -12,5 +12,5 @@
 
 #include "HashTable.h"
 
-Tuple< const char *, size_t > **TopN( HashTable< const char *,
-      size_t > *hashtable, int N = 10 );
+Tuple<const char *, size_t> **TopN(HashTable<const char *, size_t> *hashtable,
+                                   int N = 10);

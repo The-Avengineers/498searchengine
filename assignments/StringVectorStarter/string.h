@@ -336,7 +336,7 @@ public:
     for (size_t i = 0; i < Size; ++i) {
       if ((*this)[i] == delimiter) {
         result.pushBack(current);
-        current = string();  
+        current = string();
       } else {
         current.pushBack((*this)[i]);
       }

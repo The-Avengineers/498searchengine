@@ -3,23 +3,21 @@
 // Nicole Hamilton  nham@umich.edu
 
 #include <cassert>
-#include <iostream>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <string>
 #include <vector>
-#include <cstring>
 
-#include "HashBlob.h"
 #include "Common.h"
+#include "HashBlob.h"
 #include "Timer.h"
 
 using namespace std;
 
-
-void Usage( )
-   {
-   cout <<
+void Usage() {
+  cout <<
 
       "Usage:  HashBlob [ -L ] wordsin.txt [ blobfile ]\n"
       "\n"
@@ -32,132 +30,116 @@ void Usage( )
       "-v means verbose output\n"
       "-L means read whole lines as words\n";
 
-   exit( 0 );
-   }
+  exit(0);
+}
 
+using Hash = HashTable<const char *, size_t>;
+using Pair = Tuple<const char *, size_t>;
 
-using Hash = HashTable< const char *, size_t >;
-using Pair = Tuple< const char *, size_t >;
+void Search(const HashBlob *hashblob) {
+  // Search the HashBlob for words read from cin.
 
+  string word;
+  while (cin >> word) {
+    const SerialTuple *s = hashblob->Find(word.c_str());
+    cout << (s ? s->Value : 0) << "   " << word << endl;
+  }
+}
 
-void Search( const HashBlob *hashblob )
-   {
-   // Search the HashBlob for words read from cin.
+int main(int argc, char **argv) {
+  if (argc < 2)
+    Usage();
 
-   string word;
-   while ( cin >> word )
-      {
-      const SerialTuple *s = hashblob->Find( word.c_str( ) );
-      cout << ( s ? s->Value : 0 ) << "   " << word << endl;
-      }
-   }
+  vector<string> words;
 
+  CollectWordsIn(argc, argv, words);
+  if (optVerbose) {
+    cout << "Building HashTable" << endl;
 
-int main( int argc, char **argv )
-   {
-   if ( argc < 2 )
-      Usage( );
+    Timer time;
+    time.Start();
 
-   vector< string > words;
+    Hash *hashtable = BuildHashTable(words);
 
-   CollectWordsIn( argc, argv, words );
-   if ( optVerbose )
-      {
-      cout << "Building HashTable" << endl;
+    time.Finish();
+    time.PrintElapsed();
 
-      Timer time;
-      time.Start( );
+    cout << "Optimizing HashTable" << endl;
 
-      Hash *hashtable = BuildHashTable( words );
+    time.Start();
 
-      time.Finish( );
-      time.PrintElapsed( );
+    hashtable->Optimize();
 
-      cout << "Optimizing HashTable" << endl;
+    time.Finish();
+    time.PrintElapsed();
 
-      time.Start( );
+    if (argc < 3) {
+      // Build the Hasblob in memory only.
 
-      hashtable->Optimize( );
+      cout << "Building HashBlob" << endl;
 
-      time.Finish( );
-      time.PrintElapsed( );
+      time.Start();
 
-      if ( argc < 3 )
-         {
-         // Build the Hasblob in memory only.
+      HashBlob *hashblob = HashBlob::Create(hashtable);
 
-         cout << "Building HashBlob" << endl;
+      time.Finish();
+      time.PrintElapsed();
 
-         time.Start( );
+      cout << "HashBlob size = " << hashblob->BlobSize << " bytes" << endl;
 
-         HashBlob *hashblob = HashBlob::Create( hashtable );
+      cout << endl << "Enter search words:" << endl;
 
-         time.Finish( );
-         time.PrintElapsed( );
+      time.Start();
 
-         cout << "HashBlob size = " << hashblob->BlobSize <<
-            " bytes" << endl;
+      Search(hashblob);
 
-         cout << endl << "Enter search words:" << endl;
+      time.Finish();
+      time.PrintElapsed();
 
-         time.Start( );
+      HashBlob::Discard(hashblob);
+    } else {
+      // Build the HashBlob as a BlobFile.
 
-         Search( hashblob );
+      cout << "Building HashFile = " << argv[2] << endl;
 
-         time.Finish( );
-         time.PrintElapsed( );
+      time.Start();
 
-         HashBlob::Discard( hashblob );
-         }
-      else
-         {
-         // Build the HashBlob as a BlobFile.
+      HashFile hashfile(argv[2], hashtable);
 
-         cout << "Building HashFile = " << argv[ 2 ] << endl;
+      time.Finish();
+      time.PrintElapsed();
 
-         time.Start( );
+      const HashBlob *hashblob = hashfile.Blob();
 
-         HashFile hashfile( argv[ 2 ], hashtable );
+      cout << "HashBlob size = " << hashblob->BlobSize << " bytes" << endl;
 
-         time.Finish( );
-         time.PrintElapsed( );
+      time.Start();
 
-         const HashBlob *hashblob = hashfile.Blob( );
+      Search(hashblob);
 
-         cout << "HashBlob size = " << hashblob->BlobSize << " bytes" << endl;
+      time.Finish();
+      time.PrintElapsed();
+    }
 
-         time.Start( );
+    delete hashtable;
+  } else {
+    Hash *hashtable = BuildHashTable(words);
+    hashtable->Optimize();
 
-         Search( hashblob );
+    if (argc < 3) {
+      // Build the Hasblob in memory only.
 
-         time.Finish( );
-         time.PrintElapsed( );
-         }
+      HashBlob *hashblob = HashBlob::Create(hashtable);
+      Search(hashblob);
+      HashBlob::Discard(hashblob);
+    } else {
+      // Build the HashBlob as a BlobFile.
 
-      delete hashtable;
-      }
-   else
-      {
-      Hash *hashtable = BuildHashTable( words );
-      hashtable->Optimize( );
+      HashFile hashfile(argv[2], hashtable);
+      const HashBlob *hashblob = hashfile.Blob();
+      Search(hashblob);
+    }
 
-      if ( argc < 3 )
-         {
-         // Build the Hasblob in memory only.
-
-         HashBlob *hashblob = HashBlob::Create( hashtable );
-         Search( hashblob );
-         HashBlob::Discard( hashblob );
-         }
-      else
-         {
-         // Build the HashBlob as a BlobFile.
-
-         HashFile hashfile( argv[ 2 ], hashtable );
-         const HashBlob *hashblob = hashfile.Blob( );
-         Search( hashblob );
-         }
-
-      delete hashtable;
-      }
-   }
+    delete hashtable;
+  }
+}
