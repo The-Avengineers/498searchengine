@@ -1,5 +1,6 @@
-#include "index.h"
 #include "avengine/vector.h"
+#include "index.h"
+#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cstdint>
@@ -216,6 +217,7 @@ struct Index
     needed += (totalUniqWords + 1) * 2 * 2;
 
     uint64_t* dictionary_buffer = new uint64_t[needed]();
+    std::fill(dictionary_buffer, dictionary_buffer + needed, UINT64_MAX);
 
     dictionary_buffer[0] = documentNames.size();
     dictionary_buffer[1] = totalUniqWords + 1;
@@ -237,10 +239,9 @@ struct Index
         }
 
         dictionary_buffer[2 + hash * 2] = string_buffer.size();
-        dictionary_buffer[2 + hash * 2 + 1] = 0xffff;
 
         // Add the term to the string buffer
-        for (char const* str = bucket->word; *str; i++)
+        for (char const* str = bucket->word; *str; str++)
           string_buffer.pushBack(*str);
 
         string_buffer.pushBack('\0');
@@ -251,7 +252,7 @@ struct Index
     }
 
     // TODO: maybe fallocate?
-    lseek(fd, needed * sizeof(uint64_t), SEEK_CUR);
+    lseek(fd, needed * sizeof(uint64_t), SEEK_SET);
 
     write(fd, string_buffer.begin(), string_buffer.size());
 
@@ -301,18 +302,21 @@ struct Index
                   write_var_uint32(posting_buffer_head, head->positions[i] - lastPosition);
             }
           }
+
+          head = head->next;
         }
 
         postingsOffset += posting_buffer_head - posting_buffer;
 
         write(fd, posting_buffer, posting_buffer_head - posting_buffer);
 
-        posting_buffer_head = 0;
+        posting_buffer_head = posting_buffer;
 
         bucket = bucket->nextBucket;
       }
     }
 
+    lseek(fd, 0, SEEK_SET);
     write(fd, dictionary_buffer, needed * sizeof(uint64_t));
   }
 
@@ -475,5 +479,7 @@ int main(int argc, char** argv)
   int msec = diff * 1000 / CLOCKS_PER_SEC;
   printf("\e[?25h\nDone building index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
 
-  twoWayMerge(argv[2], argv[3]);
+  int fd = open("index.sfi", O_WRONLY | O_CREAT, 0644);
+  globalIndex.serialize(fd);
+  close(fd);
 }
