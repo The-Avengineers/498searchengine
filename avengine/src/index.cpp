@@ -1,31 +1,29 @@
-#include "index.h"
 #include "avengine/vector.h"
+#include "index.h"
 #include <cassert>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-void parse_kjv_verses(char* content, avengine::vector<char*>& documents,
-                      avengine::vector<char*>& document_names)
+void parseKjvVerses(char* content, avengine::vector<char*>& documents,
+                    avengine::vector<char*>& documentNames)
 {
   char* verse = strtok(content, "\n");
 
   while (verse)
   {
-    document_names.pushBack(verse);
+    documentNames.pushBack(verse);
 
     while (*verse != '\t')
       verse++;
 
     *(verse++) = '\0';
-
-    for (size_t i = 0; verse[i]; i++)
-      if (verse[i] == ' ')
-        verse[i] = '\0';
 
     documents.pushBack(verse);
 
@@ -33,7 +31,7 @@ void parse_kjv_verses(char* content, avengine::vector<char*>& documents,
   }
 }
 
-char* memory_map_file(char const* filename, size_t& length)
+char* memoryMapFile(char const* filename, size_t& length)
 {
   int fd = open(filename, O_RDONLY);
   struct stat sb;
@@ -53,7 +51,7 @@ char* memory_map_file(char const* filename, size_t& length)
   return data;
 }
 
-size_t djb2_hash(char const* str)
+size_t djb2Hash(char const* str)
 {
   size_t hash = 5381;
   int c;
@@ -64,32 +62,59 @@ size_t djb2_hash(char const* str)
   return hash;
 }
 
+// Consider switching from AoS to SoA.
 struct Posting
 {
-  uint32_t doc_id;
-  uint32_t term_freq;
+  uint32_t docId;
+  uint32_t termFreq;
   // It might make sense to make the just an index if resizing is often changing
   // the base pointer location.
   uint32_t* positions;
 };
 
+struct PositionBlock
+{
+  PositionBlock* next;
+  // The total size of the positions array, DOES NOT include the next and
+  // capacity fields.
+  size_t capacity;
+  uint32_t positions[];
+};
+
+#define STARTING_CAPACITY 64
+
 struct PostingList
 {
-  PostingList(char const* word, PostingList* next_bucket)
+  PostingList(char const* word, PostingList* nextBucket)
   {
     this->word = word;
-    this->next_bucket = next_bucket;
+    this->nextBucket = nextBucket;
     capacity = 4096;
     length = 0;
 
     postings = (Posting*)malloc(this->capacity * sizeof(Posting));
-    positions_start = position_head = (uint32_t*)malloc(8 * sizeof(uint32_t));
-    positions_end = &positions_start[8];
+    allocNewBlock(STARTING_CAPACITY);
+    headBlock = positionsStart;
   }
 
-  void ingest(uint32_t doc_id, size_t offset)
+  void allocNewBlock(size_t capacity)
   {
-    if (!length || postings[length - 1].doc_id != doc_id)
+    if (positionsStart)
+      positionsStart = positionsStart->next =
+          (PositionBlock*)malloc(sizeof(PositionBlock) + sizeof(uint32_t) * capacity);
+    else
+      positionsStart = (PositionBlock*)malloc(sizeof(PositionBlock) + sizeof(uint32_t) * capacity);
+
+    positionsStart->next = nullptr;
+    positionsStart->capacity = capacity;
+    totalPositionCapacity += capacity;
+    positionHead = positionsStart->positions;
+    positionsEnd = &positionsStart->positions[capacity];
+  }
+
+  void ingest(uint32_t docId, size_t offset)
+  {
+    if (!length || postings[length - 1].docId != docId)
     {
       if (length >= capacity)
       {
@@ -97,63 +122,53 @@ struct PostingList
         postings = (Posting*)realloc((void*)postings, capacity * sizeof(Posting));
       }
 
-      postings[length].doc_id = doc_id;
-      postings[length].positions = position_head;
-      postings[length++].term_freq = 0;
+      postings[length].docId = docId;
+      postings[length].positions = positionHead;
+      postings[length++].termFreq = 0;
     }
 
     Posting& posting = postings[length - 1];
 
-    posting.term_freq++;
+    posting.termFreq++;
 
-    if (position_head >= positions_end)
+    if (positionHead >= positionsEnd)
     {
-      size_t current_capacity = positions_end - positions_start;
-      size_t new_capacity = current_capacity * 2;
-
-      size_t position_head_offset = position_head - positions_start;
-      positions_start = (uint32_t*)realloc(positions_start, new_capacity * sizeof(uint32_t));
-
-      positions_end = positions_start + new_capacity;
-      position_head = positions_start + position_head_offset;
-
-      // We have to update the pointers the postings. In future implentions this
-      // may not be necessary.
-      for (size_t i = 0; i < length; i++)
-      {
-        size_t offset = postings[i].positions - (positions_start - position_head_offset);
-        postings[i].positions = positions_start + offset;
-      }
+      allocNewBlock(totalPositionCapacity);
     }
 
-    *(position_head++) = offset;
+    *(positionHead++) = offset;
   }
 
   char const* word;
-  PostingList* next_bucket;
+  PostingList* nextBucket;
   size_t capacity;
   size_t length;
   Posting* postings;
 
-  uint32_t* positions_end;
-  uint32_t* position_head;
-  uint32_t* positions_start;
+  PositionBlock* positionsStart = nullptr;
+  PositionBlock* headBlock;
+  size_t totalPositionCapacity = 0;
+  uint32_t* positionHead;
+  uint32_t* positionsEnd;
 };
+
+#define HASHMAP_SIZE 131072
 
 struct Index
 {
   PostingList** buckets;
   size_t offset = 0;
-  size_t total_uniq_words = 0;
-  avengine::vector<const char*> document_names;
+  size_t totalUniqWords = 0;
+  avengine::vector<const char*> documentNames;
+  uint8_t* bumpAllocator;
 
-  PostingList*& get_bucket(char const* word)
+  PostingList*& getBucket(char const* word)
   {
-    size_t index = djb2_hash(word) % 4096;
+    size_t index = djb2Hash(word) % 4096;
     PostingList*& bucket = buckets[index];
 
     while (bucket && strcmp(bucket->word, word))
-      bucket = bucket->next_bucket;
+      bucket = bucket->nextBucket;
 
     if (!bucket)
       bucket = new PostingList(word, nullptr);
@@ -161,114 +176,178 @@ struct Index
     return bucket;
   }
 
-  Index()
+  void* bumpAllocate(size_t length) const
   {
-    buckets = new PostingList*[4096]();
+    uint8_t* start = bumpAllocator;
+    start += length;
+    return start;
   }
 
-  uint32_t begin_document(const char* url)
+  Index()
+      : buckets(new PostingList*[HASHMAP_SIZE]()),
+        bumpAllocator((uint8_t*)malloc((size_t)32768 * 1048576))
   {
-    document_names.pushBack(url);
+  }
+
+  uint32_t beginDocument(const char* url)
+  {
+    documentNames.pushBack(url);
     offset = 0;
-    return document_names.size() - 1;
+    return documentNames.size() - 1;
   }
 
   // TODO: ingest should only take the word and get the `doc_id` from the
   // `Index`.
-  void ingest(uint32_t doc_id, char const* word)
+  void ingest(uint32_t docId, char const* word)
   {
-    size_t index = djb2_hash(word) % 4096;
+    size_t index = djb2Hash(word) % HASHMAP_SIZE;
     PostingList* bucket = buckets[index];
 
     while (bucket && strcmp(bucket->word, word))
-      bucket = bucket->next_bucket;
+      bucket = bucket->nextBucket;
 
     if (!bucket)
     {
-      total_uniq_words++;
+      totalUniqWords++;
       bucket = buckets[index] = new PostingList(word, buckets[index]);
     }
 
-    bucket->ingest(doc_id, offset++);
+    bucket->ingest(docId, offset++);
   }
 };
 
-Index global_index;
+Index globalIndex;
 
-size_t index_document(char const* url, char* words)
+size_t indexDocument(char const* url, char* pharses)
 {
-  uint32_t doc_id = global_index.begin_document(url);
+  uint32_t docId = globalIndex.beginDocument(url);
 
-  while (*words)
+  while (*pharses && !isalpha(*pharses))
+    pharses++;
+
+  while (*pharses)
   {
-    char const* word = words;
+    char const* word = pharses;
 
-    global_index.ingest(doc_id, word);
+    while (*pharses && isalpha(*pharses))
+    {
+      *pharses = *pharses | 32;
+      pharses++;
+    }
 
-    while (*words)
-      words++;
+    *(pharses++) = '\0';
 
-    words++;
+    globalIndex.ingest(docId, word);
+
+    while (*pharses && !isalpha(*pharses))
+      pharses++;
   }
 
   return 0;
 }
 
-void two_way_merge(const char* first_word, const char* second_word)
+void twoWayMerge(const char* firstWord, const char* secondWord)
 {
-  PostingList* first_bucket = global_index.get_bucket(first_word);
-  PostingList* second_bucket = global_index.get_bucket(second_word);
+  PostingList* firstBucket = globalIndex.getBucket(firstWord);
+  PostingList* secondBucket = globalIndex.getBucket(secondWord);
 
-  size_t first_index = 0;
-  size_t second_index = 0;
+  size_t firstIndex = 0;
+  size_t secondIndex = 0;
 
-  while (first_index < first_bucket->length && second_index < second_bucket->length)
+  while (firstIndex < firstBucket->length && secondIndex < secondBucket->length)
   {
-    uint32_t first_id = first_bucket->postings[first_index].doc_id;
-    uint32_t second_id = second_bucket->postings[second_index].doc_id;
+    uint32_t firstId = firstBucket->postings[firstIndex].docId;
+    uint32_t secondId = secondBucket->postings[secondIndex].docId;
 
-    if (first_id > second_id)
+    if (firstId > secondId)
     {
-      second_index++;
+      secondIndex++;
     }
-    else if (first_id < second_id)
+    else if (firstId < secondId)
     {
-      first_index++;
+      firstIndex++;
     }
     else
     {
-      printf("%s matches both %s and %s\n", global_index.document_names[first_id], first_word,
-             second_word);
-      first_index++;
-      second_index++;
+      printf("%s\n", globalIndex.documentNames[firstId]);
+      firstIndex++;
+      secondIndex++;
     }
   }
 }
 
-void inspect_bucket(PostingList* bucket)
+void inspectBucket(PostingList* bucket)
 {
   for (size_t i = 0; i < bucket->length; i++)
   {
-    printf("%s :", global_index.document_names[bucket->postings[i].doc_id]);
+    printf("%s :", globalIndex.documentNames[bucket->postings[i].docId]);
 
-    for (size_t j = 0; j < bucket->postings[i].term_freq; j++)
+    for (size_t j = 0; j < bucket->postings[i].termFreq; j++)
       printf(" %d", bucket->postings[i].positions[j]);
 
     printf("\n");
   }
 }
 
+void dumpWords(Index const& index)
+{
+  size_t amounts[8] = {0};
+
+  for (size_t i = 0; i < HASHMAP_SIZE; i++)
+  {
+    PostingList* bucket = index.buckets[i];
+    size_t j = 0;
+
+    while (bucket)
+    {
+      j++;
+      bucket = bucket->nextBucket;
+    }
+
+    if (j < 8)
+      amounts[j]++;
+    else
+      amounts[7]++;
+  }
+
+  printf("%ld empty buckets\n", amounts[0]);
+
+  for (size_t i = 1; i < 8; i++)
+  {
+    printf("%ld with %ld buckets\n", amounts[i], i);
+  }
+}
+
 int main(int argc, char** argv)
 {
   size_t length;
-  char* content = memory_map_file("../../data/kjv.txt", length);
+  char* content = memoryMapFile(argv[1], length);
+
+  printf("Done mapping file!\n");
 
   avengine::vector<char*> documents;
-  avengine::vector<char*> document_names;
-  parse_kjv_verses(content, documents, document_names);
+  avengine::vector<char*> documentNames;
+  parseKjvVerses(content, documents, documentNames);
 
+  printf("Done parsing verses file, %ld documents!\n\e[?25l", documents.size());
+
+  clock_t start = clock(), diff;
   for (size_t i = 0; i < documents.size(); i++)
-    index_document(document_names[i], documents[i]);
+  {
+    if (i % 50 == 0)
+    {
+      printf("\e[2K%.2f%%\r", (float)i / (float)documents.size() * 100.0);
+      fflush(stdout);
+    }
+    indexDocument(documentNames[i], documents[i]);
+  }
 
-  two_way_merge(argv[1], argv[2]);
+  printf("\e[2K100.00%%\r");
+
+  diff = clock() - start;
+
+  int msec = diff * 1000 / CLOCKS_PER_SEC;
+  printf("\e[?25h\nDone building index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
+
+  twoWayMerge(argv[2], argv[3]);
 }
