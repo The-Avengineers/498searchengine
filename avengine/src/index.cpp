@@ -1,5 +1,5 @@
-#include "index.h"
 #include "avengine/vector.h"
+#include "index.h"
 #include <cassert>
 #include <cctype>
 #include <cstdint>
@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 void parseKjvVerses(char* content, avengine::vector<char*>& documents,
                     avengine::vector<char*>& documentNames)
@@ -154,6 +155,19 @@ struct PostingList
 
 #define HASHMAP_SIZE 131072
 
+// TODO: Actually write a variable length integers instead
+uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
+{
+  memcpy(buffer, &value, sizeof(uint64_t));
+  return buffer + sizeof(uint64_t);
+}
+
+uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
+{
+  memcpy(buffer, &value, sizeof(uint64_t));
+  return buffer + sizeof(uint64_t);
+}
+
 struct Index
 {
   PostingList** buckets;
@@ -176,10 +190,10 @@ struct Index
     return bucket;
   }
 
-  void* bumpAllocate(size_t length) const
+  void* bumpAllocate(size_t length)
   {
     uint8_t* start = bumpAllocator;
-    start += length;
+    bumpAllocator += length;
     return start;
   }
 
@@ -189,10 +203,117 @@ struct Index
   {
   }
 
+  // Write the index structure to disk.
+  void serialize(int fd)
+  {
+    size_t needed = 2;
+
+    needed += (totalUniqWords + 1) * 2 * 2;
+
+    uint64_t* dictionary_buffer = new uint64_t[needed]();
+
+    dictionary_buffer[0] = documentNames.size();
+    dictionary_buffer[1] = totalUniqWords + 1;
+
+    avengine::vector<char> string_buffer;
+
+    for (size_t i = 0; i < HASHMAP_SIZE; i++)
+    {
+      PostingList* bucket = buckets[i];
+
+      while (bucket)
+      {
+        size_t hash = djb2Hash(bucket->word) % (totalUniqWords * 2);
+
+        // Find an empty bucket
+        while (dictionary_buffer[2 + hash * 2 + 1] > 0)
+        {
+          hash += 1;
+        }
+
+        dictionary_buffer[2 + hash * 2] = string_buffer.size();
+        dictionary_buffer[2 + hash * 2 + 1] = 0xffff;
+
+        // Add the term to the string buffer
+        for (char const* str = bucket->word; *str; i++)
+          string_buffer.pushBack(*str);
+
+        string_buffer.pushBack('\0');
+
+        bucket->word = (const char*)hash;
+        bucket = bucket->nextBucket;
+      }
+    }
+
+    // TODO: maybe fallocate?
+    lseek(fd, needed * sizeof(uint64_t), SEEK_CUR);
+
+    write(fd, string_buffer.begin(), string_buffer.size());
+
+    size_t postingsOffset = 0;
+
+    // Allocate a buffer big buffer for writing, this should be changed to just what we need.
+    uint8_t* posting_buffer = new uint8_t[262144]();
+    uint8_t* posting_buffer_head = posting_buffer;
+
+    // Now we write out the posting list
+    for (size_t i = 0; i < HASHMAP_SIZE; i++)
+    {
+      PostingList* bucket = buckets[i];
+
+      while (bucket)
+      {
+        size_t hash = (size_t)bucket->word;
+
+        dictionary_buffer[2 + hash * 2 + 1] = postingsOffset;
+
+        posting_buffer_head = write_uint64(posting_buffer_head, bucket->length);
+        // TODO: Write total collection frequency
+        posting_buffer_head = write_uint64(posting_buffer_head, 0xdeadbeef);
+        PositionBlock* head = bucket->positionsStart;
+
+        size_t lastPosition = 0;
+
+        // TODO: Write index synchronization points and skip pointers
+
+        // Write posts
+        while (head)
+        {
+          // If we have a next pointer it means this block is full so we write all of it.
+          if (head->next)
+          {
+            for (size_t i = 0; i < head->capacity; i++)
+            {
+              posting_buffer_head =
+                  write_var_uint32(posting_buffer_head, head->positions[i] - lastPosition);
+            }
+          }
+          else
+          {
+            for (size_t i = 0; i < bucket->positionsEnd - head->positions; i++)
+            {
+              posting_buffer_head =
+                  write_var_uint32(posting_buffer_head, head->positions[i] - lastPosition);
+            }
+          }
+        }
+
+        postingsOffset += posting_buffer_head - posting_buffer;
+
+        write(fd, posting_buffer, posting_buffer_head - posting_buffer);
+
+        posting_buffer_head = 0;
+
+        bucket = bucket->nextBucket;
+      }
+    }
+
+    write(fd, dictionary_buffer, needed * sizeof(uint64_t));
+  }
+
   uint32_t beginDocument(const char* url)
   {
     documentNames.pushBack(url);
-    offset = 0;
     return documentNames.size() - 1;
   }
 
