@@ -158,8 +158,13 @@ struct PostingList
 // TODO: Actually write a variable length integers instead
 uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
 {
-  memcpy(buffer, &value, sizeof(uint64_t));
-  return buffer + sizeof(uint64_t);
+  while (value >= 0x80u)
+  {
+    *buffer++ = static_cast<uint8_t>((value & 0x7Fu) | 0x80u);
+    value >>= 7;
+  }
+  *buffer++ = static_cast<uint8_t>(value);
+  return buffer;
 }
 
 uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
