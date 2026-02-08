@@ -21,9 +21,9 @@
 namespace avengine
 {
 
-using Hash = HashTable<const char *, size_t>;
-using Pair = Tuple<const char *, size_t>;
-using HashBucket = Bucket<const char *, size_t>;
+using Hash = HashTable<const char*, size_t>;
+using Pair = Tuple<const char*, size_t>;
+using HashBucket = Bucket<const char*, size_t>;
 
 // magic number and version that we chose
 size_t MAGIC_NUMBER = 6767;
@@ -31,7 +31,8 @@ size_t VERSION = 67;
 
 static const size_t Unknown = 0;
 
-size_t RoundUp(size_t length, size_t boundary) {
+size_t RoundUp(size_t length, size_t boundary)
+{
   // Round up to the next multiple of the boundary, which
   // must be a power of 2.
 
@@ -39,7 +40,8 @@ size_t RoundUp(size_t length, size_t boundary) {
   return (length + oneless) & mask;
 }
 
-struct SerialTuple {
+struct SerialTuple
+{
   // This is a serialization of a HashTable< char *, size_t >::Bucket.
   // One is packed up against the next in a HashBlob.
 
@@ -65,7 +67,8 @@ public:
   // Calculate the bytes required to encode a HashBucket as a
   // SerialTuple.
 
-  static size_t BytesRequired(const HashBucket *b) {
+  static size_t BytesRequired(const HashBucket* b)
+  {
 
     // get the length of the key -> c string + the sentinel
     size_t keySize = strlen(b->tuple.key) + 1;
@@ -77,14 +80,15 @@ public:
   // Write the HashBucket out as a SerialTuple in the buffer,
   // returning a pointer to one past the last character written.
 
-  static char *Write(char *buffer, char *bufferEnd, const HashBucket *b) {
+  static char* Write(char* buffer, char* bufferEnd, const HashBucket* b)
+  {
     // get the required bytes for the bucket
     size_t requiredBytes = BytesRequired(b);
     // ensure that there's enough room in the buffer for the bucket
     assert(bufferEnd - buffer >= requiredBytes);
 
     // cast buffer to SerialTuple + fille in the fields
-    SerialTuple *serialTup = (SerialTuple *)buffer;
+    SerialTuple* serialTup = (SerialTuple*)buffer;
     serialTup->Length = requiredBytes;
     serialTup->Value = b->tuple.value;
     serialTup->HashValue = b->hashValue;
@@ -96,7 +100,8 @@ public:
   }
 };
 
-class HashBlob {
+class HashBlob
+{
   // This will be a hash specifically designed to hold an
   // entire hash table as a single contiguous blob of bytes.
   // Pointers are disallowed so that the blob can be
@@ -115,7 +120,8 @@ public:
 
   // The SerialTuples will follow immediately after.
 
-  const SerialTuple *Find(const char *key) const {
+  const SerialTuple* Find(const char* key) const
+  {
     // Search for the key k and return a pointer to the
     // ( key, value ) entry.  If the key is not found,
     // return nullptr.
@@ -125,26 +131,30 @@ public:
     uint64_t hashed = hashFunc(key);
     uint64_t idx = hashed % NumberOfBuckets;
     // buckets[idx] = 0 indicates that this idx isn't occupied
-    if (Buckets[idx] == 0) {
+    if (Buckets[idx] == 0)
+    {
       return nullptr;
     }
     // point to this list of buckets (start of buffer + offset)
-    char *pt = ((char *)this) + Buckets[idx];
-    SerialTuple *thatIdx = (SerialTuple *)(pt);
+    char* pt = ((char*)this) + Buckets[idx];
+    SerialTuple* thatIdx = (SerialTuple*)(pt);
     // checks if the list is still going (length == 0 is the sentinel)
-    while (thatIdx->Length != 0) {
+    while (thatIdx->Length != 0)
+    {
       // if keys are equal return this serialtuple
-      if (strcmp(thatIdx->Key, key) == 0) {
+      if (strcmp(thatIdx->Key, key) == 0)
+      {
         return thatIdx;
       }
       // go to the new serialtuple in this list
       pt += thatIdx->Length;
-      thatIdx = (SerialTuple *)(pt);
+      thatIdx = (SerialTuple*)(pt);
     }
     return nullptr;
   }
 
-  static size_t BytesRequired(const Hash *hashTable) {
+  static size_t BytesRequired(const Hash* hashTable)
+  {
     // Calculate how much space it will take to
     // represent a HashTable as a HashBlob.
 
@@ -155,14 +165,17 @@ public:
     // size of the header and buckets
     size_t sz = sizeof(size_t) * (4 + hashTable->numberOfBuckets);
     // getting size of each serialized tuple
-    for (size_t i = 0; i < hashTable->numberOfBuckets; ++i) {
-      HashBucket *buck = hashTable->buckets[i];
-      if (buck != nullptr) {
+    for (size_t i = 0; i < hashTable->numberOfBuckets; ++i)
+    {
+      HashBucket* buck = hashTable->buckets[i];
+      if (buck != nullptr)
+      {
         // add sentinels for non-empty lists
         sz += sizeof(size_t);
       }
 
-      while (buck != nullptr) {
+      while (buck != nullptr)
+      {
         sz += SerialTuple::BytesRequired(buck);
         buck = buck->next;
       }
@@ -174,7 +187,8 @@ public:
   // Write a HashBlob into a buffer, returning a
   // pointer to the blob.
 
-  static HashBlob *Write(HashBlob *hb, size_t bytes, const Hash *hashTable) {
+  static HashBlob* Write(HashBlob* hb, size_t bytes, const Hash* hashTable)
+  {
     // YOUR CODE HERE
     // fill in the header of the blob
     hb->MagicNumber = MAGIC_NUMBER;
@@ -183,30 +197,32 @@ public:
     hb->BlobSize = BytesRequired(hashTable);
     // calcualte the overhead of the header to know where to start the
     // serialtuples
-    size_t offset =
-        (sizeof(size_t) * 4 + sizeof(size_t) * hashTable->numberOfBuckets);
+    size_t offset = (sizeof(size_t) * 4 + sizeof(size_t) * hashTable->numberOfBuckets);
     // calcualte the buffer start and end
-    char *buffer = (char *)hb + offset;
-    char *bufferEnd = (char *)hb + bytes;
+    char* buffer = (char*)hb + offset;
+    char* bufferEnd = (char*)hb + bytes;
     // go through the bcukets within the hashtable
-    for (size_t i = 0; i < hashTable->numberOfBuckets; ++i) {
-      HashBucket *buck = hashTable->buckets[i];
+    for (size_t i = 0; i < hashTable->numberOfBuckets; ++i)
+    {
+      HashBucket* buck = hashTable->buckets[i];
       // if that bucket isn't occupied, have a 0 offset indicating it's empty
-      if (buck == nullptr) {
+      if (buck == nullptr)
+      {
         hb->Buckets[i] = 0;
         continue;
       }
 
       // otherwise add the offset (the difference between the location of the st
       // and the start of the hashblob)
-      hb->Buckets[i] = buffer - (char *)hb;
-      while (buck != nullptr) {
+      hb->Buckets[i] = buffer - (char*)hb;
+      while (buck != nullptr)
+      {
         buffer = SerialTuple::Write(buffer, bufferEnd, buck);
         buck = buck->next;
       }
 
       // add sentinels
-      *(size_t *)buffer = 0;
+      *(size_t*)buffer = 0;
       buffer += sizeof(size_t);
     }
 
@@ -220,10 +236,11 @@ public:
   // (No easy way to override the new operator to create a
   // variable sized object.)
 
-  static HashBlob *Create(const Hash *hashTable) {
+  static HashBlob* Create(const Hash* hashTable)
+  {
     // YOUR CODE HERE
     size_t bytes = BytesRequired(hashTable);
-    HashBlob *hb = (HashBlob *)new char[bytes];
+    HashBlob* hb = (HashBlob*)new char[bytes];
     hb = Write(hb, bytes, hashTable);
 
     return hb;
@@ -231,28 +248,35 @@ public:
 
   // Discard
 
-  static void Discard(HashBlob *blob) {
-    char *hb = (char *)blob;
+  static void Discard(HashBlob* blob)
+  {
+    char* hb = (char*)blob;
     delete[] hb;
   }
 };
 
-class HashFile {
+class HashFile
+{
 private:
-  HashBlob *blob;
+  HashBlob* blob;
   int fd;
   size_t fileSize;
 
-  size_t FileSize(int f) {
+  size_t FileSize(int f)
+  {
     struct stat fileInfo;
     fstat(f, &fileInfo);
     return fileInfo.st_size;
   }
 
 public:
-  const HashBlob *Blob() { return blob; }
+  const HashBlob* Blob()
+  {
+    return blob;
+  }
 
-  HashFile(const char *filename) {
+  HashFile(const char* filename)
+  {
     // Open the file for reading, map it and check the header.
     // new a HashFile, fill in the filehandle and blob address.
 
@@ -263,13 +287,14 @@ public:
     fileSize = FileSize(fd);
     // mmap(void * addr, size_t length, int prot, int flags, int fd, off_t
     // offset)
-    blob = (HashBlob *)mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
+    blob = (HashBlob*)mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
     assert(blob != MAP_FAILED);
     assert(blob->MagicNumber == MAGIC_NUMBER);
     assert(blob->Version == VERSION);
   }
 
-  HashFile(const char *filename, const Hash *hashtable) {
+  HashFile(const char* filename, const Hash* hashtable)
+  {
     // Open the file for write, map it, write
     // the hashtable out as a HashBlob, and note
     // the blob address.
@@ -279,12 +304,12 @@ public:
     assert(fd >= 0);
     fileSize = HashBlob::BytesRequired(hashtable);
     ftruncate(fd, fileSize);
-    HashBlob *map = (HashBlob *)mmap(nullptr, fileSize, PROT_WRITE | PROT_READ,
-                                     MAP_SHARED, fd, 0);
+    HashBlob* map = (HashBlob*)mmap(nullptr, fileSize, PROT_WRITE | PROT_READ, MAP_SHARED, fd, 0);
     blob = HashBlob::Write(map, fileSize, hashtable);
   }
 
-  ~HashFile() {
+  ~HashFile()
+  {
     // YOUR CODE HERE
     munmap(blob, fileSize);
     close(fd);

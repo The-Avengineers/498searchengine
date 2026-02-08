@@ -15,25 +15,29 @@
 namespace avengine
 {
 
-Expression *Parser::FindFactor() {
+Expression* Parser::FindFactor()
+{
   // TODO
   return nullptr;
 }
 
-Expression *Parser::FindAdd() {
+Expression* Parser::FindAdd()
+{
   // TODO
   return nullptr;
 }
 
-Expression *Parser::FindMultiply() {
+Expression* Parser::FindMultiply()
+{
   // TODO
   return nullptr;
 }
 
-Expression *Parser::Parse() {
+Expression* Parser::Parse()
+{
   // TODO
   return nullptr;
 }
 
-Parser::Parser(const std::string &in) : stream(in) {}
+Parser::Parser(const std::string& in) : stream(in) {}
 } // namespace avengine

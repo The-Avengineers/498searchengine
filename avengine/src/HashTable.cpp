@@ -19,7 +19,8 @@ namespace avengine
 
 using namespace std;
 
-void Usage() {
+void Usage()
+{
   cout <<
 
       "Usage:  HashTable [ -vL ] wordsin.txt\n"
@@ -34,20 +35,23 @@ void Usage() {
   exit(0);
 }
 
-using Hash = HashTable<const char *, size_t>;
-using Pair = Tuple<const char *, size_t>;
+using Hash = HashTable<const char*, size_t>;
+using Pair = Tuple<const char*, size_t>;
 
-void Search(const Hash *hashtable) {
+void Search(const Hash* hashtable)
+{
   // Search the HashTable for words read from cin.
 
   string word;
-  while (cin >> word) {
-    const Pair *p = hashtable->Find(word.c_str());
+  while (cin >> word)
+  {
+    const Pair* p = hashtable->Find(word.c_str());
     cout << (p ? p->value : 0) << "   " << word << endl;
   }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv)
+{
   if (argc < 2)
     Usage();
 
@@ -55,13 +59,14 @@ int main(int argc, char **argv) {
 
   CollectWordsIn(argc, argv, words);
 
-  if (optVerbose) {
+  if (optVerbose)
+  {
     cout << "Building HashTable" << endl;
 
     Timer time;
     time.Start();
 
-    Hash *hashtable = BuildHashTable(words);
+    Hash* hashtable = BuildHashTable(words);
 
     time.Finish();
     time.PrintElapsed();
@@ -85,8 +90,10 @@ int main(int argc, char **argv) {
     time.PrintElapsed();
 
     delete hashtable;
-  } else {
-    Hash *hashtable = BuildHashTable(words);
+  }
+  else
+  {
+    Hash* hashtable = BuildHashTable(words);
     hashtable->Optimize();
     Search(hashtable);
     delete hashtable;

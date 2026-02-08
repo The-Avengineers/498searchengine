@@ -16,5 +16,8 @@ Expression::~Expression() {}
 
 Number::Number(int64_t val) : value(val) {}
 
-int64_t Number::Eval() const { return value; }
+int64_t Number::Eval() const
+{
+  return value;
+}
 } // namespace avengine

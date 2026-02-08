@@ -4,43 +4,52 @@
 #include <cstddef>
 #include <iostream>
 
-namespace avengine {
+namespace avengine
+{
 
-class string_view {
+class string_view
+{
 public:
   // Default constructor: empty view
   string_view() : Data(nullptr), Size(0) {}
 
   // Construct from mutable raw pointer + length
-  string_view(char *data, size_t len) : Data(data), Size(len) {}
+  string_view(char* data, size_t len) : Data(data), Size(len) {}
 
   // Construct from const raw pointer + length
-  string_view(const char *data, size_t len) : Data(data), Size(len) {}
+  string_view(const char* data, size_t len) : Data(data), Size(len) {}
 
   // Construct from const null terminated C string
-  explicit string_view(const char *cstr) : Data(cstr), Size(0) {
-    if (!cstr) {
+  explicit string_view(const char* cstr) : Data(cstr), Size(0)
+  {
+    if (!cstr)
+    {
       return;
     }
-    while (cstr[Size] != '\0') {
+    while (cstr[Size] != '\0')
+    {
       ++Size;
     }
   }
 
   // Construct from mutable null terminated C string
-  explicit string_view(char *cstr) : Data(cstr), Size(0) {
-    if (!cstr) {
+  explicit string_view(char* cstr) : Data(cstr), Size(0)
+  {
+    if (!cstr)
+    {
       return;
     }
-    while (cstr[Size] != '\0') {
+    while (cstr[Size] != '\0')
+    {
       ++Size;
     }
   }
 
   // Implicity from avengine::string (mutable overload)
-  string_view(string &s) : Data(&s[0]), Size(s.size()) {
+  string_view(string& s) : Data(&s[0]), Size(s.size())
+  {
     if (s.size() == 0)
-      Data = const_cast<char *>(s.cstr());
+      Data = const_cast<char*>(s.cstr());
   }
 
   // Implicity from avengine::string (read-only use)
@@ -84,7 +93,8 @@ public:
     return Data[Size - 1]; }
 
   void removePrefix(size_t n) {
-    if (n >= Size) {
+    if (n >= Size)
+    {
       Data = Data ? Data + Size : Data;
       Size = 0;
       return;
@@ -94,7 +104,8 @@ public:
   }
 
   void removeSuffix(size_t n) {
-    if (n >= Size) {
+    if (n >= Size)
+    {
       Size = 0;
       return;
     }
@@ -102,7 +113,8 @@ public:
   }
 
   string_view substr(size_t pos, size_t count) const {
-    if (pos >= Size) {
+    if (pos >= Size)
+    {
       return string_view();
     }
     size_t avail = Size - pos;
@@ -132,7 +144,8 @@ public:
   // returns: <0 if *this < other, 0 if equal, >0 if *this > other
   int compare(const string_view &other) const {
     size_t n = (Size < other.Size) ? Size : other.Size;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i)
+    {
       unsigned char a = static_cast<unsigned char>(Data[i]);
       unsigned char b = static_cast<unsigned char>(other.Data[i]);
       if (a < b)
@@ -150,7 +163,8 @@ public:
   bool startsWith(const string_view &prefix) const {
     if (prefix.Size > Size)
       return false;
-    for (size_t i = 0; i < prefix.Size; ++i) {
+    for (size_t i = 0; i < prefix.Size; ++i)
+    {
       if (Data[i] != prefix.Data[i])
         return false;
     }
@@ -161,7 +175,8 @@ public:
     if (suffix.Size > Size)
       return false;
     size_t offset = Size - suffix.Size;
-    for (size_t i = 0; i < suffix.Size; ++i) {
+    for (size_t i = 0; i < suffix.Size; ++i)
+    {
       if (Data[offset + i] != suffix.Data[i])
         return false;
     }
@@ -173,37 +188,46 @@ private:
   size_t Size;
 };
 
-inline bool operator==(const string_view &a, const string_view &b) {
+inline bool operator==(const string_view& a, const string_view& b)
+{
   if (a.size() != b.size())
     return false;
-  for (size_t i = 0; i < a.size(); ++i) {
+  for (size_t i = 0; i < a.size(); ++i)
+  {
     if (a[i] != b[i])
       return false;
   }
   return true;
 }
 
-inline bool operator!=(const string_view &a, const string_view &b) {
+inline bool operator!=(const string_view& a, const string_view& b)
+{
   return !(a == b);
 }
 
 // Ordering
-inline bool operator<(const string_view &a, const string_view &b) {
+inline bool operator<(const string_view& a, const string_view& b)
+{
   return a.compare(b) < 0;
 }
-inline bool operator>(const string_view &a, const string_view &b) {
+inline bool operator>(const string_view& a, const string_view& b)
+{
   return b < a;
 }
-inline bool operator<=(const string_view &a, const string_view &b) {
+inline bool operator<=(const string_view& a, const string_view& b)
+{
   return !(b < a);
 }
-inline bool operator>=(const string_view &a, const string_view &b) {
+inline bool operator>=(const string_view& a, const string_view& b)
+{
   return !(a < b);
 }
 
 // Stream output (writes exactly size() chars)
-inline std::ostream &operator<<(std::ostream &os, const string_view &sv) {
-  for (const char *it = sv.begin(); it != sv.end(); ++it) {
+inline std::ostream& operator<<(std::ostream& os, const string_view& sv)
+{
+  for (const char* it = sv.begin(); it != sv.end(); ++it)
+  {
     os << *it;
   }
   return os;

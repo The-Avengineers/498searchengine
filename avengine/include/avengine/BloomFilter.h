@@ -35,7 +35,8 @@ public:
     // Use double hashing to get unique bit, and repeat for each hash function.
   }
 
-  bool contains(const std::string &s) {
+  bool contains(const std::string& s)
+  {
     // Hash the string into two unqiue hashes.
 
     // Use double hashing to get unique bit, and repeat for each hash function.
@@ -54,7 +55,8 @@ private:
   std::vector<bool> bits;
   int size;
   int num_hash_funcs;
-  std::pair<uint64_t, uint64_t> hash(const std::string &datum) {
+  std::pair<uint64_t, uint64_t> hash(const std::string& datum)
+  {
     // Use MD5 to hash the string into one 128 bit hash, and split into 2
     // hashes.
 
