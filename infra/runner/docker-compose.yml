@@ -1,0 +1,20 @@
+services:
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: avengine-gh-runner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RUNNER_NAME: ${RUNNER_NAME:-avengine-desktop-runner}
+      RUNNER_WORKDIR: /tmp/runner/work
+      RUNNER_SCOPE: repo
+      DISABLE_AUTO_UPDATE: "false"
+      LABELS: ${RUNNER_LABELS:-self-hosted,linux,x64,avengine}
+      EPHEMERAL: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-data:/tmp/runner
+
+volumes:
+  runner-data:
