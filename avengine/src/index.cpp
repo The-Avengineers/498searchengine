@@ -1,5 +1,5 @@
-#include "avengine/vector.h"
 #include "index.h"
+#include "avengine/vector.h"
 #include <algorithm>
 #include <cassert>
 #include <cctype>
