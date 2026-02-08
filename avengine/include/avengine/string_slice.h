@@ -7,20 +7,20 @@
 namespace avengine
 {
 
-class string_view
+class string_slice
 {
 public:
   // Default constructor: empty view
-  string_view() : Data(nullptr), Size(0) {}
+  string_slice() : Data(nullptr), Size(0) {}
 
   // Construct from mutable raw pointer + length
-  string_view(char* data, size_t len) : Data(data), Size(len) {}
+  string_slice(char* data, size_t len) : Data(data), Size(len) {}
 
   // Construct from const raw pointer + length
-  string_view(const char* data, size_t len) : Data(data), Size(len) {}
+  string_slice(const char* data, size_t len) : Data(data), Size(len) {}
 
   // Construct from const null terminated C string
-  explicit string_view(const char* cstr) : Data(cstr), Size(0)
+  explicit string_slice(const char* cstr) : Data(cstr), Size(0)
   {
     if (!cstr)
     {
@@ -33,7 +33,7 @@ public:
   }
 
   // Construct from mutable null terminated C string
-  explicit string_view(char* cstr) : Data(cstr), Size(0)
+  explicit string_slice(char* cstr) : Data(cstr), Size(0)
   {
     if (!cstr)
     {
@@ -46,14 +46,14 @@ public:
   }
 
   // Implicity from avengine::string (mutable overload)
-  string_view(string& s) : Data(&s[0]), Size(s.size())
+  string_slice(string& s) : Data(&s[0]), Size(s.size())
   {
     if (s.size() == 0)
       Data = const_cast<char*>(s.cstr());
   }
 
   // Implicity from avengine::string (read-only use)
-  string_view(const string &s) : Data(const_cast<char *>(s.cstr()) {}
+  string_slice(const string &s) : Data(const_cast<char *>(s.cstr()) {}
 
   // size
   size_t size() const {
@@ -112,37 +112,37 @@ public:
     Size -= n;
   }
 
-  string_view substr(size_t pos, size_t count) const {
+  string_slice substr(size_t pos, size_t count) const {
     if (pos >= Size)
     {
-      return string_view();
+      return string_slice();
     }
     size_t avail = Size - pos;
     size_t n = (count < avail) ? count : avail;
-    return string_view(Data + pos, n);
+    return string_slice(Data + pos, n);
   }
 
   // slice helpers
 
-  string_view slice(size_t pos, size_t count) const {
+  string_slice slice(size_t pos, size_t count) const {
     return substr(pos, count); }
 
-  string_view slice(size_t pos) const {
+  string_slice slice(size_t pos) const {
     if (pos >= Size)
-      return string_view();
-    return string_view(Data + pos, Size - pos);
+      return string_slice();
+    return string_slice(Data + pos, Size - pos);
   }
 
-  string_view sliceRange(size_t start, size_t endExclusive) const {
+  string_slice sliceRange(size_t start, size_t endExclusive) const {
     if (start >= Size || start >= endExclusive)
-      return string_view();
+      return string_slice();
     size_t endClamped = (endExclusive < Size) ? endExclusive : Size;
-    return string_view(Data + start, endClamp - Start);
+    return string_slice(Data + start, endClamp - Start);
   }
 
   // compare lexicographically
   // returns: <0 if *this < other, 0 if equal, >0 if *this > other
-  int compare(const string_view &other) const {
+  int compare(const string_slice &other) const {
     size_t n = (Size < other.Size) ? Size : other.Size;
     for (size_t i = 0; i < n; ++i)
     {
@@ -160,7 +160,7 @@ public:
     return 0;
   }
 
-  bool startsWith(const string_view &prefix) const {
+  bool startsWith(const string_slice &prefix) const {
     if (prefix.Size > Size)
       return false;
     for (size_t i = 0; i < prefix.Size; ++i)
@@ -171,7 +171,7 @@ public:
     return true;
   }
 
-  bool endsWith(const string_view &suffix) const {
+  bool endsWith(const string_slice &suffix) const {
     if (suffix.Size > Size)
       return false;
     size_t offset = Size - suffix.Size;
@@ -188,7 +188,7 @@ private:
   size_t Size;
 };
 
-inline bool operator==(const string_view& a, const string_view& b)
+inline bool operator==(const string_slice& a, const string_slice& b)
 {
   if (a.size() != b.size())
     return false;
@@ -200,31 +200,31 @@ inline bool operator==(const string_view& a, const string_view& b)
   return true;
 }
 
-inline bool operator!=(const string_view& a, const string_view& b)
+inline bool operator!=(const string_slice& a, const string_slice& b)
 {
   return !(a == b);
 }
 
 // Ordering
-inline bool operator<(const string_view& a, const string_view& b)
+inline bool operator<(const string_slice& a, const string_slice& b)
 {
   return a.compare(b) < 0;
 }
-inline bool operator>(const string_view& a, const string_view& b)
+inline bool operator>(const string_slice& a, const string_slice& b)
 {
   return b < a;
 }
-inline bool operator<=(const string_view& a, const string_view& b)
+inline bool operator<=(const string_slice& a, const string_slice& b)
 {
   return !(b < a);
 }
-inline bool operator>=(const string_view& a, const string_view& b)
+inline bool operator>=(const string_slice& a, const string_slice& b)
 {
   return !(a < b);
 }
 
 // Stream output (writes exactly size() chars)
-inline std::ostream& operator<<(std::ostream& os, const string_view& sv)
+inline std::ostream& operator<<(std::ostream& os, const string_slice& sv)
 {
   for (const char* it = sv.begin(); it != sv.end(); ++it)
   {
