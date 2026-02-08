@@ -3,11 +3,11 @@ VLQs use same encoding as [protobuf](https://protobuf.dev/programming-guides/enc
 ```txt
 Inverted Index
 ├── Dictionary
-│   ├── Hash Table using quadratic probing
-│   │   ├── Word/Term offset into string buffer
-│   │   └── Offset into posting lists
 │   ├── Number of documents
-│   └── Number of posting lists
+│   ├── Number of posting lists
+│   └── Hash Table using quadratic probing
+│       ├── Word/Term offset into string buffer
+│       └── Offset into posting lists
 ├── String Buffer
 └── Posting Lists
     ├── Posting List
