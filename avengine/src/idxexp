@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+import sys
+import argparse
+import struct
+
+
+def unpack_cstr(buffer):
+    i = 0
+    while buffer[i] != 0:
+        i += 1
+
+    return buffer[:i].decode()
+
+
+parser = argparse.ArgumentParser(
+    prog="Index Explorer",
+    description="Examine indexes produced by the Avengineers indexer",
+)
+
+parser.add_argument("filename")
+
+# TODO: Add flag for verifying integrity of index
+
+args = parser.parse_args()
+
+with open(args.filename, "rb") as binary_file:
+    data = binary_file.read()
+
+(document_count, unique_words) = struct.unpack("<QQ", data[:16])
+
+print("Total Number of Documents =", document_count)
+print("Total Number of Unique Words =", unique_words)
+
+string_buffer_start = unique_words * 16 * 2 + 16
+
+for i in range(16, unique_words * 16, 16):
+    (string_start, posting_start) = struct.unpack("<QQ", data[i : i + 16])
+    if posting_start != sys.maxsize:
+        print(unpack_cstr(data[string_buffer_start + string_ssys.maxsize :]))
