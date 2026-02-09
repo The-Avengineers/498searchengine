@@ -31,6 +31,11 @@ target_include_directories(avengine
 add_executable(vector_demo examples/vector_demo.cpp)
 target_link_libraries(vector_demo PRIVATE avengine)
 
+# Simple tool for building index from text files.
+add_executable(index_builder src/index_builder.cpp)
+target_link_libraries(index_builder PRIVATE avengine)
+target_include_directories(index_builder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Minimal index inspection tool.
 add_executable(index_reader src/index_reader.cpp)
 target_include_directories(index_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -3,11 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 
-void parseKjvVerses(char* content, avengine::vector<char*>& documents,
-                    avengine::vector<char*>& documentNames);
-
-char* memoryMapFile(char const* filename, size_t& length);
-
 size_t djb2Hash(char const* str);
 
 // Consider switching from AoS to SoA.
