@@ -126,13 +126,13 @@ void Index::serialize(int fd)
 
   needed += (totalUniqWords + 1) * 2 * 2;
 
-  uint64_t* dictionary_buffer = new uint64_t[needed]();
+  uint64_t* dictionaryBuffer = new uint64_t[needed]();
   // std::fill(dictionary_buffer, dictionary_buffer + needed, UINT64_MAX);
 
-  dictionary_buffer[0] = documentNames.size();
-  dictionary_buffer[1] = totalUniqWords + 1;
+  dictionaryBuffer[0] = documentNames.size();
+  dictionaryBuffer[1] = totalUniqWords + 1;
 
-  avengine::vector<char> string_buffer;
+  avengine::vector<char> stringBuffer;
 
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
@@ -143,19 +143,19 @@ void Index::serialize(int fd)
       size_t hash = djb2Hash(bucket->word) % (totalUniqWords * 2);
 
       // Find an empty bucket
-      while (dictionary_buffer[2 + hash * 2] > 0)
+      while (dictionaryBuffer[2 + hash * 2] > 0)
       {
         hash += 1;
         hash %= (totalUniqWords * 2);
       }
 
-      dictionary_buffer[2 + hash * 2] = string_buffer.size();
+      dictionaryBuffer[2 + hash * 2] = stringBuffer.size();
 
       // Add the term to the string buffer
       for (char const* str = bucket->word; *str; str++)
-        string_buffer.pushBack(*str);
+        stringBuffer.pushBack(*str);
 
-      string_buffer.pushBack('\0');
+      stringBuffer.pushBack('\0');
 
       bucket->hash = hash;
       bucket = bucket->nextBucket;
@@ -165,13 +165,13 @@ void Index::serialize(int fd)
   // TODO: maybe fallocate?
   lseek(fd, needed * sizeof(uint64_t), SEEK_SET);
 
-  write(fd, string_buffer.begin(), string_buffer.size());
+  write(fd, stringBuffer.begin(), stringBuffer.size());
 
   size_t postingsOffset = 0;
 
   // Allocate a buffer big buffer for writing, this should be changed to just what we need.
-  uint8_t* posting_buffer = new uint8_t[16777216]();
-  uint8_t* postingBufferHead = posting_buffer;
+  uint8_t* postingBuffer = new uint8_t[16777216]();
+  uint8_t* postingBufferHead = postingBuffer;
 
   // Now we write out the posting list
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
@@ -182,7 +182,7 @@ void Index::serialize(int fd)
     {
       size_t hash = bucket->hash;
 
-      dictionary_buffer[2 + hash * 2 + 1] = postingsOffset;
+      dictionaryBuffer[2 + hash * 2 + 1] = postingsOffset;
 
       postingBufferHead = write_uint64(postingBufferHead, bucket->postings.size());
       // TODO: Write total collection frequency
@@ -198,18 +198,18 @@ void Index::serialize(int fd)
         lastPosition = position;
       }
 
-      postingsOffset += postingBufferHead - posting_buffer;
+      postingsOffset += postingBufferHead - postingBuffer;
 
-      write(fd, posting_buffer, postingBufferHead - posting_buffer);
+      write(fd, postingBuffer, postingBufferHead - postingBuffer);
 
-      postingBufferHead = posting_buffer;
+      postingBufferHead = postingBuffer;
 
       bucket = bucket->nextBucket;
     }
   }
 
   lseek(fd, 0, SEEK_SET);
-  write(fd, dictionary_buffer, needed * sizeof(uint64_t));
+  write(fd, dictionaryBuffer, needed * sizeof(uint64_t));
 }
 
 uint32_t Index::beginDocument(const char* url)
