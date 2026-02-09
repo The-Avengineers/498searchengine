@@ -27,13 +27,10 @@ struct PostingList
   PostingList(char const* word, PostingList* nextBucket);
   void ingest(uint32_t docId, size_t offset);
 
-  char const* word;
+  char* word;
   size_t hash;
   PostingList* nextBucket;
-  size_t capacity;
-  size_t length;
-  Posting* postings;
-
+  avengine::vector<Posting> postings;
   avengine::vector<uint32_t> positions;
 };
 
@@ -45,7 +42,7 @@ uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
 
 struct Index
 {
-  PostingList** buckets;
+  avengine::vector<PostingList*> buckets;
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<const char*> documentNames;
