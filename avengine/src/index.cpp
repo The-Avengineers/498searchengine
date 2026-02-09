@@ -6,7 +6,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <dirent.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -47,6 +49,7 @@ char* memoryMapFile(char const* filename, size_t& length)
 
   // This might cause undefined behavior if it hits a new page.
   data[length] = '\0';
+  close(fd);
 
   return data;
 }
@@ -242,6 +245,7 @@ Index globalIndex;
 size_t indexDocument(char const* url, char* pharses)
 {
   uint32_t docId = globalIndex.beginDocument(url);
+  size_t words = 0;
 
   while (*pharses && !isalpha(*pharses))
     pharses++;
@@ -259,31 +263,86 @@ size_t indexDocument(char const* url, char* pharses)
     *(pharses++) = '\0';
 
     globalIndex.ingest(docId, word);
+    words++;
 
     while (*pharses && !isalpha(*pharses))
       pharses++;
   }
 
-  return 0;
+  return words;
+}
+
+bool isDirectory(char const* path)
+{
+  struct stat s;
+  assert(!stat(path, &s));
+  return s.st_mode & S_IFDIR;
+}
+
+void listFiles(char* dir, avengine::vector<char*>& files)
+{
+  DIR* dr;
+  struct dirent* en;
+  dr = opendir(dir);
+  if (dr)
+  {
+    while ((en = readdir(dr)) != NULL)
+    {
+      if (en->d_name[0] != '.')
+      {
+        char* nameCopy = new char[strlen(en->d_name) + 1];
+        strcpy(nameCopy, en->d_name);
+        files.pushBack(nameCopy);
+      }
+    }
+    closedir(dr);
+  }
 }
 
 int main(int argc, char** argv)
 {
-  size_t length;
-  char* content = memoryMapFile(argv[1], length);
+  clock_t start, diff;
 
-  printf("Done mapping file!\n");
-
-  avengine::vector<char*> documents;
-  avengine::vector<char*> documentNames;
-  parseKjvVerses(content, documents, documentNames);
-
-  printf("Done parsing verses file, %ld documents!\n", documents.size());
-
-  clock_t start = clock(), diff;
-  for (size_t i = 0; i < documents.size(); i++)
+  if (isDirectory(argv[1]))
   {
-    indexDocument(documentNames[i], documents[i]);
+    avengine::vector<char*> files;
+
+    listFiles(argv[1], files);
+
+    start = clock();
+
+    for (char* file : files)
+    {
+      char filepath[256];
+      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file);
+
+      size_t length;
+      char* content = memoryMapFile(filepath, length);
+      assert(content);
+
+      size_t written = indexDocument(file, content);
+
+      munmap(content, length);
+    }
+  }
+  else
+  {
+    size_t length;
+    char* content = memoryMapFile(argv[1], length);
+
+    printf("Done mapping file!\n");
+
+    avengine::vector<char*> documents;
+    avengine::vector<char*> documentNames;
+    parseKjvVerses(content, documents, documentNames);
+
+    printf("Done parsing verses file, %ld documents!\n", documents.size());
+
+    clock_t start = clock(), diff;
+    for (size_t i = 0; i < documents.size(); i++)
+    {
+      indexDocument(documentNames[i], documents[i]);
+    }
   }
 
   diff = clock() - start;

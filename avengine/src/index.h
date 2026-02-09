@@ -34,7 +34,7 @@ struct PostingList
   avengine::vector<uint32_t> positions;
 };
 
-#define HASHMAP_SIZE 131072
+#define HASHMAP_SIZE 262144
 
 // TODO: Actually write a variable length integers instead
 uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
