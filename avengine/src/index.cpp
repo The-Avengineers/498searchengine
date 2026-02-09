@@ -101,16 +101,19 @@ uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
   return buffer + sizeof(uint64_t);
 }
 
-PostingList*& Index::getBucket(char const* word)
+PostingList* Index::getBucket(char const* word)
 {
-  size_t index = djb2Hash(word) % 4096;
-  PostingList*& bucket = buckets[index];
+  size_t index = djb2Hash(word) % HASHMAP_SIZE;
+  PostingList* bucket = buckets[index];
 
   while (bucket && strcmp(bucket->word, word))
     bucket = bucket->nextBucket;
 
   if (!bucket)
-    bucket = new PostingList(word, nullptr);
+  {
+    totalUniqWords++;
+    bucket = buckets[index] = new PostingList(word, buckets[index]);
+  }
 
   return bucket;
 }
@@ -225,18 +228,7 @@ uint32_t Index::beginDocument(const char* url)
 void Index::ingest(char const* word)
 {
   assert(currentDocId != UINT32_MAX);
-
-  size_t index = djb2Hash(word) % HASHMAP_SIZE;
-  PostingList* bucket = buckets[index];
-
-  while (bucket && strcmp(bucket->word, word))
-    bucket = bucket->nextBucket;
-
-  if (!bucket)
-  {
-    totalUniqWords++;
-    bucket = buckets[index] = new PostingList(word, buckets[index]);
-  }
+  PostingList* bucket = getBucket(word);
 
   bucket->ingest(currentDocId, offset++);
 }

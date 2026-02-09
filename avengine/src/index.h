@@ -49,7 +49,7 @@ struct Index
   // Updated by beginDocument(). ingest(word) always indexes into this doc.
   uint32_t currentDocId = UINT32_MAX;
 
-  PostingList*& getBucket(char const* word);
+  PostingList* getBucket(char const* word);
 
   Index();
   void serialize(int fd);
