@@ -66,6 +66,7 @@ size_t djb2Hash(char const* str)
 }
 
 PostingList::PostingList(char const* word, PostingList* nextBucket) : nextBucket(nextBucket)
+
 {
   this->word = new char[strlen(word) + 1]();
   strcpy(this->word, word);
@@ -103,19 +104,20 @@ uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
 
 PostingList* Index::getBucket(char const* word)
 {
-  size_t index = djb2Hash(word) % HASHMAP_SIZE;
-  PostingList* bucket = buckets[index];
+  PostingList** bucket = &buckets[djb2Hash(word) % HASHMAP_SIZE];
 
-  while (bucket && strcmp(bucket->word, word))
-    bucket = bucket->nextBucket;
-
-  if (!bucket)
+  while (*bucket && strcmp((*bucket)->word, word))
   {
-    totalUniqWords++;
-    bucket = buckets[index] = new PostingList(word, buckets[index]);
+    bucket = &(*bucket)->nextBucket;
   }
 
-  return bucket;
+  if (!*bucket)
+  {
+    totalUniqWords++;
+    *bucket = new PostingList(word, nullptr);
+  }
+
+  return *bucket;
 }
 
 Index::Index() : buckets(HASHMAP_SIZE)
