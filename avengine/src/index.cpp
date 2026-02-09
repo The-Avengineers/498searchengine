@@ -1,7 +1,7 @@
 #include "index.h"
 #include "avengine/vector.h"
-#include <algorithm>
 #include "index.h"
+#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cstdint>
