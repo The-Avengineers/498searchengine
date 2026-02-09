@@ -46,15 +46,17 @@ struct Index
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<const char*> documentNames;
+  // Updated by beginDocument(). ingest(word) always indexes into this doc.
+  uint32_t currentDocId = UINT32_MAX;
 
   PostingList*& getBucket(char const* word);
 
   Index();
   void serialize(int fd);
+  // Starts a new active document and returns its assigned id.
   uint32_t beginDocument(const char* url);
-  // TODO: ingest should only take the word and get the `doc_id` from the
-  // `Index`.
-  void ingest(uint32_t docId, char const* word);
+  // Adds a token to the currently active document set by beginDocument().
+  void ingest(char const* word);
 };
 
 extern Index globalIndex;

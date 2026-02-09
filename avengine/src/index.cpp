@@ -218,13 +218,14 @@ void Index::serialize(int fd)
 uint32_t Index::beginDocument(const char* url)
 {
   documentNames.pushBack(url);
-  return documentNames.size() - 1;
+  currentDocId = static_cast<uint32_t>(documentNames.size() - 1);
+  return currentDocId;
 }
 
-// TODO: ingest should only take the word and get the `doc_id` from the
-// `Index`.
-void Index::ingest(uint32_t docId, char const* word)
+void Index::ingest(char const* word)
 {
+  assert(currentDocId != UINT32_MAX);
+
   size_t index = djb2Hash(word) % HASHMAP_SIZE;
   PostingList* bucket = buckets[index];
 
@@ -237,14 +238,14 @@ void Index::ingest(uint32_t docId, char const* word)
     bucket = buckets[index] = new PostingList(word, buckets[index]);
   }
 
-  bucket->ingest(docId, offset++);
+  bucket->ingest(currentDocId, offset++);
 }
 
 Index globalIndex;
 
 size_t indexDocument(char const* url, char* pharses)
 {
-  uint32_t docId = globalIndex.beginDocument(url);
+  globalIndex.beginDocument(url);
   size_t words = 0;
 
   while (*pharses && !isalpha(*pharses))
@@ -262,7 +263,7 @@ size_t indexDocument(char const* url, char* pharses)
 
     *(pharses++) = '\0';
 
-    globalIndex.ingest(docId, word);
+    globalIndex.ingest(word);
     words++;
 
     while (*pharses && !isalpha(*pharses))
