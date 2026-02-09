@@ -1,7 +1,4 @@
 #include "index.h"
-#include "avengine/vector.h"
-#include "index.h"
-#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <cstdint>
@@ -65,38 +62,25 @@ size_t djb2Hash(char const* str)
   return hash;
 }
 
-PostingList::PostingList(char const* word, PostingList* nextBucket)
+PostingList::PostingList(char const* word, PostingList* nextBucket) : nextBucket(nextBucket)
 {
-  this->word = word;
-  this->nextBucket = nextBucket;
-  capacity = 4096;
-  length = 0;
-
-  postings = (Posting*)malloc(this->capacity * sizeof(Posting));
+  this->word = new char[strlen(word) + 1]();
+  strcpy(this->word, word);
 }
 
 void PostingList::ingest(uint32_t docId, size_t offset)
 {
-  if (!length || postings[length - 1].docId != docId)
+  if (postings.empty() || postings.back().docId != docId)
   {
-    if (length >= capacity)
-    {
-      capacity *= 2;
-      postings = (Posting*)realloc((void*)postings, capacity * sizeof(Posting));
-    }
-
-    postings[length].docId = docId;
-    postings[length].positions = positions.size() - 1;
-    postings[length++].termFreq = 0;
+    postings.pushBack({.docId = docId, .termFreq = 0, .positions = positions.size() - 1});
   }
 
-  Posting& posting = postings[length - 1];
+  Posting& posting = postings.back();
 
   posting.termFreq++;
   positions.pushBack(offset);
 }
 
-// TODO: Actually write a variable length integers instead
 uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
 {
   while (value >= 0x80u)
@@ -128,7 +112,13 @@ PostingList*& Index::getBucket(char const* word)
   return bucket;
 }
 
-Index::Index() : buckets(new PostingList*[HASHMAP_SIZE]()) {}
+Index::Index() : buckets(HASHMAP_SIZE)
+{
+  for (PostingList*& bucket : buckets)
+  {
+    bucket = nullptr;
+  }
+}
 
 void Index::serialize(int fd)
 {
@@ -194,7 +184,7 @@ void Index::serialize(int fd)
 
       dictionary_buffer[2 + hash * 2 + 1] = postingsOffset;
 
-      postingBufferHead = write_uint64(postingBufferHead, bucket->length);
+      postingBufferHead = write_uint64(postingBufferHead, bucket->postings.size());
       // TODO: Write total collection frequency
       postingBufferHead = write_uint64(postingBufferHead, 0xdeadbeef);
 
