@@ -31,8 +31,13 @@ target_include_directories(avengine
 add_executable(vector_demo examples/vector_demo.cpp)
 target_link_libraries(vector_demo PRIVATE avengine)
 
+# Minimal index inspection tool.
+add_executable(index_reader src/index_reader.cpp)
+target_include_directories(index_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Optional warnings
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
 endif()
