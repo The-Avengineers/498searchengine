@@ -2,6 +2,7 @@
 import sys
 import argparse
 import struct
+from tqdm import tqdm
 
 
 def unpack_cstr(buffer):
@@ -33,7 +34,15 @@ print("Total Number of Unique Words =", unique_words)
 
 string_buffer_start = unique_words * 16 * 2 + 16
 
-for i in range(16, unique_words * 16, 16):
-    (string_start, posting_start) = struct.unpack("<QQ", data[i : i + 16])
-    if posting_start != sys.maxsize:
-        print(unpack_cstr(data[string_buffer_start + string_ssys.maxsize :]))
+words = []
+
+for i in tqdm(range(unique_words * 2)):
+    offset = i * 16 + 16
+    (string_start, posting_start) = struct.unpack(
+        "<QQ", data[offset : offset + 16]
+    )
+    if posting_start != 0:
+        term = unpack_cstr(data[string_buffer_start + string_start :])
+        words.append((term, posting_start))
+
+print(words)
