@@ -8,12 +8,25 @@ class DomainStrat : public Ranker::Strategy {
     public:
     double Score(avengine::string &url, const vector<vector<size_t>> &term_positions) {
         // Implementation: e.g., check if URL contains ".edu"
-        if (url.find(".edu") != avengine::string::npos) {
-            return 1.0;
-        }
-        if (url.find(".gov") != avengine::string::npos) {
-            return 1.0;
+        for (size_t i = 0; i < GoodDomains.size(); i++) {
+            if (url.find(GoodDomains[i]) != avengine::string::npos) {
+                return 1.0;
+            }
         }
         return 0.0;
     }
+    private:
+    const avengine::vector<const char*> GoodDomains = {".edu", ".gov"};
+};
+
+class ShortURLStrat : public Ranker::Strategy {
+    // naïve implementation: take the reciprocal of the length of url
+    public:
+    double Score(avengine::string &url, const vector<vector<size_t>> &term_positions) {
+        return url.size() == 0 ? 0.0 : 1 / double(url.size());
+    }
+};
+
+class ShortTitleStrat : public Ranker::Strategy {
+
 };
