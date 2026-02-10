@@ -30,13 +30,15 @@ struct PostingList
   char* word;
   size_t hash;
   PostingList* nextBucket;
+  // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
+  // points in the on-disk-format we should update this to match.
   avengine::vector<Posting> postings;
   avengine::vector<uint32_t> positions;
 };
 
+// TODO: Determine the best expected hashmap size given a read-world dataset.
 #define HASHMAP_SIZE 262144
 
-// TODO: Actually write a variable length integers instead
 uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
 uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
 
@@ -67,6 +69,7 @@ extern Index globalIndex;
 // monotonically increasing, i.e phrases[i].text < phrases.text[i + 1].
 size_t indexDocument(char const* url, char* pharses);
 
+// TODO: Use support phrases of different kinds and decorate or index titles differently.
 enum class PhraseKind
 {
   TITLE,

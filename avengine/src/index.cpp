@@ -135,8 +135,13 @@ void Index::serialize(int fd)
   needed += (totalUniqWords + 1) * 2 * 2;
 
   uint64_t* dictionaryBuffer = new uint64_t[needed]();
+  // TODO: We currently use an offset of zero as a sentinel is indicate an unused offset, however
+  // this perfecty valid. We either need to use another sentinel value or make an offset of zero
+  // impossible.
+
   // std::fill(dictionary_buffer, dictionary_buffer + needed, UINT64_MAX);
 
+  // TODO: Write magic bytes to identity file format and version. Maybe an emoji?
   dictionaryBuffer[0] = documentNames.size();
   dictionaryBuffer[1] = totalUniqWords + 1;
 
@@ -153,6 +158,8 @@ void Index::serialize(int fd)
       // Find an empty bucket
       while (dictionaryBuffer[2 + hash * 2] > 0)
       {
+        // TODO: We should benchmark (when quering the index) on what kind of probing method
+        // performs the best.
         hash += 1;
         hash %= (totalUniqWords * 2);
       }
@@ -198,7 +205,7 @@ void Index::serialize(int fd)
 
       size_t lastPosition = 0;
 
-      // TODO: Write index synchronization points and skip pointers
+      // TODO: Write index synchronization points and skip pointers.
 
       for (uint32_t position : bucket->positions)
       {
@@ -237,6 +244,7 @@ void Index::ingest(char const* word)
 
 Index globalIndex;
 
+// TODO: When string slice is merged we should use that everywhere instead of cstrings.
 size_t indexDocument(char const* url, char* pharses)
 {
   globalIndex.beginDocument(url);
