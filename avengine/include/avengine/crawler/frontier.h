@@ -72,12 +72,12 @@ private:
     // Requires domain
     // Modifys nothing
     // Returns the Index its at or -1 or size_t::max on failure
-    size_t domainLookup(const String& domain) const;
+    size_t domainLookup(const string& domain) const;
 
     // Requires doamin
     // Modifys domainMap
     // Returns index of insertion
-    size_t domainInsert(const String& domain);
+    size_t domainInsert(const string& domain);
 
     // Max heap based on priorities for scheduling
     priorityQueue<heapEntry, less<heapEntry>> schedulingHeap;
