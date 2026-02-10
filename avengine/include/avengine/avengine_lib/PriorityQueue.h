@@ -6,32 +6,32 @@ namespace avengine
 {
 
 template <typename T>
-struct Less {
+struct less {
   bool operator()(const T& a, const T& b) const {
     return a < b;
   }
 };
 
 template <typename T>
-struct Greater {
+struct greater {
   bool operator()(const T& a, const T& b) const {
     return a > b;
   }
 };
 
-template <typename T, typename Compare = Less<T>>
-class PriorityQueue
+template <typename T, typename Compare = less<T>>
+class priorityQueue
 {
 public:
-  PriorityQueue() : data(), comp() {}
+  priorityQueue() : data(), comp() {}
 
-  ~PriorityQueue() {}
+  ~priorityQueue() {}
 
-  PriorityQueue(const PriorityQueue& other) : data(other.data), comp(other.comp) {}
+  priorityQueue(const priorityQueue& other) : data(other.data), comp(other.comp) {}
 
 
   //constructor that takes in a vector (seed list) and builds pq
-  PriorityQueue(const vector<T>& vec, const Compare& comp_in) : data(vec), comp(comp_in) {
+  priorityQueue(const vector<T>& vec, const Compare& comp_in) : data(vec), comp(comp_in) {
     if (!data.empty()) {
       for (size_t i = data.size() / 2; i > 0; --i) {
         heapify_down(i - 1);
@@ -39,7 +39,7 @@ public:
     }
   }
 
-  PriorityQueue& operator=(const PriorityQueue& other) {
+  priorityQueue& operator=(const priorityQueue& other) {
     if (this != &other) {
       data = other.data;
       comp = other.comp;
