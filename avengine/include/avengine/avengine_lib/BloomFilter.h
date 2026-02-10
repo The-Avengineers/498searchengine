@@ -3,17 +3,16 @@
 
 #include <cmath>
 #include <openssl/md5.h>
-#include <string.h>
-#include <string>
-#include <vector>
+#include "string.h"
+#include "vector"
 
 namespace avengine
 {
 
-class Bloomfilter
+class bloomFilter
 {
 public:
-  Bloomfilter(int num_objects, double false_positive_rate)
+  bloomFilter(int num_objects, double false_positive_rate)
   {
     // Determine the size of bits of our data vector, and resize.
 
@@ -54,7 +53,7 @@ public:
 
 private:
   // Add any private member variables that may be neccessary.
-  std::vector<bool> bits;
+  vector<bool> bits;
   int size;
   int num_hash_funcs;
   std::pair<uint64_t, uint64_t> hash(const std::string& datum)

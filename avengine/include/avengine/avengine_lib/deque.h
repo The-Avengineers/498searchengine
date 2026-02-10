@@ -1,17 +1,17 @@
 #pragma once
 
-#include <avengine/vector.h>
+#include "vector.h"
 
 namespace avengine
 {
 
 // creates a Deque using a circular buffer approach
-template <typename T> class Deque
+template <typename T> class deque
 {
 public:
   // Default constructor
   // EFFECTS: Constructs an empty Deque
-  Deque() : data(), fr(0), bck(0), count(0)
+  deque() : data(), fr(0), bck(0), count(0)
   {
     // give the default Deque a capacity of 8
     for (size_t i = 0; i < 8; ++i)

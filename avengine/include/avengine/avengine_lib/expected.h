@@ -2,12 +2,12 @@
 
 namespace avengine {
 
-struct Error {
+struct error {
     string msg;
 
-    Error() {}
-    Error(const char* m) : msg(m) {}
-    Error(const String& m) : msg(m) {}
+    error() {}
+    error(const char* m) : msg(m) {}
+    error(const String& m) : msg(m) {}
 };
 
 
@@ -20,7 +20,7 @@ struct Error {
 //      handle(r.error());
 // }
 
-template <typename T, typename E = Error>
+template <typename T, typename E = error>
 class expected {
 public:
     static expected ok(const T& val) {
