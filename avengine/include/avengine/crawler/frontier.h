@@ -67,7 +67,7 @@ private:
     vector<hostQueue> perDomainQueues;
 
     // domain ---> index mapping
-    hashTable<string, size_t>* domainMap;
+    hashTable<string, size_t> domainMap;
 
     // Requires domain
     // Modifys nothing
@@ -92,8 +92,6 @@ private:
     // Returns the domain of the URL
     string extractDomain(const string& url) const;
 
-    bool pathMatchesRule(const string& path, const string& rule) const;
-    
 };
 
 }
