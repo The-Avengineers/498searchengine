@@ -12,11 +12,30 @@ namespace avengine {
  * Ranker combines one or more scoring strategies into a single score.
  * Ranker is supposed to rank one url at one time, we have the information of all the positions 
  * of the matching query words
+ * 
+ * Dynamically output the Top 10 results:
+ * using insertion sort (in this scenario faster than other sorting algos)
  */
 class Ranker {
 public:
   /**
    * Strategy interface for scoring a single URL with query term positions.
+   * 
+   * 
+   * List of heuristics:
+   * Static:
+   * 
+   * static rank
+        1. Some domains are better than others, e.g., .gov or .edu over
+        .biz.
+        2. Short URLs are better.
+        3. Short titles are probably better.
+        4. Some pages may be obvious spam.
+        5. Some pages may have lots of other pages pointing to them,
+        e.g., PageRank.26
+
+   * 
+   * Dynamic:
    */
   class Strategy {
   public:
@@ -25,6 +44,7 @@ public:
         const string &url,
         const vector<vector<size_t>> &term_positions) const = 0;
   };
+
 
   /**
    * Add a non-owning strategy pointer with an optional weight.
