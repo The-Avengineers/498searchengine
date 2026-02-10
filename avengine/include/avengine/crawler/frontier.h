@@ -7,9 +7,6 @@
 #include "avengine_lib/vector.h"
 #include "avengine_lib/priorityQueue.h"
 #include "crawler_structs.h"
-#include "Common.h"
-#include <cstddef>
-#include <ctime>
 
 namespace avengine {
 namespace crawler {

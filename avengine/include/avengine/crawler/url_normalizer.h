@@ -1,4 +1,4 @@
-#include <./string.h>
+#include "../avengine_lib/string.h"
 
 //url normalizer 
 //currently only accepts protocol://host[:port][/path]

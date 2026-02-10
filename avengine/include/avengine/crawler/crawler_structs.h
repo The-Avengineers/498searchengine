@@ -9,11 +9,15 @@ struct urlEntry {
     string domain;
     float priority;     
     int depth;   // from seed
+    bool operator<(const urlEntry& other) const {
+        return priority < other.priority;
+    }
 };
 
 struct hostQueue {
     string domain;          
-    deque<urlEntry> pending;   // URLs waiting to be fetched from this domain
+    priorityQueue<urlEntry, less<urlEntry>> pending;   
+    // URLs waiting to be fetched from this domain
 };
 
 struct heapEntry {
