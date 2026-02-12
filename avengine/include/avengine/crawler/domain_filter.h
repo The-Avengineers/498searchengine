@@ -1,0 +1,32 @@
+#pragma once
+
+#include "../avengine_lib/string.h"
+#include "../avengine_lib/vector.h"
+#include "../avengine_lib/HashTable.h"
+
+
+//need to add the blocked list
+namespace avengine {
+namespace crawler {
+
+class domainFilter {
+public:
+    domainFilter();
+    ~domainFilter();
+
+    // Requires: a URL string
+    // Modifies: nothing
+    // Returns: true if the URL's domain is blocked
+    bool isBlocked(const string& url) const;
+
+private:
+    hashTable<string, bool> blockSet;
+
+    // Requires: a URL string
+    // Modifies: nothing
+    // Returns: the domain portion of the URL
+    string extractDomain(const string& url) const;
+};
+
+} 
+} 
