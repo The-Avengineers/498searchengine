@@ -45,11 +45,16 @@ target_include_directories(index_builder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc
 add_executable(index_reader src/index_reader.cpp)
 target_include_directories(index_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Helper tool for comparing probing strategies at different load factors.
+add_executable(probing_benchmark src/probing_benchmark.cpp)
+target_include_directories(probing_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Optional warnings
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if (BUILD_TESTING)
