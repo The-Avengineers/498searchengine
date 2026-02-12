@@ -35,7 +35,7 @@ public:
   Bucket(const Key& k, uint64_t h, const Value v) : tuple(k, v), next(nullptr), hashValue(h) {}
 };
 
-template <typename Key, typename Value> class HashTable
+template <typename Key, typename Value> class hashTable
 {
 private:
   Bucket<Key, Value>** buckets;
@@ -154,7 +154,7 @@ public:
   // true if the keys are equal.  The hash function should
   // return a 64-bit value.
 
-  HashTable(bool (*compareEqual)(const Key, const Key), uint64_t (*hash)(const Key),
+  hashTable(bool (*compareEqual)(const Key, const Key), uint64_t (*hash)(const Key),
             size_t numberOfBuckets)
   {
     // initialize a new empty hashtable
@@ -173,7 +173,7 @@ public:
     this->uniqueKeys = 0;
   }
 
-  ~HashTable()
+  ~hashTable()
   {
     // have to go thru each bucket and delete individually
     for (size_t i = 0; i < numberOfBuckets; ++i)
@@ -194,14 +194,14 @@ public:
   class Iterator
   {
   private:
-    friend class HashTable;
+    friend class hashTable;
 
     // YOUR CODE HERE
-    HashTable* table;
+    hashTable* table;
     size_t bucketIdx;
     Bucket<Key, Value>* currentPtr;
 
-    Iterator(HashTable* table, size_t bucket, Bucket<Key, Value>* b)
+    Iterator(hashTable* table, size_t bucket, Bucket<Key, Value>* b)
     {
       this->table = table;
       this->bucketIdx = bucket;
