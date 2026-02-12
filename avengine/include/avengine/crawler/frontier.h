@@ -1,4 +1,4 @@
-#include "../avengine_lib/HashTable.h"
+#include "../avengine_lib/hashTable.h"
 #include "../avengine_lib/atomic.h"
 #include "../avengine_lib/bloomFilter.h"
 #include "../avengine_lib/deque.h"
