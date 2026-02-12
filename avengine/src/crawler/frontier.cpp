@@ -1,5 +1,61 @@
 #include "../../include/avengine/crawler/frontier.h"
 
+
+namespace logging_helpers {
+    expected<void, error> write(const void* ptr, size_t size, FILE* f) 
+    {
+        if (fwrite(ptr, 1, size, f) != size) {
+            fclose(f);
+            return expected<void, error>::error(error("write failed"));
+        }
+
+        return expected<void, error>::ok();
+    }
+
+    template <typename T>
+    expected<void, error> writeVal(T val, FILE* f) 
+    { 
+        return write(&val, sizeof(val), f); 
+    }
+
+    expected<void, error> writeString(const string& s, FILE* f) 
+    {
+        auto res = writeVal(s.size(), f);
+        if (!res.hasValue()) {
+            return res;
+        }
+
+        return write(s.c_str(), s.size(), f);
+    }
+
+    expected<void, error> read(void* ptr, size_t size, FILE* f) 
+    {
+        if (fread(ptr, 1, size, f) != size) {
+            fclose(f);
+            return expected<void, error>::error(error("read failed"));
+        }
+        return expected<void, error>::ok();
+    }
+
+    template <typename T>
+    expected<void, error> readVal(T& val, FILE* f) 
+    {
+        return read(&val, sizeof(val), f);
+    }
+
+    expected<void, error> readString(string& s, FILE* f) 
+    {
+        size_t len;
+        auto res = readVal(len, f);
+        if (!res.hasValue()) 
+        {
+            return res;
+        }
+        s.resize(len);
+        return read(&s[0], len, f);
+    }
+}
+
 namespace avengine
 {
 namespace crawler
@@ -104,7 +160,7 @@ void frontier::pushToHeap(const string& domain, float priority)
 
 bool frontier::alreadySeen(const string& url) const
 {
-  return seen.possiblyContains(url);
+  return seen.contains(url);
 }
 
 void frontier::markSeen(const string& url)
@@ -188,16 +244,189 @@ expected<urlEntry, error> frontier::next()
   return expected<urlEntry, error>::error(error{"frontier empty"});
 }
 
-expected<void, error> frontier::saveCheckpoint(const string& path) const
+
+expected<void, error> frontier::saveCheckpoint(const string& path) const 
 {
-  // TODO
-  return expected<void, error>::ok();
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) 
+    {
+        return expected<void, error>::error(error("failed to open checkpoint file"));
+    }
+
+    //totalURLs
+    auto res = logging_helpers::writeVal(totalURLs.load(), f);
+    if (!res.hasValue()) 
+    {
+        return res;
+    }
+
+    //bloom filter
+    res = logging_helpers::writeVal(seen.getSize(), f); //size
+    if (!res.hasValue()) 
+    {
+        return res;
+    }
+    res = logging_helpers::write(seen.data(), seen.byteSize(), f);//data
+    if (!res.hasValue()) 
+    {
+        return res;
+    }
+
+    // # of domain queues
+    res = logging_helpers::writeVal(perDomainQueues.size(), f);
+    if (!res.hasValue()) 
+    {
+        return res;
+    }
+    // Each domain queue
+    for (size_t i = 0; i < perDomainQueues.size(); ++i) {
+        const hostQueue& hq = perDomainQueues[i];
+
+        res = logging_helpers::writeString(hq.domain, f); // write domain
+        if (!res.hasValue()) 
+        {
+            return res;
+        }
+
+        // Access underlying vector of the priority queue
+        const auto& entries = hq.pending.serializeHeap(); 
+        res = logging_helpers::writeVal(entries.size(), f); // write pending size
+        if (!res.hasValue()) 
+        {
+            return res;
+        }
+
+        for (size_t j = 0; j < entries.size(); ++j) {  // write pending URLs
+            const urlEntry& entry = entries[j];
+            res = logging_helpers::writeString(entry.url, f);
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            res = logging_helpers::writeString(entry.domain, f); // write pending domain
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            res = logging_helpers::writeVal(entry.priority, f);  // write pending priority
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            res = logging_helpers::writeVal(entry.depth, f);  // write depth
+            if (!res.hasValue()) {
+                return res;
+            }
+        }
+    }
+
+    fclose(f);
+    return expected<void, error>::ok();
 }
 
-expected<void, error> frontier::loadCheckpoint(const string& path)
-{
-  // TODO
-  return expected<void, error>::ok();
+expected<void, error> frontier::loadCheckpoint(const string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) 
+    {
+        return expected<void, error>::error(error("failed to open checkpoint file"));
+    }
+
+    // totalURLs
+    size_t count;
+    auto res = logging_helpers::readVal(count, f);
+    if (!res.hasValue()) 
+    {
+      return res;
+    }
+    totalURLs.store(count);
+
+    //bloom filter
+    uint64_t bloomSize;
+    res = logging_helpers::readVal(bloomSize, f); //size
+    if (!res.hasValue()) 
+    {
+      return res;
+    }
+    seen.resize(bloomSize);
+    res = logging_helpers::read(seen.data(), seen.byteSize(), f); //data
+    if (!res.hasValue()) 
+    {
+      return res;
+    }
+
+    // # of Domain queues
+    size_t numDomains;
+    res = logging_helpers::readVal(numDomains, f);
+    if (!res.hasValue()) 
+    {
+      return res;
+    }
+
+    perDomainQueues.clear();
+    domainMap.clear();
+    for (size_t i = 0; i < numDomains; ++i) {
+        string domain;
+        // get domain
+        res = logging_helpers::readString(domain, f);
+        if (!res.hasValue()) 
+        {
+            return res;
+        }
+
+        // add domain to map
+        size_t idx = domainInsert(domain);
+        hostQueue& hq = perDomainQueues[idx];
+
+        // get domain q size;
+        size_t qSize;
+        res = logging_helpers::readVal(qSize, f);
+        if (!res.hasValue()) 
+        {
+            return res;
+        }
+
+        float bestPriority = 0.0f;
+        for (size_t j = 0; j < qSize; ++j) {
+            urlEntry entry;
+            // get URL
+            res = logging_helpers::readString(entry.url, f);
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            // get domain
+            res = logging_helpers::readString(entry.domain, f);
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            // get priority
+            res = logging_helpers::readVal(entry.priority, f);
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            //get the depth
+            res = logging_helpers::readVal(entry.depth, f);
+            if (!res.hasValue()) 
+            {
+                return res;
+            }
+            // rebuild heap
+            hq.pending.push(entry);
+            if (entry.priority > bestPriority) 
+            {
+                bestPriority = entry.priority;
+            }
+        }
+        // schedule 
+        if (qSize > 0) {
+          pushToHeap(domain, bestPriority);
+        }
+    }
+
+    fclose(f);
+    return expected<void, error>::ok();
 }
 
 size_t frontier::size() const
@@ -205,14 +434,14 @@ size_t frontier::size() const
   return totalURLs.load();
 }
 
-size_t frontier::hostCount() const
+size_t frontier::hostCount() const 
 {
   return perDomainQueues.size();
 }
 
 size_t frontier::seenCount() const
 {
-  return seen.count();
+  return seen.getCount();
 }
 
 } // namespace crawler
