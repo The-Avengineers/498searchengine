@@ -255,22 +255,27 @@ public:
     }
   }
 
-  size_t find(const char *sub, size_t pos = 0) {
+  size_t find(const char* sub, size_t pos = 0)
+  {
     size_t source_len = this->size();
     size_t sub_len = avengine::string(sub).size();
 
-    if (sub_len == 0) {
-        return pos <= source_len ? pos : avengine::string::npos;
+    if (sub_len == 0)
+    {
+      return pos <= source_len ? pos : avengine::string::npos;
     }
 
-    for (size_t i = pos; i + sub_len <= source_len; ++i) {
-        size_t j = 0;
-        while (j < sub_len && (*this)[i + j] == sub[j]) {
-            ++j;
-        }
-        if (j == sub_len) {
-            return i; // Found at index i
-        }
+    for (size_t i = pos; i + sub_len <= source_len; ++i)
+    {
+      size_t j = 0;
+      while (j < sub_len && (*this)[i + j] == sub[j])
+      {
+        ++j;
+      }
+      if (j == sub_len)
+      {
+        return i; // Found at index i
+      }
     }
 
     return avengine::string::npos; // Not found
@@ -445,7 +450,7 @@ public:
     return result;
   }
 
-  const static size_t npos = static_cast<size_t>(-1); 
+  const static size_t npos = static_cast<size_t>(-1);
 
 private:
   // SSO capacity
@@ -494,7 +499,6 @@ private:
   size_t Size;
   bool IsSmall;
   char Small[SSO_CAP + 1];
-  
 };
 
 inline std::ostream& operator<<(std::ostream& os, const string& s)
