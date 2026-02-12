@@ -13,7 +13,7 @@ class Bloomfilter {
 public:
   Bloomfilter(int num_objects, double false_positive_rate) {
     // Determine the size of bits of our data vector, and resize.
-
+    count = 0;
     const double ln_2 = std::log(2);
     const double num_objects_double = static_cast<double>(num_objects);
     const double ln_fpr = std::log(false_positive_rate);
@@ -36,7 +36,7 @@ public:
     std::pair<uint64_t, uint64_t> h = hash(s);
     uint64_t hash1 = h.first;
     uint64_t hash2 = h.second;
-
+    count++;
     // Use double hashing to get unique bit, and repeat for each hash function.
 
     for (uint64_t i{}; i < num_hash_funcs; ++i) {
@@ -69,13 +69,17 @@ public:
     return true;
   }
 
-  int get_size() {
+  uint64_t getSize() const {
     return size;
+  }
+
+  uint64_t getCount() const {
+    return count;
   }
 
 private:
   // Add any private member variables that may be neccessary.
-
+  uint64_t count;
   std::vector<bool> bits;
   uint64_t size;
   uint64_t num_hash_funcs;
