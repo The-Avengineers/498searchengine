@@ -24,8 +24,7 @@ namespace avengine
 // <script>, <style>, and <svg> require discarding the the entire section.
 // <!--, <title>, <a>, <base> and <embed> are special-cased.
 
-enum class DesiredAction
-{
+enum class DesiredAction {
   OrdinaryText,
   Title,
   Comment,
@@ -44,15 +43,16 @@ enum class DesiredAction
 // the corresponding action.
 // If the name is not found, return OrdinaryText.
 
-DesiredAction LookupPossibleTag(const char* name, const char* nameEnd = nullptr);
+DesiredAction LookupPossibleTag(const char *name,
+                                const char *nameEnd = nullptr);
 
-class HtmlTag
-{
+class HtmlTag {
 public:
-  const char* Tag;
+  const char *Tag;
   const DesiredAction Action;
 
-  HtmlTag(const char* tag, const DesiredAction action) : Tag(tag), Action(action) {}
+  HtmlTag(const char *tag, const DesiredAction action)
+      : Tag(tag), Action(action) {}
 };
 
 const HtmlTag TagsRecognized[] = {{"!--", DesiredAction::Comment},

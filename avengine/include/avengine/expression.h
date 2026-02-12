@@ -18,8 +18,7 @@ namespace avengine
 /**
  * Just a plain old expression
  */
-class Expression
-{
+class Expression {
 public:
   virtual ~Expression();
 
@@ -30,8 +29,7 @@ public:
 /**
  * A number
  */
-class Number : public Expression
-{
+class Number : public Expression {
 protected:
   int64_t value;
 

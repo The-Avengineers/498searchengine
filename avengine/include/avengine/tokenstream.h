@@ -42,8 +42,7 @@ bool CharIsIrrelevant(char c);
  * The input string by default is filtered of any characters that are
  * deemed "irrelevant" by the CharIsIrrelevant function above.
  */
-class TokenStream
-{
+class TokenStream {
   // The input we receive, with only relevant characters left
   std::string input;
   // Where we currently are in the input
@@ -54,7 +53,7 @@ public:
    * Construct a token stream that uses a copy of the input
    * that contains only characters relevant to math expressions
    */
-  TokenStream(const std::string& in);
+  TokenStream(const std::string &in);
 
   /**
    * Attempt to match and consume a specific character
@@ -73,7 +72,7 @@ public:
    *
    * Return a dynamically allocated Number if successful, nullptr otherwise
    */
-  Number* ParseNumber();
+  Number *ParseNumber();
 };
 
 #endif /* TOKENSTREAM_H_ */

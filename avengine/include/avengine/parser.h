@@ -40,8 +40,7 @@ namespace avengine
 /**
  * The actual expression parser
  */
-class Parser
-{
+class Parser {
   // Stream of tokens to consume input from
   TokenStream stream;
 
@@ -50,23 +49,23 @@ class Parser
    *
    * Return nullptr if it could not be found
    */
-  Expression* FindFactor();
+  Expression *FindFactor();
 
-  Expression* FindAdd();
+  Expression *FindAdd();
 
-  Expression* FindMultiply();
+  Expression *FindMultiply();
 
 public:
   /**
    * Construct parser based on given input
    */
-  Parser(const std::string& in);
+  Parser(const std::string &in);
 
   /**
    * The public interface of the parser. Call this function,
    * rather than the private internal functions.
    */
-  Expression* Parse();
+  Expression *Parse();
 };
 // class Parser
 

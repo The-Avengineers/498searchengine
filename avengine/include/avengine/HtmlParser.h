@@ -55,7 +55,8 @@ namespace avengine
 //
 //      <title> should cause all the words between the opening and closing
 //          tags to be added to the titleWords vector rather than the default
-//          words vector.  A closing </title> without an opening <title> is discarded.
+//          words vector.  A closing </title> without an opening <title> is
+//          discarded.
 //
 //      <a> is expected to contain an href="...url..."> argument with the
 //          URL inside the double quotes that should be added to the list
@@ -69,18 +70,17 @@ namespace avengine
 //          be captured as the base variable.  Only the first is recognized; any
 //          others are discarded.
 //
-//     <embed> may contain a src="...url..." parameter.  If present, it should be
+//     <embed> may contain a src="...url..." parameter.  If present, it should
+//     be
 //          added to the links with no anchor text.
 
-class Link
-{
+class Link {
 public:
   std::string URL;
   std::vector<std::string> anchorText;
   Link(std::string URL) : URL(URL) {}
 };
-class HtmlParser
-{
+class HtmlParser {
 public:
   std::vector<std::string> words, titleWords;
   std::vector<Link> links;
@@ -88,80 +88,64 @@ public:
 
 private:
   // curr ptr
-  const char* curr;
+  const char *curr;
   // end ptr
-  const char* end;
+  const char *end;
   bool curr_in_title;
   bool curr_in_anchor;
   bool seen_base;
-  enum class tag_result
-  {
+  enum class tag_result {
     not_tag,
     no_anchor_change,
     anchor_open,
     anchor_closed
   };
-  static inline char lower_ascii(unsigned char c)
-  {
+  static inline char lower_ascii(unsigned char c) {
     return static_cast<char>(std::tolower(c));
   }
   // check for spaces, tabs, newlines, returns
-  bool is_whitespace(char c)
-  {
+  bool is_whitespace(char c) {
     return std::isspace(static_cast<unsigned char>(c));
   }
   // add to correct data structures
-  void add_to_words(const char* start_, const char* end_, bool in_title, int anchor_link_idx)
-  {
+  void add_to_words(const char *start_, const char *end_, bool in_title,
+                    int anchor_link_idx) {
 
     std::string word(start_, end_ - start_);
-    if (in_title)
-    {
+    if (in_title) {
       titleWords.push_back(word);
-    }
-    else
-    {
+    } else {
       words.push_back(word);
     }
-    if (anchor_link_idx >= 0 && static_cast<size_t>(anchor_link_idx) < links.size())
-    {
+    if (anchor_link_idx >= 0 &&
+        static_cast<size_t>(anchor_link_idx) < links.size()) {
       links[anchor_link_idx].anchorText.push_back(word);
     }
   }
   // move curr past the section
-  void discard_section(const char* lowercaseName, size_t len)
-  {
-    while (curr < end)
-    {
-      if (*curr == '<' && curr + 1 < end && *(curr + 1) == '/')
-      {
-        const char* tag_start = curr + 2;
-        const char* p = tag_start;
-        while (p < end && *p != '>' && *p != '/' && !is_whitespace(*p))
-        {
+  void discard_section(const char *lowercaseName, size_t len) {
+    while (curr < end) {
+      if (*curr == '<' && curr + 1 < end && *(curr + 1) == '/') {
+        const char *tag_start = curr + 2;
+        const char *p = tag_start;
+        while (p < end && *p != '>' && *p != '/' && !is_whitespace(*p)) {
           p++;
         }
 
         size_t new_len = p - tag_start;
-        if (new_len == len)
-        {
+        if (new_len == len) {
           bool match = true;
-          for (size_t i = 0; i < len && match; i++)
-          {
-            if (lower_ascii((unsigned char)tag_start[i]) != lowercaseName[i])
-            {
+          for (size_t i = 0; i < len && match; i++) {
+            if (lower_ascii((unsigned char)tag_start[i]) != lowercaseName[i]) {
               match = false;
             }
           }
 
-          if (match)
-          {
-            while (curr < end && *curr != '>')
-            {
+          if (match) {
+            while (curr < end && *curr != '>') {
               curr++;
             }
-            if (curr < end)
-            {
+            if (curr < end) {
               curr++;
             }
             return;
@@ -172,37 +156,31 @@ private:
     }
   }
   // get src
-  std::string get_src(const char* start, const char* tag_end)
-  {
-    const char* s = start;
+  std::string get_src(const char *start, const char *tag_end) {
+    const char *s = start;
 
-    while (s + 3 <= tag_end)
-    {
-      if ((s == start || is_whitespace(*(s - 1))) && lower_ascii((unsigned char)*s) == 's' &&
-          lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'c')
-      {
+    while (s + 3 <= tag_end) {
+      if ((s == start || is_whitespace(*(s - 1))) &&
+          lower_ascii((unsigned char)*s) == 's' &&
+          lower_ascii((unsigned char)s[1]) == 'r' &&
+          lower_ascii((unsigned char)s[2]) == 'c') {
         s += 3;
 
-        while (s < tag_end && is_whitespace(*s))
-        {
+        while (s < tag_end && is_whitespace(*s)) {
           s++;
         }
 
-        if (s < tag_end && *s == '=')
-        {
+        if (s < tag_end && *s == '=') {
           s++;
 
-          while (s < tag_end && is_whitespace(*s))
-          {
+          while (s < tag_end && is_whitespace(*s)) {
             s++;
           }
 
-          if (s < tag_end && *s == '"')
-          {
+          if (s < tag_end && *s == '"') {
             s++;
-            const char* valueStart = s;
-            while (s < tag_end && *s != '"')
-            {
+            const char *valueStart = s;
+            while (s < tag_end && *s != '"') {
               s++;
             }
             return std::string(valueStart, s - valueStart);
@@ -214,36 +192,30 @@ private:
     return std::string();
   }
   // get href
-  std::string get_href(const char* start, const char* tag_end)
-  {
-    const char* s = start;
+  std::string get_href(const char *start, const char *tag_end) {
+    const char *s = start;
 
-    while (s + 4 <= tag_end)
-    {
-      if ((s == start || is_whitespace(*(s - 1))) && lower_ascii((unsigned char)*s) == 'h' &&
-          lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'e' &&
-          lower_ascii((unsigned char)s[3]) == 'f')
-      {
+    while (s + 4 <= tag_end) {
+      if ((s == start || is_whitespace(*(s - 1))) &&
+          lower_ascii((unsigned char)*s) == 'h' &&
+          lower_ascii((unsigned char)s[1]) == 'r' &&
+          lower_ascii((unsigned char)s[2]) == 'e' &&
+          lower_ascii((unsigned char)s[3]) == 'f') {
         s += 4;
-        while (s < tag_end && is_whitespace(*s))
-        {
+        while (s < tag_end && is_whitespace(*s)) {
           s++;
         }
-        if (s < tag_end && *s == '=')
-        {
+        if (s < tag_end && *s == '=') {
           s++;
 
-          while (s < tag_end && is_whitespace(*s))
-          {
+          while (s < tag_end && is_whitespace(*s)) {
             s++;
           }
 
-          if (s < tag_end && *s == '"')
-          {
+          if (s < tag_end && *s == '"') {
             s++;
-            const char* value_start = s;
-            while (s < tag_end && *s != '"')
-            {
+            const char *value_start = s;
+            while (s < tag_end && *s != '"') {
               s++;
             }
             return std::string(value_start, s - value_start);
@@ -255,39 +227,34 @@ private:
     return std::string();
   }
   // proccess the tag
-  tag_result process_tag()
-  {
+  tag_result process_tag() {
     tag_result res = tag_result::no_anchor_change;
-    const char* start_of_tag = curr;
+    const char *start_of_tag = curr;
     curr++;
 
-    if (curr >= end)
-    {
+    if (curr >= end) {
       curr = start_of_tag;
       return tag_result::not_tag;
     }
 
     bool is_closing = false;
-    if (*curr == '/')
-    {
+    if (*curr == '/') {
       is_closing = true;
       curr++;
-      if (curr >= end)
-      {
+      if (curr >= end) {
         curr = start_of_tag;
         return tag_result::not_tag;
       }
     }
 
-    const char* start_of_name = curr;
+    const char *start_of_name = curr;
 
-    if (!is_closing && curr + 2 < end && *curr == '!' && *(curr + 1) == '-' && *(curr + 2) == '-')
-    {
+    if (!is_closing && curr + 2 < end && *curr == '!' && *(curr + 1) == '-' &&
+        *(curr + 2) == '-') {
       curr += 3; // skip !-- bc comment
-      while (curr < end)
-      {
-        if (*curr == '-' && curr + 2 < end && *(curr + 1) == '-' && *(curr + 2) == '>')
-        {
+      while (curr < end) {
+        if (*curr == '-' && curr + 2 < end && *(curr + 1) == '-' &&
+            *(curr + 2) == '>') {
           curr += 3;
           break;
         }
@@ -297,128 +264,105 @@ private:
     }
 
     // read tag
-    while (curr < end && *curr != '>' && *curr != '/' && !is_whitespace(*curr))
-    {
+    while (curr < end && *curr != '>' && *curr != '/' &&
+           !is_whitespace(*curr)) {
       curr++;
     }
 
-    const char* name_end = curr;
+    const char *name_end = curr;
 
     // empty tag
-    if (start_of_name == name_end)
-    {
+    if (start_of_name == name_end) {
       curr = start_of_tag;
       return tag_result::not_tag;
     }
 
     size_t name_len = name_end - start_of_name;
     char lowercase_name[32];
-    if (name_len >= sizeof(lowercase_name))
-    {
+    if (name_len >= sizeof(lowercase_name)) {
       // wayy to long
       curr = start_of_tag;
       return tag_result::not_tag;
     }
 
-    for (size_t i = 0; i < name_len; i++)
-    {
+    for (size_t i = 0; i < name_len; i++) {
       lowercase_name[i] = lower_ascii((unsigned char)start_of_name[i]);
     }
     lowercase_name[name_len] = '\0';
 
     // get action
-    DesiredAction action = LookupPossibleTag(lowercase_name, lowercase_name + name_len);
+    DesiredAction action =
+        LookupPossibleTag(lowercase_name, lowercase_name + name_len);
 
-    if (action == DesiredAction::OrdinaryText)
-    {
+    if (action == DesiredAction::OrdinaryText) {
       curr = start_of_tag;
       return tag_result::not_tag;
     }
 
-    const char* attr_start = curr;
+    const char *attr_start = curr;
     bool in_quotes = false;
     char quote_ch = '\0';
-    while (curr < end)
-    {
+    while (curr < end) {
       char ch = *curr;
-      if (!in_quotes && (ch == '"' || ch == '\''))
-      {
+      if (!in_quotes && (ch == '"' || ch == '\'')) {
         // Ignore stray quote immediately before tag end like class="..."" >
         if ((curr + 1 < end && curr[1] == '>') ||
-            (curr + 2 < end && curr[1] == '/' && curr[2] == '>'))
-        {
+            (curr + 2 < end && curr[1] == '/' && curr[2] == '>')) {
           // do nothing
-        }
-        else
-        {
+        } else {
           in_quotes = true;
           quote_ch = ch;
         }
-      }
-      else if (in_quotes && ch == quote_ch)
-      {
+      } else if (in_quotes && ch == quote_ch) {
         in_quotes = false;
-      }
-      else if (!in_quotes && ch == '>')
-      {
+      } else if (!in_quotes && ch == '>') {
         break;
       }
       curr++;
     }
-    const char* tag_end = curr;
+    const char *tag_end = curr;
     bool self_closing = false;
     {
-      const char* t = tag_end;
-      while (t > start_of_tag && std::isspace(static_cast<unsigned char>(*(t - 1))))
-      {
+      const char *t = tag_end;
+      while (t > start_of_tag &&
+             std::isspace(static_cast<unsigned char>(*(t - 1)))) {
         t--;
       }
-      if (t > start_of_tag && *(t - 1) == '/')
-      {
+      if (t > start_of_tag && *(t - 1) == '/') {
         self_closing = true;
       }
     }
-    if (curr < end)
-    {
+    if (curr < end) {
       curr++;
     }
 
     // Handle the tag based on its action
-    switch (action)
-    {
+    switch (action) {
     case DesiredAction::Discard:
       break;
 
     case DesiredAction::DiscardSection:
       // discard everything
-      if (!is_closing)
-      {
+      if (!is_closing) {
         discard_section(lowercase_name, name_len);
       }
       break;
 
     case DesiredAction::Title:
-      if (is_closing || self_closing)
-      {
+      if (is_closing || self_closing) {
         curr_in_title = false;
-      }
-      else
-      {
+      } else {
         curr_in_title = true;
       }
       break;
 
     case DesiredAction::Anchor:
-      if (is_closing)
-      {
+      if (is_closing) {
         curr_in_anchor = false;
         res = tag_result::anchor_closed;
-      }
-      else
-      {
+      } else {
         std::string href = get_href(attr_start, tag_end);
-        if (!href.empty())
-        {
+        if (!href.empty()) {
           links.push_back(Link(href));
           res = tag_result::anchor_open;
         }
@@ -427,11 +371,9 @@ private:
       break;
 
     case DesiredAction::Base:
-      if (!is_closing && !seen_base)
-      {
+      if (!is_closing && !seen_base) {
         std::string href = get_href(attr_start, tag_end);
-        if (!href.empty())
-        {
+        if (!href.empty()) {
           base = href;
           seen_base = true;
         }
@@ -439,8 +381,7 @@ private:
       break;
 
     case DesiredAction::Embed:
-      if (!is_closing)
-      {
+      if (!is_closing) {
         std::string src = get_src(attr_start, tag_end);
         if (!src.empty())
           links.push_back(Link(src));
@@ -459,66 +400,48 @@ public:
   // presumed HTML.  It will parse the buffer, stripping out
   // all the HTML tags and producing the list of words in body,
   // words in title, and links found on the page.
-  HtmlParser(const char* buffer, size_t length)
-      : curr(buffer), end(buffer + length), curr_in_title(false), curr_in_anchor(false),
-        seen_base(false)
-  {
-    const char* start_word_ptr = nullptr;
+  HtmlParser(const char *buffer, size_t length)
+      : curr(buffer), end(buffer + length), curr_in_title(false),
+        curr_in_anchor(false), seen_base(false) {
+    const char *start_word_ptr = nullptr;
     int idx = -1;
-    while (curr < end)
-    {
+    while (curr < end) {
       char c = *curr;
-      if (c == '<')
-      {
-        const char* tag_start = curr;
+      if (c == '<') {
+        const char *tag_start = curr;
         bool was_in_title = curr_in_title;
         int anchor_idx = idx;
         tag_result res = process_tag();
-        if (res != tag_result::not_tag)
-        {
-          if (start_word_ptr)
-          {
+        if (res != tag_result::not_tag) {
+          if (start_word_ptr) {
             add_to_words(start_word_ptr, tag_start, was_in_title, anchor_idx);
             start_word_ptr = nullptr;
           }
-          if (res == tag_result::anchor_open)
-          {
+          if (res == tag_result::anchor_open) {
             idx = links.size() - 1;
-          }
-          else if (res == tag_result::anchor_closed)
-          {
+          } else if (res == tag_result::anchor_closed) {
             idx = -1;
           }
-        }
-        else
-        {
-          if (!start_word_ptr)
-          {
+        } else {
+          if (!start_word_ptr) {
             start_word_ptr = curr;
           }
           curr++;
         }
-      }
-      else if (is_whitespace(c))
-      {
-        if (start_word_ptr)
-        {
+      } else if (is_whitespace(c)) {
+        if (start_word_ptr) {
           add_to_words(start_word_ptr, curr, curr_in_title, idx);
           start_word_ptr = nullptr;
         }
         curr++;
-      }
-      else
-      {
-        if (!start_word_ptr)
-        {
+      } else {
+        if (!start_word_ptr) {
           start_word_ptr = curr;
         }
         curr++;
       }
     }
-    if (start_word_ptr)
-    {
+    if (start_word_ptr) {
       add_to_words(start_word_ptr, curr, curr_in_title, idx);
     }
   }

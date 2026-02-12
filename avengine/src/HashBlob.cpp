@@ -19,8 +19,7 @@ namespace avengine
 
 using namespace std;
 
-void Usage()
-{
+void Usage() {
   cout <<
 
       "Usage:  HashBlob [ -L ] wordsin.txt [ blobfile ]\n"
@@ -37,37 +36,33 @@ void Usage()
   exit(0);
 }
 
-using Hash = HashTable<const char*, size_t>;
-using Pair = Tuple<const char*, size_t>;
+using Hash = HashTable<const char *, size_t>;
+using Pair = Tuple<const char *, size_t>;
 
-void Search(const HashBlob* hashblob)
-{
+void Search(const HashBlob *hashblob) {
   // Search the HashBlob for words read from cin.
 
   string word;
-  while (cin >> word)
-  {
-    const SerialTuple* s = hashblob->Find(word.c_str());
+  while (cin >> word) {
+    const SerialTuple *s = hashblob->Find(word.c_str());
     cout << (s ? s->Value : 0) << "   " << word << endl;
   }
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char **argv) {
   if (argc < 2)
     Usage();
 
   vector<string> words;
 
   CollectWordsIn(argc, argv, words);
-  if (optVerbose)
-  {
+  if (optVerbose) {
     cout << "Building HashTable" << endl;
 
     Timer time;
     time.Start();
 
-    Hash* hashtable = BuildHashTable(words);
+    Hash *hashtable = BuildHashTable(words);
 
     time.Finish();
     time.PrintElapsed();
@@ -81,15 +76,14 @@ int main(int argc, char** argv)
     time.Finish();
     time.PrintElapsed();
 
-    if (argc < 3)
-    {
+    if (argc < 3) {
       // Build the Hasblob in memory only.
 
       cout << "Building HashBlob" << endl;
 
       time.Start();
 
-      HashBlob* hashblob = HashBlob::Create(hashtable);
+      HashBlob *hashblob = HashBlob::Create(hashtable);
 
       time.Finish();
       time.PrintElapsed();
@@ -106,9 +100,7 @@ int main(int argc, char** argv)
       time.PrintElapsed();
 
       HashBlob::Discard(hashblob);
-    }
-    else
-    {
+    } else {
       // Build the HashBlob as a BlobFile.
 
       cout << "Building HashFile = " << argv[2] << endl;
@@ -120,7 +112,7 @@ int main(int argc, char** argv)
       time.Finish();
       time.PrintElapsed();
 
-      const HashBlob* hashblob = hashfile.Blob();
+      const HashBlob *hashblob = hashfile.Blob();
 
       cout << "HashBlob size = " << hashblob->BlobSize << " bytes" << endl;
 
@@ -133,26 +125,21 @@ int main(int argc, char** argv)
     }
 
     delete hashtable;
-  }
-  else
-  {
-    Hash* hashtable = BuildHashTable(words);
+  } else {
+    Hash *hashtable = BuildHashTable(words);
     hashtable->Optimize();
 
-    if (argc < 3)
-    {
+    if (argc < 3) {
       // Build the Hasblob in memory only.
 
-      HashBlob* hashblob = HashBlob::Create(hashtable);
+      HashBlob *hashblob = HashBlob::Create(hashtable);
       Search(hashblob);
       HashBlob::Discard(hashblob);
-    }
-    else
-    {
+    } else {
       // Build the HashBlob as a BlobFile.
 
       HashFile hashfile(argv[2], hashtable);
-      const HashBlob* hashblob = hashfile.Blob();
+      const HashBlob *hashblob = hashfile.Blob();
       Search(hashblob);
     }
 

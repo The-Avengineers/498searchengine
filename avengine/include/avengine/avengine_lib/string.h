@@ -413,9 +413,7 @@ public:
       {
         result.pushBack(current);
         current = string();
-      }
-      else
-      {
+      } else {
         current.pushBack((*this)[i]);
       }
     }

@@ -227,6 +227,6 @@ Unicode GetUtf16(const Utf16* p, const Utf16* bound = nullptr);
 
 // Wrappers that advance the pointer but throw away the value.
 
-const Utf8* NextUtf8(const Utf8* p, const Utf8* bound = nullptr);
-const Utf16* NextUtf16(const Utf16* p, const Utf16* bound = nullptr);
+const Utf8 *NextUtf8(const Utf8 *p, const Utf8 *bound = nullptr);
+const Utf16 *NextUtf16(const Utf16 *p, const Utf16 *bound = nullptr);
 } // namespace avengine
