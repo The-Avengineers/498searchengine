@@ -1,7 +1,7 @@
-#include <avengine/ranker.h>
 #include <avengine/HtmlParser.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
+#include <avengine/ranker.h>
 
 #include <cstddef>
 #include <fstream>
