@@ -2,7 +2,7 @@
 
 #include "../avengine_lib/string.h"
 #include "../avengine_lib/vector.h"
-#include "../avengine_lib/HashTable.h"
+#include "../avengine_lib/hashTable.h"
 
 
 //need to add the blocked list
