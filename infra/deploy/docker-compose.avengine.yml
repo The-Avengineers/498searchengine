@@ -1,0 +1,12 @@
+services:
+  avengine:
+    build:
+      context: ../..
+      dockerfile: avengine/deploy/Dockerfile
+    image: avengine-runtime:latest
+    container_name: avengine-runtime
+    restart: unless-stopped
+    environment:
+      AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY}
+    ports:
+      - "${AVENGINE_SSH_PORT:-2222}:22"

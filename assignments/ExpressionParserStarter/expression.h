@@ -15,100 +15,81 @@
 /**
  * Just a plain old expression
  */
-class Expression
-   {
+class Expression {
 public:
+  virtual ~Expression();
 
-   virtual ~Expression( );
-
-   virtual int64_t Eval( ) const = 0;
-   };
+  virtual int64_t Eval() const = 0;
+};
 // class Expression
 
 /**
  * A number
  */
-class Number: public Expression
-   {
+class Number : public Expression {
 protected:
-
-   int64_t value;
+  int64_t value;
 
 public:
+  Number(int64_t val);
 
-   Number( int64_t val );
-
-   int64_t Eval( ) const override;
-   };
+  int64_t Eval() const override;
+};
 // class Number
 
-
-class Addition: public Expression 
-   {
+class Addition : public Expression {
 protected:
-
-   Expression *left;
-   Expression *right;
+  Expression *left;
+  Expression *right;
 
 public:
+  Addition(Expression *l, Expression *r);
 
-   Addition(Expression *l, Expression *r);
+  ~Addition();
 
-   ~Addition();
-
-   int64_t Eval() const override;
-   };
+  int64_t Eval() const override;
+};
 // addition
 
-class Multiplication: public Expression
-   {
+class Multiplication : public Expression {
 protected:
-
-   Expression *left;
-   Expression *right;
+  Expression *left;
+  Expression *right;
 
 public:
+  Multiplication(Expression *l, Expression *r);
 
-   Multiplication(Expression *l, Expression *r );
+  ~Multiplication();
 
-   ~Multiplication();
-
-   int64_t Eval() const override;
-   };
+  int64_t Eval() const override;
+};
 // multiplication
 
-class Subtraction: public Expression
-   {
+class Subtraction : public Expression {
 protected:
-
-   Expression *left;
-   Expression *right;
+  Expression *left;
+  Expression *right;
 
 public:
+  Subtraction(Expression *l, Expression *r);
 
-   Subtraction(Expression *l, Expression *r);
+  ~Subtraction();
 
-   ~Subtraction();
-
-   int64_t Eval() const override;
-   };
+  int64_t Eval() const override;
+};
 // subtraction
 
-class Division: public Expression
-   {
+class Division : public Expression {
 protected:
-
-   Expression *left;
-   Expression *right;
+  Expression *left;
+  Expression *right;
 
 public:
+  Division(Expression *l, Expression *r);
 
-   Division(Expression *l, Expression *r);
+  ~Division();
 
-   ~Division();
-
-   int64_t Eval() const override;
-   };
-
+  int64_t Eval() const override;
+};
 
 #endif /* EXPRESSION_H_ */
