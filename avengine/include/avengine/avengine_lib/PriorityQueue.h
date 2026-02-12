@@ -93,6 +93,12 @@ public:
     data.clear();
   }
 
+
+  const vector<T>& serializeHeap() const 
+  { 
+    return data; 
+  } 
+
 private:
   vector<T> data;
   Compare comp;

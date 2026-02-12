@@ -2,7 +2,7 @@
 //
 // Starter file for a string template
 
-#include <avengine/vector.h>
+#include <vector.h>
 #include <cstddef>  // for size_t
 #include <iostream> // for ostream
 #include <utility>
