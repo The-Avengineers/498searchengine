@@ -3,8 +3,8 @@
 
 #include <cstddef>
 
-#include <avengine/string.h>
-#include <avengine/vector.h>
+#include <avengine/avengine_lib/string.h>
+#include <avengine/avengine_lib/vector.h>
 
 namespace avengine
 {
