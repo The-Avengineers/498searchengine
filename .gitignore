@@ -31,3 +31,6 @@ cmake_install.cmake
 
 # Large files
 data/
+
+# CMake build dir
+avengine/build/
