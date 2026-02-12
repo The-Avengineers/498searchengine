@@ -7,11 +7,14 @@
 #include <string>
 #include <vector>
 
-namespace avengine {
+namespace avengine
+{
 
-class Bloomfilter {
+class Bloomfilter
+{
 public:
-  Bloomfilter(int num_objects, double false_positive_rate) {
+  Bloomfilter(int num_objects, double false_positive_rate)
+  {
     // Determine the size of bits of our data vector, and resize.
 
     const double ln_2 = std::log(2);
@@ -21,15 +24,16 @@ public:
     bits.resize(size);
     // Determine number of hash functions to use.
 
-    num_hash_funcs = static_cast<int>(
-        (static_cast<double>(size) / num_objects_double) * ln_2);
+    num_hash_funcs = static_cast<int>((static_cast<double>(size) / num_objects_double) * ln_2);
 
-    if (num_hash_funcs < 1) { // just in case
+    if (num_hash_funcs < 1)
+    { // just in case
       num_hash_funcs = 1;
     }
   }
 
-  void insert(const std::string &s) {
+  void insert(const std::string& s)
+  {
     // Hash the string into two unique hashes.
 
     // Use double hashing to get unique bit, and repeat for each hash function.

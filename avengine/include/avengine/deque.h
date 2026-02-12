@@ -2,7 +2,8 @@
 
 #include <avengine/vector.h>
 
-namespace avengine {
+namespace avengine
+{
 
 // creates a Deque using a circular buffer approach
 template <typename T> class Deque

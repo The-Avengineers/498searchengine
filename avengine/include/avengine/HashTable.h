@@ -9,7 +9,8 @@
 #include <iomanip>
 #include <iostream>
 
-namespace avengine {
+namespace avengine
+{
 
 using namespace std;
 
