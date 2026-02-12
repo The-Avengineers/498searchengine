@@ -51,6 +51,10 @@ public:
     return false;
   }
 
+  int get_size() {
+    return size;
+  }
+
 private:
   // Add any private member variables that may be neccessary.
   vector<bool> bits;
