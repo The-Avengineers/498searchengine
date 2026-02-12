@@ -1,6 +1,7 @@
 #include "index.h"
 #include <cassert>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -60,6 +61,23 @@ uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
   memcpy(buffer, &value, sizeof(uint64_t));
   return buffer + sizeof(uint64_t);
 }
+
+static void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
+{
+  while (value >= 0x80u)
+  {
+    out.pushBack(static_cast<uint8_t>((value & 0x7Fu) | 0x80u));
+    value >>= 7;
+  }
+  out.pushBack(static_cast<uint8_t>(value));
+}
+
+struct SkipPointer
+{
+  uint32_t positionIndex;
+  uint32_t positionValue;
+  uint32_t byteOffset;
+};
 
 PostingList* Index::getBucket(char const* word)
 {
@@ -143,10 +161,6 @@ void Index::serialize(int fd)
 
   size_t postingsOffset = 0;
 
-  // Allocate a buffer big buffer for writing, this should be changed to just what we need.
-  uint8_t* postingBuffer = new uint8_t[16777216]();
-  uint8_t* postingBufferHead = postingBuffer;
-
   // Now we write out the posting list
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
@@ -158,25 +172,58 @@ void Index::serialize(int fd)
 
       dictionaryBuffer[2 + hash * 2 + 1] = postingsOffset;
 
-      postingBufferHead = write_uint64(postingBufferHead, bucket->postings.size());
-      // TODO: Write total collection frequency
-      postingBufferHead = write_uint64(postingBufferHead, 0xdeadbeef);
+      const uint64_t documentFrequency = bucket->postings.size();
+      const uint64_t collectionFrequency = bucket->positions.size();
 
-      size_t lastPosition = 0;
+      // Encode position list as varint deltas.
+      avengine::vector<uint8_t> deltaBuffer;
+      uint32_t lastPosition = 0;
+      const uint32_t skipStride = collectionFrequency > 0
+                                      ? static_cast<uint32_t>(std::sqrt(collectionFrequency))
+                                      : 0;
 
-      // TODO: Write index synchronization points and skip pointers.
-
-      for (uint32_t position : bucket->positions)
+      // Skip pointers are sampled every sqrt(N) positions. Each skip entry stores:
+      // [position_index varint][absolute_position varint][delta_stream_byte_offset varint].
+      avengine::vector<SkipPointer> skipPointers;
+      for (uint32_t i = 0; i < collectionFrequency; i++)
       {
-        postingBufferHead = write_var_uint32(postingBufferHead, position - lastPosition);
+        uint32_t position = bucket->positions[i];
+        if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
+        {
+          skipPointers.pushBack({.positionIndex = i,
+                                 .positionValue = position,
+                                 .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
+        }
+
+        append_var_uint32(deltaBuffer, position - lastPosition);
         lastPosition = position;
       }
 
-      postingsOffset += postingBufferHead - postingBuffer;
+      avengine::vector<uint8_t> skipBuffer;
+      for (const SkipPointer& skip : skipPointers)
+      {
+        append_var_uint32(skipBuffer, skip.positionIndex);
+        append_var_uint32(skipBuffer, skip.positionValue);
+        append_var_uint32(skipBuffer, skip.byteOffset);
+      }
 
-      write(fd, postingBuffer, postingBufferHead - postingBuffer);
+      // Per-term posting-list header:
+      // [doc_frequency u64][collection_frequency u64][skip_count u64].
+      uint8_t postingHeader[24];
+      uint8_t* headerCursor = postingHeader;
+      headerCursor = write_uint64(headerCursor, documentFrequency);
+      headerCursor = write_uint64(headerCursor, collectionFrequency);
+      write_uint64(headerCursor, skipPointers.size());
+      write(fd, postingHeader, sizeof(postingHeader));
 
-      postingBufferHead = postingBuffer;
+      if (!skipBuffer.empty())
+        write(fd, skipBuffer.begin(), skipBuffer.size());
+      if (!deltaBuffer.empty())
+        write(fd, deltaBuffer.begin(), deltaBuffer.size());
+
+      postingsOffset += sizeof(postingHeader);
+      postingsOffset += skipBuffer.size();
+      postingsOffset += deltaBuffer.size();
 
       bucket = bucket->nextBucket;
     }
