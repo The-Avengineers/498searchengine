@@ -18,12 +18,12 @@ public:
     ~fetcher();
 
     // Requires: url is a valid HTTP or HTTPS URL string
-    // Modifies: nothing persistent (creates/destroys sockets internally)
+    // Modifies: nothing persistent 
     // Returns: fetchResponse on success, error on failure
     expected<fetchResponse, error> fetch(const string& url);
 
 private:
-    void* sslCtx_;  // SSL_CTX*, opaque to avoid openssl include in header
+    void* sslCtx_; 
 
     // Requires: host, port (as string), path
     // Modifies: nothing persistent

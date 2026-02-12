@@ -7,15 +7,14 @@ URL URLNormalizer::parseURL(const string& url) {
     URL result;
 
     // strip fragment (#...)
-    size_t hashPos = find(url, '#', 0);
-    size_t urlSize = (hashPos < url.size()) ? hashPos : url.size();
+    size_t hashPos = url.find("#");
+    size_t urlSize = (hashPos != string::npos) ? hashPos : url.size();
 
     // find the protocol
-    size_t pos = find(url, ':', 0);
-    //checks for ://
-    if (pos + 2 < urlSize && url[pos + 1] == '/' && url[pos + 2] == '/') {
+    size_t pos = url.find("://");
+    if (pos != string::npos && pos < urlSize) {
         result.protocol = toLower(substr(url, 0, pos));
-        pos += 3;
+        pos += 3; // skip past ://
     }else {
         result.protocol = string("http");
         pos = 0;
@@ -23,13 +22,13 @@ URL URLNormalizer::parseURL(const string& url) {
 
     //find the host + port combination
     size_t host_start = pos;
-    pos = find(url, '/', host_start);
-    size_t host_end = pos < urlSize ? pos : urlSize;
+    pos = url.find("/", host_start);
+    size_t host_end = (pos != string::npos && pos < urlSize) ? pos : urlSize;
     string host_port = toLower(substr(url, host_start, host_end));
 
     //check for port
-    size_t port_pos = find(host_port, ':', 0);
-    if (port_pos < host_port.size()) {
+    size_t port_pos = host_port.find(":");
+    if (port_pos != string::npos) {
         result.host = substr(host_port, 0, port_pos);
         string portStr = substr(host_port, port_pos + 1, host_port.size());
         if((portStr == "80" && result.protocol == "http") ||
@@ -113,19 +112,37 @@ string URLNormalizer::URLtoString(const URL& url) {
 }
 
 //takes in the url, parses it and returns the normalized url
-string URLNormalizer::normalize(const string& url) {
+string URLNormalizer::normalizeIndividual(const string& url) {
     URL parsedURL = parseURL(url);
     return URLtoString(parsedURL);
 }
 
-//find char in string, returns index or str.size()
-size_t URLNormalizer::find(const string& str, char c, size_t start_pos) {
-    for (size_t i = start_pos; i < str.size(); ++i) {
-        if (str[i] == c) {
-            return i;
-        }
+string URLNormalizer::normalize(const string& base, const string& extension) {
+    // If extension contains "://", it's an absolute URL
+    if (extension.find("://") != string::npos) {
+        return normalizeIndividual(extension);
     }
-    return str.size();
+
+    URL baseURL = parseURL(base);
+
+    // If extension starts with "//", it's protocol-relative - use the protocl of the base url
+    if (extension.size() >= 2 && extension[0] == '/' && extension[1] == '/') {
+        return normalizeIndividual(baseURL.protocol + ":" + extension);
+    }
+
+    // If extension starts with "/", it's an absolute path - use the root of base url
+    if (extension.size() > 0 && extension[0] == '/') {
+        baseURL.path = resolveDotSegments(extension);
+        return URLtoString(baseURL);
+    }
+
+    // Otherwise it's a relative path — merge with base path
+    size_t lastSlash = 0;
+    for (size_t i = 0; i < baseURL.path.size(); ++i) {
+        if (baseURL.path[i] == '/') lastSlash = i;
+    }
+    baseURL.path = resolveDotSegments(substr(baseURL.path, 0, lastSlash + 1) + extension);
+    return URLtoString(baseURL);
 }
 
 //returns substring from start to end-1

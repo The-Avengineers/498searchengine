@@ -26,13 +26,15 @@ public:
     //turns the parsed url back into a string, should be in normalized form already
     string URLtoString(const URL& url);
 
+    //Done on the seed list
     //takes in the url, parses it and returns the normalized url
-    string normalize(const string& url);
+    string normalizeIndividual(const string& url);
+
+    //CALLED BY CRAWLER for links found in html - pass in the base url of the page being crawled and then any other urls found on that page
+    //takes in a base url and an extension and normalizes the combined url
+    string normalize(const string& base, const string& extension);
 
 private:
-
-    //find char in string, returns index or str.size()
-    size_t find(const string& str, char c, size_t start_pos);
 
     //returns substring from start to end-1
     string substr(const string& str, size_t start, size_t end);
