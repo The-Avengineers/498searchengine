@@ -28,5 +28,16 @@ class ShortURLStrat : public Ranker::Strategy {
 };
 
 class ShortTitleStrat : public Ranker::Strategy {
+    public:
+    double Score(avengine::string &url, const vector<vector<size_t>> &term_positions) {
+        return getTitleLen(url) <= length_thres ? 1.0 : 0.0;
+    }
 
+
+    private:
+    uint getTitleLen(avengine::string &url) {
+        
+    }
+
+    const uint length_thres = 10;
 };
