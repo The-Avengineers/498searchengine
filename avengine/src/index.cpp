@@ -178,9 +178,8 @@ void Index::serialize(int fd)
       // Encode position list as varint deltas.
       avengine::vector<uint8_t> deltaBuffer;
       uint32_t lastPosition = 0;
-      const uint32_t skipStride = collectionFrequency > 0
-                                      ? static_cast<uint32_t>(std::sqrt(collectionFrequency))
-                                      : 0;
+      const uint32_t skipStride =
+          collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
 
       // Skip pointers are sampled every sqrt(N) positions. Each skip entry stores:
       // [position_index varint][absolute_position varint][delta_stream_byte_offset varint].
