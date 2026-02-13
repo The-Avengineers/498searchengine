@@ -36,28 +36,39 @@ target_include_directories(avengine
 add_executable(vector_demo examples/vector_demo.cpp)
 target_link_libraries(vector_demo PRIVATE avengine)
 
-add_executable(string_test ../tests/string_test.cpp)
-target_include_directories(string_test PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-add_test(NAME string_test COMMAND string_test)
-
 # Optional warnings
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
-  target_compile_options(string_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if (BUILD_TESTING)
+  file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
   find_package(doctest CONFIG QUIET)
-  if (doctest_FOUND)
-    add_executable(avengine_tests tests/utf8_smoke_tests.cpp)
-    target_link_libraries(avengine_tests PRIVATE avengine doctest::doctest)
-    target_include_directories(avengine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-    add_test(NAME avengine_tests COMMAND avengine_tests)
-  else()
-    message(WARNING "BUILD_TESTING=ON but doctest was not found; tests will not be built.")
+  if (NOT doctest_FOUND)
+    message(WARNING "doctest not found; doctest-based tests will be skipped.")
   endif()
+
+  foreach(test_src IN LISTS TEST_SOURCES)
+    get_filename_component(test_name "${test_src}" NAME_WE)
+
+    if (test_name MATCHES "doctest|smoke" AND NOT doctest_FOUND)
+      message(STATUS "Skipping ${test_name}: doctest not found")
+      continue()
+    endif()
+
+    add_executable(${test_name} ${test_src})
+    target_link_libraries(${test_name} PRIVATE avengine)
+    target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+    if (doctest_FOUND)
+      target_link_libraries(${test_name} PRIVATE doctest::doctest)
+    endif()
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+      target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME ${test_name} COMMAND ${test_name})
+  endforeach()
 endif()
