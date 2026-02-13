@@ -76,6 +76,6 @@ public:
   Number* ParseNumber();
 };
 
-#endif /* TOKENSTREAM_H_ */
-}
+} // namespace avengine
+
 #endif /* TOKENSTREAM_H_ */

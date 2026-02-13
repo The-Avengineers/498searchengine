@@ -9,9 +9,11 @@
 namespace avengine
 {
 
-class Bloomfilter {
+class Bloomfilter
+{
 public:
-  Bloomfilter(int num_objects, double false_positive_rate) {
+  Bloomfilter(int num_objects, double false_positive_rate)
+  {
     // Determine the size of bits of our data vector, and resize.
     count = 0;
     const double ln_2 = std::log(2);
@@ -22,15 +24,16 @@ public:
 
     // Determine number of hash functions to use.
 
-    num_hash_funcs = static_cast<int64_t>(
-        (static_cast<double>(size) / num_objects_double) * ln_2);
+    num_hash_funcs = static_cast<int64_t>((static_cast<double>(size) / num_objects_double) * ln_2);
 
-    if (num_hash_funcs < 1) {
+    if (num_hash_funcs < 1)
+    {
       num_hash_funcs = 1;
     }
   }
 
-  void insert(const std::string &s) {
+  void insert(const std::string& s)
+  {
     // Hash the string into two unique hashes.
 
     std::pair<uint64_t, uint64_t> h = hash(s);
@@ -39,13 +42,15 @@ public:
     count++;
     // Use double hashing to get unique bit, and repeat for each hash function.
 
-    for (uint64_t i{}; i < num_hash_funcs; ++i) {
+    for (uint64_t i{}; i < num_hash_funcs; ++i)
+    {
       size_t idx = (hash1 + (i * hash2)) % size;
       bits[idx] = true;
     }
   }
 
-  bool contains(const std::string &s) {
+  bool contains(const std::string& s)
+  {
     // Hash the string into two unqiue hashes.
 
     std::pair<uint64_t, uint64_t> h = hash(s);
@@ -56,9 +61,11 @@ public:
     // If bit is false, we know for certain this unique string has not been
     // inserted.
 
-    for (uint64_t i{}; i < num_hash_funcs; ++i) {
+    for (uint64_t i{}; i < num_hash_funcs; ++i)
+    {
       size_t idx = (hash1 + (i * hash2)) % size;
-      if (!bits[idx]) {
+      if (!bits[idx])
+      {
         return false;
       }
     }
@@ -69,11 +76,13 @@ public:
     return true;
   }
 
-  uint64_t getSize() const {
+  uint64_t getSize() const
+  {
     return size;
   }
 
-  uint64_t getCount() const {
+  uint64_t getCount() const
+  {
     return count;
   }
 
@@ -84,13 +93,13 @@ private:
   uint64_t size;
   uint64_t num_hash_funcs;
 
-  std::pair<uint64_t, uint64_t> hash(const std::string &datum) {
+  std::pair<uint64_t, uint64_t> hash(const std::string& datum)
+  {
     // Use MD5 to hash the string into one 128 bit hash, and split into 2
     // hashes.
 
     unsigned char md_hash[MD5_DIGEST_LENGTH];
-    MD5(reinterpret_cast<const unsigned char *>(datum.c_str()), datum.length(),
-        md_hash);
+    MD5(reinterpret_cast<const unsigned char*>(datum.c_str()), datum.length(), md_hash);
 
     uint64_t hash1;
     uint64_t hash2;
@@ -100,5 +109,5 @@ private:
     return {hash1, hash2};
   }
 };
-}
+} // namespace avengine
 #endif

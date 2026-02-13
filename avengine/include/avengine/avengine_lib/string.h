@@ -2,10 +2,10 @@
 //
 // Starter file for a string template
 
-#include <vector.h>
 #include <cstddef>  // for size_t
 #include <iostream> // for ostream
 #include <utility>
+#include <vector.h>
 
 namespace avengine
 {
