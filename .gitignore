@@ -17,6 +17,7 @@
 *.exe
 vgcore*
 *.sfi
+build/
 
 # Large files
 data/

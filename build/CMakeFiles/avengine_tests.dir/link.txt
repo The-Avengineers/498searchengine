@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/avengine_tests.dir/tests/utf8_smoke_tests.cpp.o -o avengine_tests  libavengine.a

@@ -1,0 +1,4 @@
+avengine_tests 1 0.314033
+string_test 2 0.00132242
+utf8_smoke_tests 2 0.00147948
+---
