@@ -1,2 +1,0 @@
-/usr/bin/ar qc libavengine.a CMakeFiles/avengine.dir/src/Common.cpp.o CMakeFiles/avengine.dir/src/expression.cpp.o CMakeFiles/avengine.dir/src/HashBlob.cpp.o CMakeFiles/avengine.dir/src/HashTable.cpp.o CMakeFiles/avengine.dir/src/HtmlParser.cpp.o CMakeFiles/avengine.dir/src/HtmlTags.cpp.o CMakeFiles/avengine.dir/src/index.cpp.o CMakeFiles/avengine.dir/src/parser.cpp.o CMakeFiles/avengine.dir/src/tokenstream.cpp.o CMakeFiles/avengine.dir/src/Utf8.cpp.o
-/usr/bin/ranlib libavengine.a
