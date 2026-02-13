@@ -89,13 +89,13 @@ PostingList* Index::getBucket(char const* word)
   }
 }
 
-  if (!*bucket)
-  {
-    totalUniqWords++;
-    *bucket = new PostingList(word, nullptr);
-  }
+if (!*bucket)
+{
+  totalUniqWords++;
+  *bucket = new PostingList(word, nullptr);
+}
 
-  return *bucket;
+return *bucket;
 }
 
 Index::Index() : buckets(HASHMAP_SIZE)
