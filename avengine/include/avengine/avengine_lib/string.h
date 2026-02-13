@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <iostream> // for ostream
 #include <utility>
+#include <vector.h>
 
 namespace avengine
 {

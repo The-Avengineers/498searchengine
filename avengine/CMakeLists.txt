@@ -11,6 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Needed for clang-tidy / tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(CTest)
+
 add_library(avengine
   src/Common.cpp
   src/expression.cpp
@@ -45,4 +47,17 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(string_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if (BUILD_TESTING)
+  find_package(doctest CONFIG QUIET)
+  if (doctest_FOUND)
+    add_executable(avengine_tests tests/utf8_smoke_tests.cpp)
+    target_link_libraries(avengine_tests PRIVATE avengine doctest::doctest)
+    target_include_directories(avengine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+    add_test(NAME avengine_tests COMMAND avengine_tests)
+  else()
+    message(WARNING "BUILD_TESTING=ON but doctest was not found; tests will not be built.")
+  endif()
 endif()
