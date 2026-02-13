@@ -1,7 +1,7 @@
 #pragma once
 #include "../avengine_lib/deque.h"
-#include "../avengine_lib/string.h"
 #include "../avengine_lib/priorityQueue.h"
+#include "../avengine_lib/string.h"
 
 namespace avengine
 {

@@ -93,11 +93,10 @@ public:
     data.clear();
   }
 
-
-  const vector<T>& serializeHeap() const 
-  { 
-    return data; 
-  } 
+  const vector<T>& serializeHeap() const
+  {
+    return data;
+  }
 
 private:
   vector<T> data;
