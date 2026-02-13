@@ -15,7 +15,6 @@ public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
   {
     (void)term_positions;
-    // Implementation: e.g., check if URL contains ".edu"
     avengine::string url_copy = url;
     for (size_t i = 0; i < GoodDomains.size(); i++)
     {
@@ -28,7 +27,7 @@ public:
   }
 
 private:
-  const avengine::vector<const char*> GoodDomains = {".edu", ".gov"};
+  const avengine::vector<const char*> GoodDomains = {".edu", ".gov"}; // Add moer good domains in here
 };
 
 class ShortURLStrat : public Ranker::Strategy

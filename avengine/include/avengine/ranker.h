@@ -49,7 +49,7 @@ public:
   /**
    * Add a non-owning strategy pointer with an optional weight.
    */
-  void AddStrategy(const Strategy* strategy, double weight = 1.0);
+  void AddStrategy(const Strategy *strategy, double weight = 1.0);
 
   /**
    * Remove all strategies.
@@ -59,16 +59,35 @@ public:
   /**
    * Score a single URL using all strategies.
    */
-  double Score(const string& url, const vector<vector<size_t>>& term_positions) const;
+  double Score(const string &url,
+               const vector<vector<size_t>> &term_positions) const;
+
+  struct RankedResult
+  {
+    string url;
+    double score { 0.0 };
+  };
+
+  /**
+   * Consider a URL and update the top results using insertion sort.
+   */
+  void Consider(const string &url,
+                const vector<vector<size_t>> &term_positions);
+
+  /**
+   * Return the current top results (highest score first).
+   */
+  const vector<RankedResult> &TopResults() const;
 
 private:
   struct WeightedStrategy
   {
-    const Strategy* strategy{nullptr};
-    double weight{1.0};
+    const Strategy *strategy { nullptr };
+    double weight { 1.0 };
   };
 
   vector<WeightedStrategy> Strategies;
+  vector<RankedResult> Top10;
 };
 
 } // namespace avengine
