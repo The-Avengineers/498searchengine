@@ -87,6 +87,7 @@ PostingList* Index::getBucket(char const* word)
   {
     bucket = &(*bucket)->nextBucket;
   }
+}
 
   if (!*bucket)
   {

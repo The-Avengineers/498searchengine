@@ -1,10 +1,10 @@
 #ifndef BLOOMFILTER_H
 #define BLOOMFILTER_H
 
+#include "string.h"
+#include "vector"
 #include <cmath>
 #include <openssl/md5.h>
-#include <string.h>
-#include <vector.h>
 
 namespace avengine
 {
