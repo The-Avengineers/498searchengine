@@ -27,7 +27,8 @@ public:
   }
 
 private:
-  const avengine::vector<const char*> GoodDomains = {".edu", ".gov"}; // Add moer good domains in here
+  const avengine::vector<const char*> GoodDomains = {".edu",
+                                                     ".gov"}; // Add moer good domains in here
 };
 
 class ShortURLStrat : public Ranker::Strategy
