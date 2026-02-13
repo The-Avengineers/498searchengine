@@ -3,19 +3,23 @@
 #include <cassert>
 #include <utility>
 
-namespace {
+namespace
+{
 using avengine::string;
 
-string makeRepeat(char c, size_t count) {
+string makeRepeat(char c, size_t count)
+{
   string out;
-  for (size_t i = 0; i < count; ++i) {
+  for (size_t i = 0; i < count; ++i)
+  {
     out.pushBack(c);
   }
   return out;
 }
 } // namespace
 
-int main() {
+int main()
+{
   // Empty/default behavior
   string empty;
   assert(empty.size() == 0);
@@ -32,8 +36,9 @@ int main() {
   // SSO boundary: should support 23 in small representation.
   string ssoBoundary = makeRepeat('a', 23);
   assert(ssoBoundary.size() == 23);
-  const char *ssoPtr = ssoBoundary.cstr();
-  for (size_t i = 0; i < 23; ++i) {
+  const char* ssoPtr = ssoBoundary.cstr();
+  for (size_t i = 0; i < 23; ++i)
+  {
     assert(ssoPtr[i] == 'a');
   }
   assert(ssoPtr[23] == '\0');
