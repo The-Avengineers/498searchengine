@@ -17,11 +17,11 @@ void fail(const char* expr, int line)
   std::abort();
 }
 
-#define EXPECT(expr)                                                                                 \
-  do                                                                                                 \
-  {                                                                                                  \
-    if (!(expr))                                                                                     \
-      fail(#expr, __LINE__);                                                                         \
+#define EXPECT(expr)                                                                               \
+  do                                                                                               \
+  {                                                                                                \
+    if (!(expr))                                                                                   \
+      fail(#expr, __LINE__);                                                                       \
   } while (false)
 
 uint64_t readU64LE(const uint8_t* ptr)

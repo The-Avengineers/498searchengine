@@ -53,7 +53,8 @@ static bool write_all(int fd, const void* buffer, size_t bytes)
   return true;
 }
 
-static void encode_field(const avengine::vector<uint32_t>& positions, avengine::vector<uint8_t>& deltaBuffer,
+static void encode_field(const avengine::vector<uint32_t>& positions,
+                         avengine::vector<uint8_t>& deltaBuffer,
                          avengine::vector<uint8_t>& skipBuffer,
                          avengine::vector<SkipPointer>& skipPointers)
 {
@@ -122,7 +123,8 @@ void PostingList::ingest(uint32_t docId, uint32_t offset, PhraseKind kind)
   Posting* posting = findPosting(docId);
   if (!posting)
   {
-    postings.pushBack({.docId = docId, .normalTermFreq = 0, .titleTermFreq = 0, .anchorTermFreq = 0});
+    postings.pushBack(
+        {.docId = docId, .normalTermFreq = 0, .titleTermFreq = 0, .anchorTermFreq = 0});
     posting = &postings.back();
   }
 
@@ -277,34 +279,40 @@ void Index::serialize(int fd)
         return;
       }
 
-      if (!normalSkipBuffer.empty() && !write_all(fd, normalSkipBuffer.begin(), normalSkipBuffer.size()))
+      if (!normalSkipBuffer.empty() &&
+          !write_all(fd, normalSkipBuffer.begin(), normalSkipBuffer.size()))
       {
         delete[] dictionary;
         return;
       }
-      if (!normalDeltaBuffer.empty() && !write_all(fd, normalDeltaBuffer.begin(), normalDeltaBuffer.size()))
-      {
-        delete[] dictionary;
-        return;
-      }
-
-      if (!titleSkipBuffer.empty() && !write_all(fd, titleSkipBuffer.begin(), titleSkipBuffer.size()))
-      {
-        delete[] dictionary;
-        return;
-      }
-      if (!titleDeltaBuffer.empty() && !write_all(fd, titleDeltaBuffer.begin(), titleDeltaBuffer.size()))
+      if (!normalDeltaBuffer.empty() &&
+          !write_all(fd, normalDeltaBuffer.begin(), normalDeltaBuffer.size()))
       {
         delete[] dictionary;
         return;
       }
 
-      if (!anchorSkipBuffer.empty() && !write_all(fd, anchorSkipBuffer.begin(), anchorSkipBuffer.size()))
+      if (!titleSkipBuffer.empty() &&
+          !write_all(fd, titleSkipBuffer.begin(), titleSkipBuffer.size()))
       {
         delete[] dictionary;
         return;
       }
-      if (!anchorDeltaBuffer.empty() && !write_all(fd, anchorDeltaBuffer.begin(), anchorDeltaBuffer.size()))
+      if (!titleDeltaBuffer.empty() &&
+          !write_all(fd, titleDeltaBuffer.begin(), titleDeltaBuffer.size()))
+      {
+        delete[] dictionary;
+        return;
+      }
+
+      if (!anchorSkipBuffer.empty() &&
+          !write_all(fd, anchorSkipBuffer.begin(), anchorSkipBuffer.size()))
+      {
+        delete[] dictionary;
+        return;
+      }
+      if (!anchorDeltaBuffer.empty() &&
+          !write_all(fd, anchorDeltaBuffer.begin(), anchorDeltaBuffer.size()))
       {
         delete[] dictionary;
         return;
@@ -325,10 +333,8 @@ void Index::serialize(int fd)
     return;
   }
 
-  const uint64_t fileHeader[] = {INDEX_FILE_MAGIC_V2,
-                                 INDEX_FILE_VERSION_V2,
-                                 static_cast<uint64_t>(documentNames.size()),
-                                 uniqueWordsPlusOne,
+  const uint64_t fileHeader[] = {INDEX_FILE_MAGIC_V2, INDEX_FILE_VERSION_V2,
+                                 static_cast<uint64_t>(documentNames.size()), uniqueWordsPlusOne,
                                  INDEX_FILE_FIELD_COUNT_V2};
 
   if (!write_all(fd, fileHeader, sizeof(fileHeader)))

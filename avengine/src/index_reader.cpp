@@ -1,5 +1,5 @@
-#include "index.h"
 #include "avengine/string.h"
+#include "index.h"
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -112,8 +112,8 @@ static bool is_empty_dictionary_entry(const DictEntry& e, bool isV2)
   return e.stringOffset == 0 && e.postingOffset == 0;
 }
 
-static DecodedField decode_field(const uint8_t* cursor, const uint8_t* postingEnd, uint64_t skipCount,
-                                 uint64_t collectionFrequency)
+static DecodedField decode_field(const uint8_t* cursor, const uint8_t* postingEnd,
+                                 uint64_t skipCount, uint64_t collectionFrequency)
 {
   DecodedField out;
 
@@ -401,7 +401,8 @@ int main(int argc, char** argv)
 
     const uint8_t* cursor = posting + 56;
 
-    DecodedField normalField = decode_field(cursor, postingEnd, normalSkipCount, normalCollectionFrequency);
+    DecodedField normalField =
+        decode_field(cursor, postingEnd, normalSkipCount, normalCollectionFrequency);
     if (!normalField.ok)
     {
       std::fprintf(stderr, "Corrupt v2 normal field encoding.\n");
@@ -484,7 +485,8 @@ int main(int argc, char** argv)
     }
 
     std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
-    std::printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
+    std::printf("Collection frequency: %llu\n",
+                static_cast<unsigned long long>(collectionFrequency));
     std::printf("Skip pointers: %zu\n", field.skips.size());
     print_skip_preview(field.skips);
     print_position_preview(field.previewPositions);

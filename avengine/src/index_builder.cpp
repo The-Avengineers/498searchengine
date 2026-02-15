@@ -11,9 +11,9 @@
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
-#include <unistd.h>
 #include <vector>
 
 namespace
@@ -137,7 +137,8 @@ static NormalizedUrl parse_normalized_url(const std::string& rawUrl)
   {
     url.host = hostPort.substr(0, portPos);
     url.port = hostPort.substr(portPos + 1);
-    if ((url.protocol == "http" && url.port == "80") || (url.protocol == "https" && url.port == "443"))
+    if ((url.protocol == "http" && url.port == "80") ||
+        (url.protocol == "https" && url.port == "443"))
       url.port.clear();
   }
 
@@ -227,13 +228,15 @@ static size_t tokenize_and_ingest_current(const std::string& input, PhraseKind k
   return ingested;
 }
 
-static size_t tokenize_and_ingest_into_document(uint32_t docId, const std::string& input, PhraseKind kind,
-                                                std::unordered_set<std::string>* dedupTokens = nullptr)
+static size_t
+tokenize_and_ingest_into_document(uint32_t docId, const std::string& input, PhraseKind kind,
+                                  std::unordered_set<std::string>* dedupTokens = nullptr)
 {
   size_t ingested = 0;
   std::string token;
 
-  auto flush_token = [&]() {
+  auto flush_token = [&]()
+  {
     if (token.empty())
       return;
 
@@ -356,9 +359,10 @@ static void listFiles(const char* dir, std::vector<std::string>& files)
   }
 }
 
-static size_t indexDocumentWithHtmlAndCollectAnchors(
-    const std::string& url, const char* content, size_t length,
-    std::unordered_map<std::string, uint32_t>& urlToDocId, std::vector<PendingLink>& pendingLinks)
+static size_t
+indexDocumentWithHtmlAndCollectAnchors(const std::string& url, const char* content, size_t length,
+                                       std::unordered_map<std::string, uint32_t>& urlToDocId,
+                                       std::vector<PendingLink>& pendingLinks)
 {
   const uint32_t docId = globalIndex.beginDocument(url.c_str());
 
@@ -419,8 +423,8 @@ static size_t indexAnchorTextToTargets(const std::unordered_map<std::string, uin
     std::unordered_set<std::string> dedupTokens;
     for (const std::string& word : pending.anchorText)
     {
-      anchorTokens +=
-          tokenize_and_ingest_into_document(targetIt->second, word, PhraseKind::ANCHOR, &dedupTokens);
+      anchorTokens += tokenize_and_ingest_into_document(targetIt->second, word, PhraseKind::ANCHOR,
+                                                        &dedupTokens);
     }
   }
 
@@ -469,8 +473,8 @@ int main(int argc, char** argv)
         return 1;
       }
 
-      bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(file, content, length,
-                                                                   urlToDocId, pendingLinks);
+      bodyAndTitleTokens +=
+          indexDocumentWithHtmlAndCollectAnchors(file, content, length, urlToDocId, pendingLinks);
 
       std::free(content);
     }
@@ -490,8 +494,8 @@ int main(int argc, char** argv)
 
     for (const auto& doc : documents)
     {
-      bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(doc.first, doc.second.c_str(),
-                                                                   doc.second.size(), urlToDocId, pendingLinks);
+      bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(
+          doc.first, doc.second.c_str(), doc.second.size(), urlToDocId, pendingLinks);
     }
 
     std::free(content);
