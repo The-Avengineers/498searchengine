@@ -15,7 +15,8 @@
 *.so
 *.dylib
 *.exe
-vgcore*
+
+data
 *.sfi
 /build/
 .cache/
@@ -28,6 +29,10 @@ compile_commands.json
 Testing/
 CTestTestfile.cmake
 cmake_install.cmake
+vgcore*
 
 # Large files
 data/
+
+# CMake build dir
+avengine/build/
