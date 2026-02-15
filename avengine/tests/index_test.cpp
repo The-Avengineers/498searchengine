@@ -17,20 +17,18 @@ void fail(const char* expr, int line)
   std::abort();
 }
 
-#define EXPECT(expr)                                                                               \
-  do                                                                                               \
-  {                                                                                                \
-    if (!(expr))                                                                                   \
-      fail(#expr, __LINE__);                                                                       \
+#define EXPECT(expr)                                                                                 \
+  do                                                                                                 \
+  {                                                                                                  \
+    if (!(expr))                                                                                     \
+      fail(#expr, __LINE__);                                                                         \
   } while (false)
 
 uint64_t readU64LE(const uint8_t* ptr)
 {
   uint64_t value = 0;
   for (int i = 0; i < 8; ++i)
-  {
     value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
-  }
   return value;
 }
 
@@ -50,6 +48,16 @@ uint32_t readVarU32(const uint8_t*& cursor, const uint8_t* end)
 
   fail("valid varint stream", __LINE__);
   return 0;
+}
+
+Posting* findPostingByDoc(PostingList* list, uint32_t docId)
+{
+  for (size_t i = 0; i < list->postings.size(); i++)
+  {
+    if (list->postings[i].docId == docId)
+      return &list->postings[i];
+  }
+  return nullptr;
 }
 
 void testEncodingHelpers()
@@ -85,23 +93,30 @@ void testPostingListIngest()
 {
   PostingList list("alpha", nullptr);
 
-  list.ingest(2u, 10u);
-  list.ingest(2u, 42u);
-  list.ingest(9u, 100u);
+  list.ingest(2u, 10u, PhraseKind::NORMAL);
+  list.ingest(2u, 42u, PhraseKind::TITLE);
+  list.ingest(9u, 100u, PhraseKind::ANCHOR);
 
   EXPECT(std::strcmp(list.word, "alpha") == 0);
   EXPECT(list.nextBucket == nullptr);
 
   EXPECT(list.postings.size() == 2);
   EXPECT(list.postings[0].docId == 2u);
-  EXPECT(list.postings[0].termFreq == 2u);
-  EXPECT(list.postings[1].docId == 9u);
-  EXPECT(list.postings[1].termFreq == 1u);
+  EXPECT(list.postings[0].normalTermFreq == 1u);
+  EXPECT(list.postings[0].titleTermFreq == 1u);
+  EXPECT(list.postings[0].anchorTermFreq == 0u);
 
-  EXPECT(list.positions.size() == 3);
-  EXPECT(list.positions[0] == 10u);
-  EXPECT(list.positions[1] == 42u);
-  EXPECT(list.positions[2] == 100u);
+  EXPECT(list.postings[1].docId == 9u);
+  EXPECT(list.postings[1].normalTermFreq == 0u);
+  EXPECT(list.postings[1].titleTermFreq == 0u);
+  EXPECT(list.postings[1].anchorTermFreq == 1u);
+
+  EXPECT(list.normalPositions.size() == 1);
+  EXPECT(list.normalPositions[0] == 10u);
+  EXPECT(list.titlePositions.size() == 1);
+  EXPECT(list.titlePositions[0] == 42u);
+  EXPECT(list.anchorPositions.size() == 1);
+  EXPECT(list.anchorPositions[0] == 100u);
 }
 
 void testIndexIngestAcrossDocuments()
@@ -119,26 +134,66 @@ void testIndexIngestAcrossDocuments()
   EXPECT(index.documentNames.size() == 2);
   EXPECT(index.currentDocId == 1u);
   EXPECT(index.totalUniqWords == 2u);
-  EXPECT(index.offset == 4u);
+  EXPECT(index.normalOffset == 4u);
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
 
-  EXPECT(apple->postings.size() == 2);
-  EXPECT(apple->postings[0].docId == 0u);
-  EXPECT(apple->postings[0].termFreq == 2u);
-  EXPECT(apple->postings[1].docId == 1u);
-  EXPECT(apple->postings[1].termFreq == 1u);
-  EXPECT(apple->positions.size() == 3);
-  EXPECT(apple->positions[0] == 0u);
-  EXPECT(apple->positions[1] == 2u);
-  EXPECT(apple->positions[2] == 3u);
+  Posting* appleDoc0 = findPostingByDoc(apple, 0u);
+  Posting* appleDoc1 = findPostingByDoc(apple, 1u);
+  EXPECT(appleDoc0 != nullptr);
+  EXPECT(appleDoc1 != nullptr);
+  EXPECT(appleDoc0->normalTermFreq == 2u);
+  EXPECT(appleDoc1->normalTermFreq == 1u);
+  EXPECT(appleDoc0->titleTermFreq == 0u);
+  EXPECT(appleDoc1->anchorTermFreq == 0u);
 
-  EXPECT(banana->postings.size() == 1);
-  EXPECT(banana->postings[0].docId == 0u);
-  EXPECT(banana->postings[0].termFreq == 1u);
-  EXPECT(banana->positions.size() == 1);
-  EXPECT(banana->positions[0] == 1u);
+  EXPECT(apple->normalPositions.size() == 3);
+  EXPECT(apple->normalPositions[0] == 0u);
+  EXPECT(apple->normalPositions[1] == 2u);
+  EXPECT(apple->normalPositions[2] == 3u);
+
+  Posting* bananaDoc0 = findPostingByDoc(banana, 0u);
+  EXPECT(bananaDoc0 != nullptr);
+  EXPECT(bananaDoc0->normalTermFreq == 1u);
+  EXPECT(banana->normalPositions.size() == 1);
+  EXPECT(banana->normalPositions[0] == 1u);
+}
+
+void testAnchorTargetAssignmentAndFieldIsolation()
+{
+  Index index;
+
+  const uint32_t docA = index.beginDocument("http://a.test/");
+  const uint32_t docB = index.beginDocument("http://b.test/");
+
+  index.ingestIntoDocument(docA, "search", PhraseKind::NORMAL);
+  index.ingestIntoDocument(docA, "search", PhraseKind::TITLE);
+  index.ingestIntoDocument(docB, "search", PhraseKind::ANCHOR);
+  index.ingestIntoDocument(docB, "search", PhraseKind::ANCHOR);
+
+  PostingList* search = index.getBucket("search");
+  Posting* postingA = findPostingByDoc(search, docA);
+  Posting* postingB = findPostingByDoc(search, docB);
+
+  EXPECT(postingA != nullptr);
+  EXPECT(postingB != nullptr);
+
+  EXPECT(postingA->normalTermFreq == 1u);
+  EXPECT(postingA->titleTermFreq == 1u);
+  EXPECT(postingA->anchorTermFreq == 0u);
+
+  EXPECT(postingB->normalTermFreq == 0u);
+  EXPECT(postingB->titleTermFreq == 0u);
+  EXPECT(postingB->anchorTermFreq == 2u);
+
+  EXPECT(search->normalPositions.size() == 1u);
+  EXPECT(search->titlePositions.size() == 1u);
+  EXPECT(search->anchorPositions.size() == 2u);
+
+  EXPECT(index.normalOffset == 1u);
+  EXPECT(index.titleOffset == 1u);
+  EXPECT(index.anchorOffset == 2u);
 }
 
 void testIndexDocumentTokenization()
@@ -153,31 +208,38 @@ void testIndexDocumentTokenization()
   PostingList* beta = globalIndex.getBucket("beta");
   PostingList* gamma = globalIndex.getBucket("gamma");
 
-  EXPECT(alpha->postings.size() == 1);
-  EXPECT(alpha->postings[0].termFreq == 2u);
-  EXPECT(beta->postings.size() == 1);
-  EXPECT(beta->postings[0].termFreq == 1u);
-  EXPECT(gamma->postings.size() == 1);
-  EXPECT(gamma->postings[0].termFreq == 1u);
+  Posting* alphaPosting = findPostingByDoc(alpha, 0u);
+  Posting* betaPosting = findPostingByDoc(beta, 0u);
+  Posting* gammaPosting = findPostingByDoc(gamma, 0u);
 
-  EXPECT(alpha->positions.size() == 2);
-  EXPECT(alpha->positions[0] == 0u);
-  EXPECT(alpha->positions[1] == 2u);
-  EXPECT(beta->positions.size() == 1);
-  EXPECT(beta->positions[0] == 1u);
-  EXPECT(gamma->positions.size() == 1);
-  EXPECT(gamma->positions[0] == 3u);
+  EXPECT(alphaPosting != nullptr);
+  EXPECT(betaPosting != nullptr);
+  EXPECT(gammaPosting != nullptr);
+
+  EXPECT(alphaPosting->normalTermFreq == 2u);
+  EXPECT(betaPosting->normalTermFreq == 1u);
+  EXPECT(gammaPosting->normalTermFreq == 1u);
+
+  EXPECT(alpha->normalPositions.size() == 2);
+  EXPECT(alpha->normalPositions[0] == 0u);
+  EXPECT(alpha->normalPositions[1] == 2u);
+  EXPECT(beta->normalPositions.size() == 1);
+  EXPECT(beta->normalPositions[0] == 1u);
+  EXPECT(gamma->normalPositions.size() == 1);
+  EXPECT(gamma->normalPositions[0] == 3u);
 }
 
-void testSerializationHeaderAndSkipPointers()
+void testSerializationHeaderAndFieldSectionsV2()
 {
   Index index;
   index.beginDocument("doc://serialize");
+
   for (uint32_t i = 0; i < 10u; ++i)
-  {
-    (void)i;
-    index.ingest("alpha");
-  }
+    index.ingest("alpha", PhraseKind::NORMAL);
+  for (uint32_t i = 0; i < 2u; ++i)
+    index.ingest("alpha", PhraseKind::TITLE);
+  for (uint32_t i = 0; i < 3u; ++i)
+    index.ingest("alpha", PhraseKind::ANCHOR);
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
@@ -211,22 +273,29 @@ void testSerializationHeaderAndSkipPointers()
   EXPECT(close(readFd) == 0);
   EXPECT(unlink(pathTemplate) == 0);
 
-  EXPECT(readU64LE(bytes) == 1u);
-  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
+  EXPECT(readU64LE(bytes) == INDEX_FILE_MAGIC_V2);
+  EXPECT(readU64LE(bytes + 8) == INDEX_FILE_VERSION_V2);
+  EXPECT(readU64LE(bytes + 16) == 1u);
+  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
   EXPECT(uniqueWordsPlusOne == 2u);
+  EXPECT(readU64LE(bytes + 32) == INDEX_FILE_FIELD_COUNT_V2);
 
-  const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
+  const size_t dictionaryBytes = static_cast<size_t>(40u + (uniqueWordsPlusOne * 2u * 16u));
   const size_t stringBytes = std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  EXPECT(fileSize >= postingsStart + 24u);
+  EXPECT(fileSize >= postingsStart + 56u);
 
   const uint8_t* posting = bytes + postingsStart;
   EXPECT(readU64LE(posting) == 1u);
   EXPECT(readU64LE(posting + 8) == 10u);
-  EXPECT(readU64LE(posting + 16) == 3u);
+  EXPECT(readU64LE(posting + 16) == 2u);
+  EXPECT(readU64LE(posting + 24) == 3u);
+  EXPECT(readU64LE(posting + 32) == 3u);
+  EXPECT(readU64LE(posting + 40) == 0u);
+  EXPECT(readU64LE(posting + 48) == 0u);
 
-  const uint8_t* cursor = posting + 24u;
+  const uint8_t* cursor = posting + 56u;
   const uint8_t* end = bytes + fileSize;
 
   EXPECT(readVarU32(cursor, end) == 3u);
@@ -243,9 +312,14 @@ void testSerializationHeaderAndSkipPointers()
 
   EXPECT(readVarU32(cursor, end) == 0u);
   for (int i = 0; i < 9; ++i)
-  {
     EXPECT(readVarU32(cursor, end) == 1u);
-  }
+
+  EXPECT(readVarU32(cursor, end) == 0u);
+  EXPECT(readVarU32(cursor, end) == 1u);
+
+  EXPECT(readVarU32(cursor, end) == 0u);
+  EXPECT(readVarU32(cursor, end) == 1u);
+  EXPECT(readVarU32(cursor, end) == 1u);
 
   EXPECT(cursor == end);
   std::free(bytes);
@@ -258,7 +332,8 @@ int main()
   testEncodingHelpers();
   testPostingListIngest();
   testIndexIngestAcrossDocuments();
+  testAnchorTargetAssignmentAndFieldIsolation();
   testIndexDocumentTokenization();
-  testSerializationHeaderAndSkipPointers();
+  testSerializationHeaderAndFieldSectionsV2();
   return 0;
 }

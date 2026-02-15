@@ -5,14 +5,25 @@
 
 size_t djb2Hash(char const* str);
 
+constexpr uint64_t INDEX_FILE_MAGIC_V2 = 0x3256465345584449ULL;
+constexpr uint64_t INDEX_FILE_VERSION_V2 = 2;
+constexpr uint64_t INDEX_FILE_FIELD_COUNT_V2 = 3;
+
+// TODO: Use support phrases of different kinds and decorate or index titles differently.
+enum class PhraseKind
+{
+  TITLE,
+  NORMAL,
+  ANCHOR,
+};
+
 // Consider switching from AoS to SoA.
 struct Posting
 {
   uint32_t docId;
-  uint32_t termFreq;
-  // It might make sense to make the just an index if resizing is often changing
-  // the base pointer location.
-  size_t positions;
+  uint32_t normalTermFreq;
+  uint32_t titleTermFreq;
+  uint32_t anchorTermFreq;
 };
 
 #define STARTING_CAPACITY 64
@@ -20,7 +31,8 @@ struct Posting
 struct PostingList
 {
   PostingList(char const* word, PostingList* nextBucket);
-  void ingest(uint32_t docId, size_t offset);
+  Posting* findPosting(uint32_t docId);
+  void ingest(uint32_t docId, uint32_t offset, PhraseKind kind);
 
   char* word;
   size_t hash;
@@ -28,7 +40,9 @@ struct PostingList
   // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
   // points in the on-disk-format we should update this to match.
   avengine::vector<Posting> postings;
-  avengine::vector<uint32_t> positions;
+  avengine::vector<uint32_t> normalPositions;
+  avengine::vector<uint32_t> titlePositions;
+  avengine::vector<uint32_t> anchorPositions;
 };
 
 // TODO: Determine the best expected hashmap size given a read-world dataset.
@@ -40,7 +54,9 @@ uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
 struct Index
 {
   avengine::vector<PostingList*> buckets;
-  size_t offset = 0;
+  size_t normalOffset = 0;
+  size_t titleOffset = 0;
+  size_t anchorOffset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<const char*> documentNames;
   // Updated by beginDocument(). ingest(word) always indexes into this doc.
@@ -54,6 +70,8 @@ struct Index
   uint32_t beginDocument(const char* url);
   // Adds a token to the currently active document set by beginDocument().
   void ingest(char const* word);
+  void ingest(char const* word, PhraseKind kind);
+  void ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind);
 };
 
 extern Index globalIndex;
@@ -63,13 +81,6 @@ extern Index globalIndex;
 // continuous block of memory. The text in pharses must be writable and
 // monotonically increasing, i.e phrases[i].text < phrases.text[i + 1].
 size_t indexDocument(char const* url, char* pharses);
-
-// TODO: Use support phrases of different kinds and decorate or index titles differently.
-enum class PhraseKind
-{
-  TITLE,
-  NORMAL,
-};
 
 struct Phrase
 {
