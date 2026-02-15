@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Check for required commands
+check_commands() {
+    local missing=()
+
+    for cmd in wget xq; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Error: Missing required commands: ${missing[*]}"
+        echo ""
+        echo "Please install the missing commands:"
+        echo "  - wget: sudo apt install wget  (or brew install wget on macOS)"
+        echo "  - xq: pip install yq  (provides xq for XML processing)"
+        exit 1
+    fi
+}
+
+# Usage message
+usage() {
+    echo "Usage: $0 OUTPUT_FILE"
+    echo ""
+    echo "Download arXiv CS abstracts to a tab-separated file."
+    echo ""
+    echo "Arguments:"
+    echo "  OUTPUT_FILE    Path to the output file for abstracts"
+    echo ""
+    echo "Example:"
+    echo "  $0 cs_abstracts.txt"
+    exit 1
+}
+
+# Check arguments
+if [ $# -ne 1 ]; then
+    echo "Error: Missing output file argument"
+    echo ""
+    usage
+fi
+
+# Check for required commands
+check_commands
+
+OUTPUT_FILE="$1"
+BASE_URL="http://export.arxiv.org/oai2"
+TEMP_XML=$(mktemp --suffix=.xml)
+trap 'rm -f "$TEMP_XML"' EXIT
+
+# Initial request
+URL="${BASE_URL}?verb=ListRecords&metadataPrefix=arXiv&set=cs"
+
+echo "Starting arXiv CS abstracts download..."
+echo "Output file: $OUTPUT_FILE"
+
+# Clear output file if it exists
+> "$OUTPUT_FILE"
+
+PAGE=1
+
+while [ -n "$URL" ]; do
+    echo "Fetching page $PAGE..."
+
+	echo "$URL"
+
+    # Download the page
+    # curl --progress-bar "$URL" > "$TEMP_XML"
+	wget -q -O "$TEMP_XML" "$URL"
+
+    if [ $? -ne 0 ]; then
+        echo "Error downloading page $PAGE"
+        exit 1
+    fi
+
+    # Extract and format abstracts
+    xq -r '.["OAI-PMH"].ListRecords.record[]? | "\(.metadata.arXiv.title | gsub("\n"; " ")):\t\(.metadata.arXiv.abstract | gsub("\n"; " "))"' "$TEMP_XML" >> "$OUTPUT_FILE"
+
+    # Get resumption token
+    RESUMPTION_TOKEN=$(xq -r '.["OAI-PMH"].ListRecords.resumptionToken["#text"] // empty' "$TEMP_XML")
+
+    if [ -z "$RESUMPTION_TOKEN" ] || [ "$RESUMPTION_TOKEN" == "null" ]; then
+        echo "No more pages. Done!"
+        URL=""
+    else
+        echo "Found resumption token, waiting 20 seconds..."
+        sleep 20
+        URL="${BASE_URL}?verb=ListRecords&resumptionToken=${RESUMPTION_TOKEN}"
+        PAGE=$((PAGE + 1))
+    fi
+done
+
+echo "All abstracts saved to $OUTPUT_FILE"
+echo "Total records: $(wc -l < "$OUTPUT_FILE")"
