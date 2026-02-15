@@ -73,40 +73,37 @@ private:
   const size_t length_thres = 10;
 };
 
-
-class DistanceFromSeeds : public Ranker::Strategy {
+class DistanceFromSeeds : public Ranker::Strategy
+{
   // scores the pages according to their distance from the seedlist (communicate with crawler)
-  public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
-
-  }
+public:
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 };
 
-class ExactPhraseMatch : public Ranker::Strategy {
+class ExactPhraseMatch : public Ranker::Strategy
+{
   // scores the pages based on the exact matching of query phrases
-  public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
-  }
+public:
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 };
 
-class CorrectOrdering : public Ranker::Strategy {
+class CorrectOrdering : public Ranker::Strategy
+{
   // scores the pages based on the ordering of the query words in the pages
-  public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
-  }
+public:
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 }
 
-class OutlinkCount : public Ranker::Strategy {
+class OutlinkCount : public Ranker::Strategy
+{
   // scores the pages based on the numebr of hyperlinks outwards
-  public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
-  }
+public:
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 }
 
-class UrlDepth : public Ranker::Strategy {
+class UrlDepth : public Ranker::Strategy
+{
   // scores the pages based on the numebr of '/'
-  public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
-  }
+public:
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 }
-
