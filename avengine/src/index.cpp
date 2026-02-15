@@ -47,6 +47,7 @@ void PostingList::ingest(uint32_t docId, size_t offset)
 
 uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
 {
+  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
   while (value >= 0x80u)
   {
     *buffer++ = static_cast<uint8_t>((value & 0x7Fu) | 0x80u);
@@ -58,6 +59,7 @@ uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
 
 uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
 {
+  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
   memcpy(buffer, &value, sizeof(uint64_t));
   return buffer + sizeof(uint64_t);
 }
@@ -161,6 +163,9 @@ void Index::serialize(int fd)
   write(fd, stringBuffer.begin(), stringBuffer.size());
 
   size_t postingsOffset = 0;
+  avengine::vector<uint8_t> deltaBuffer;
+  avengine::vector<SkipPointer> skipPointers;
+  avengine::vector<uint8_t> skipBuffer;
 
   // Now we write out the posting list
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
@@ -176,15 +181,18 @@ void Index::serialize(int fd)
       const uint64_t documentFrequency = bucket->postings.size();
       const uint64_t collectionFrequency = bucket->positions.size();
 
+      deltaBuffer.clear();
+      skipPointers.clear();
+      skipBuffer.clear();
+
+      // TODO: Write index synchronization points and skip pointers.
       // Encode position list as varint deltas.
-      avengine::vector<uint8_t> deltaBuffer;
       uint32_t lastPosition = 0;
       const uint32_t skipStride =
           collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
 
       // Skip pointers are sampled every sqrt(N) positions. Each skip entry stores:
       // [position_index varint][absolute_position varint][delta_stream_byte_offset varint].
-      avengine::vector<SkipPointer> skipPointers;
       for (uint32_t i = 0; i < collectionFrequency; i++)
       {
         uint32_t position = bucket->positions[i];
@@ -199,7 +207,6 @@ void Index::serialize(int fd)
         lastPosition = position;
       }
 
-      avengine::vector<uint8_t> skipBuffer;
       for (const SkipPointer& skip : skipPointers)
       {
         append_var_uint32(skipBuffer, skip.positionIndex);
