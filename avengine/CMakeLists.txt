@@ -67,7 +67,7 @@ if (BUILD_TESTING)
   foreach(test_src IN LISTS TEST_SOURCES)
     get_filename_component(test_name "${test_src}" NAME_WE)
 
-    if (test_name MATCHES "doctest|smoke" AND NOT doctest_FOUND)
+    if (test_name MATCHES "doctest|smoke|index_test" AND NOT doctest_FOUND)
       message(STATUS "Skipping ${test_name}: doctest not found")
       continue()
     endif()
