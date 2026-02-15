@@ -14,6 +14,13 @@ struct DictEntry
   uint64_t postingOffset;
 };
 
+struct ParsedSkipPointer
+{
+  uint32_t positionIndex;
+  uint32_t positionValue;
+  uint32_t byteOffset;
+};
+
 static uint64_t read_u64_le(const uint8_t* ptr)
 {
   uint64_t value = 0;
@@ -251,7 +258,7 @@ int main(int argc, char** argv)
 
   size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
   size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
-  if (startOff + 16 > endOff || endOff > static_cast<size_t>(sb.st_size))
+  if (startOff + 24 > endOff || endOff > static_cast<size_t>(sb.st_size))
   {
     std::fprintf(stderr, "Corrupt posting list boundaries.\n");
     std::free(queryLower);
@@ -259,22 +266,55 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Each posting list begins with two u64 values currently written by indexer:
-  // [document frequency][collection frequency placeholder].
+  // Per posting-list header:
+  // [document frequency u64][collection frequency u64][skip count u64].
   const uint8_t* posting = data + startOff;
   uint64_t documentFrequency = read_u64_le(posting);
   uint64_t collectionFrequency = read_u64_le(posting + 8);
-  const uint8_t* cursor = posting + 16;
+  uint64_t skipCount = read_u64_le(posting + 16);
+  const uint8_t* cursor = posting + 24;
   const uint8_t* postingEnd = data + endOff;
 
-  // Remaining bytes are VLQ deltas for token positions.
+  avengine::vector<ParsedSkipPointer> parsedSkips;
+  for (uint64_t i = 0; i < skipCount; i++)
+  {
+    const uint8_t* next = nullptr;
+    uint32_t positionIndex = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t positionValue = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t byteOffset = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
+  }
+
+  // Remaining bytes are varint-encoded deltas for token positions.
   uint32_t pos = 0;
   size_t decoded = 0;
 
   std::printf("Term: %s\n", queryLower);
   std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
-  std::printf("Collection frequency (raw field): %llu\n",
-              static_cast<unsigned long long>(collectionFrequency));
+  std::printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
+  std::printf("Skip pointers: %zu\n", parsedSkips.size());
+  if (!parsedSkips.empty())
+  {
+    std::printf("Skip preview:");
+    for (size_t i = 0; i < parsedSkips.size() && i < 8; i++)
+    {
+      const ParsedSkipPointer& sp = parsedSkips[i];
+      std::printf(" [idx=%u pos=%u off=%u]", sp.positionIndex, sp.positionValue, sp.byteOffset);
+    }
+    std::printf("\n");
+  }
   std::printf("Positions preview:");
 
   while (cursor < postingEnd)
