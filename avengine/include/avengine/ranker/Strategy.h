@@ -1,7 +1,7 @@
+#include "ranker.h"
 #include <avengine/HtmlParser.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
-#include "ranker.h"
 
 #include <cstddef>
 #include <fstream>
@@ -145,8 +145,8 @@ private:
 
 class CorrectOrdering : public Ranker::Strategy
 {
-// reward longer in-order runs of query terms and favor tighter spans.
-// Score scales up with ordered run length and down with extra gap between terms.
+  // reward longer in-order runs of query terms and favor tighter spans.
+  // Score scales up with ordered run length and down with extra gap between terms.
 public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
   {
@@ -237,8 +237,7 @@ public:
   }
 
 private:
-  vector<vector<size_t>> BuildAbsolutePositions(
-      const vector<vector<size_t>>& term_positions) const
+  vector<vector<size_t>> BuildAbsolutePositions(const vector<vector<size_t>>& term_positions) const
   {
     vector<vector<size_t>> abs_positions(term_positions.size());
 
@@ -260,7 +259,6 @@ private:
     return abs_positions;
   }
 };
-
 
 class OutlinkCount : public Ranker::Strategy
 {
@@ -297,13 +295,10 @@ class HttpsMatch : public Ranker::Strategy
 
 class QueryOccurrence : public Ranker::Strategy
 {
-// prefer URLs that contain longer in-order query term runs with smaller gaps.
-// Longer matches boost relevance; scattered matches are downweighted.
+  // prefer URLs that contain longer in-order query term runs with smaller gaps.
+  // Longer matches boost relevance; scattered matches are downweighted.
 public:
-  explicit QueryOccurrence(const vector<avengine::string>& query_terms)
-      : QueryTerms(query_terms)
-  {
-  }
+  explicit QueryOccurrence(const vector<avengine::string>& query_terms) : QueryTerms(query_terms) {}
 
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
   {
@@ -371,8 +366,7 @@ public:
       return 0.0;
     }
 
-    const double length_ratio =
-        static_cast<double>(best_len) / static_cast<double>(query_len);
+    const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
     const double length_weight = length_ratio * length_ratio;
     const double proximity = 1.0 / (1.0 + static_cast<double>(best_gap));
 
@@ -382,4 +376,3 @@ public:
 private:
   vector<avengine::string> QueryTerms;
 };
-
