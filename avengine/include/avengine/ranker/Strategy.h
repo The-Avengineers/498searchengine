@@ -28,7 +28,7 @@ public:
 
 private:
   const avengine::vector<const char*> GoodDomains = {".edu",
-                                                     ".gov"}; // Add moer good domains in here
+                                                     ".gov"}; // Add more good domains in here
 };
 
 class ShortURLStrat : public Ranker::Strategy
@@ -98,12 +98,30 @@ class OutlinkCount : public Ranker::Strategy
 {
   // scores the pages based on the numebr of hyperlinks outwards
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+    
+
+  }
 }
 
 class UrlDepth : public Ranker::Strategy
 {
-  // scores the pages based on the numebr of '/'
+  // scores the pages based on reciprocal '/' count in URL, assuming all url have at least 2 in 'https://'
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+    size_t slash_count = 0;
+    for (char c : url){
+      if (c == '/') ++slash_count;
+    }
+    return slash_count == 0 ? 0.0 : 1 / static_cast<double>(slash_count);
+  }
+}
+
+class HttpsMatch : public Ranker::Strategy
+{
+  // scores page based on https vs http
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+    return (url.size() >= 8 && url[4] == 's') ? 1.0 : 0.0; 
+  }
+
 }
