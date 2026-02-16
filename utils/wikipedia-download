@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Check for required commands
+check_commands() {
+    local missing=()
+
+    for cmd in curl bunzip2 jq; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Error: Missing required commands: ${missing[*]}"
+        echo ""
+        echo "Please install the missing commands:"
+        echo "  - curl: sudo apt install curl  (or brew install curl on macOS)"
+        echo "  - bunzip2: sudo apt install bzip2  (or brew install bzip2 on macOS)"
+        echo "  - jq: sudo apt install jq  (or brew install jq on macOS)"
+        exit 1
+    fi
+}
+
+# Usage message
+usage() {
+    echo "Usage: $0 OUTPUT_DIR [START_PART] [MAX_PART]"
+    echo ""
+    echo "Download and process Wikipedia dump files."
+    echo ""
+    echo "Arguments:"
+    echo "  OUTPUT_DIR     Directory to save extracted text files (required)"
+    echo "  START_PART     Starting part number (default: 0)"
+    echo "  MAX_PART       Maximum part number (default: 63)"
+    echo ""
+    echo "Example:"
+    echo "  $0 ./wiki_output           # Process all parts (0-63)"
+    echo "  $0 ./wiki_output 10        # Start from part 10"
+    echo "  $0 ./wiki_output 10 20     # Process parts 10-20 only"
+    echo ""
+    echo "WARNING: This downloads and processes large files (several GB each)."
+    exit 1
+}
+
+# Check arguments
+if [ $# -lt 1 ]; then
+    echo "Error: Missing output directory argument"
+    echo ""
+    usage
+fi
+
+# Check for required commands
+check_commands
+
+OUTPUT_DIR="$1"
+START_PART="${2:-0}"
+MAX_PART="${3:-63}"
+
+# Create output directory if it doesn't exist
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo "Creating output directory: $OUTPUT_DIR"
+    mkdir -p "$OUTPUT_DIR"
+fi
+
+BASE_URL="https://dumps.wikimedia.org/other/cirrus_search_index/20260208/index_name%3Denwiki_content/"
+
+echo "Wikipedia Dump Downloader"
+echo ""
+echo "Configuration:"
+echo "  Output directory: $OUTPUT_DIR"
+echo "  Start part: $START_PART"
+echo "  Max part: $MAX_PART"
+echo "  Total parts to process: $((MAX_PART - START_PART + 1))"
+echo ""
+echo "WARNING: This will download and process large files (several GB each)."
+echo "The process will take a considerable amount of time."
+echo ""
+read -p "Do you want to continue? (y/n): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 1
+fi
+
+process_file() {
+  local part=$1
+  local filename="enwiki_content-20260208-$(printf "%05d" $part).json.bz2"
+  local url="${BASE_URL}${filename}"
+
+  echo "Processing part $part ($filename)..."
+
+  curl "$url" --progress-bar |
+  bunzip2 -qc |
+  jq -r 'select(.page_id != null) |
+    (.page_id | tostring) as $id |
+    (.title + "\n" + .text) as $content |
+    "echo \($content | @sh) > \($id).txt"' | bash
+
+  echo "Part $part completed!"
+}
+
+for part in $(seq $START_PART $MAX_PART); do
+  pushd "$OUTPUT_DIR" > /dev/null
+  process_file $part
+  popd > /dev/null
+done
+
+echo "All parts processed successfully!"
