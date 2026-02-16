@@ -86,45 +86,56 @@ class ExactPhraseMatch : public Ranker::Strategy
   // 1 word queries return 1, missing term queries return 0
   // runtime is O(1st_word_occurances * (query_len - 1) * avg_word_occurances)
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  {
     (void)url;
-    
-    if(term_position.size() < 2) return 1.0;
 
-    for (const auto& positions : term_positions){
-      if (positions.empty()) return 0.0;
+    if (term_position.size() < 2)
+      return 1.0;
+
+    for (const auto& positions : term_positions)
+    {
+      if (positions.empty())
+        return 0.0;
     }
 
     size_t first_absolute = 0;
-    for (size_t rel_pos : term_positions[0]){
+    for (size_t rel_pos : term_positions[0])
+    {
 
       first_absolute += rel_pos;
 
       bool is_phrase = true;
 
-      for (size_t term_idx = 1; term_idx < term_positions.size(); ++term_idx){
+      for (size_t term_idx = 1; term_idx < term_positions.size(); ++term_idx)
+      {
         size_t expected_pos = first_absolute + term_idx;
-        if(!HasPositionAt(expected_pos, term_positions[term_idx])){
+        if (!HasPositionAt(expected_pos, term_positions[term_idx]))
+        {
           is_phrase = false;
           break;
         }
 
-        if(is_phrase) return 1.0;
-
+        if (is_phrase)
+          return 1.0;
       }
-
     }
     return 0.0;
   }
+
 private:
-  bool HasPositionAt(size_t target_pos, avengine::vector<size_t>& relative_positions){
+  bool HasPositionAt(size_t target_pos, avengine::vector<size_t>& relative_positions)
+  {
     size_t absolute_pos = 0;
-    for (size_t rel_pos : relative_positions) {
+    for (size_t rel_pos : relative_positions)
+    {
       absolute_pos += rel_pos;
-      if (absolute_pos == target_pos) {
+      if (absolute_pos == target_pos)
+      {
         return true;
       }
-      if (absolute_pos > target_pos) {
+      if (absolute_pos > target_pos)
+      {
         return false;
       }
     }
