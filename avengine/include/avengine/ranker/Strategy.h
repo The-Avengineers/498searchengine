@@ -262,7 +262,7 @@ private:
 
 class OutlinkCount : public Ranker::Strategy
 {
-  // scores the pages based on the numebr of hyperlinks outwards
+  // scores the pages based on the number of hyperlinks outwards
 public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 };
