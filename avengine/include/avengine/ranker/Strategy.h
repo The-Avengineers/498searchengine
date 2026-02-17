@@ -3,10 +3,10 @@
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <string>
-#include <cmath>
 
 using namespace avengine;
 
@@ -383,21 +383,23 @@ class EarlyQueryTermMatch : public Ranker::Strategy
   // Scores how early each term appears in document on log scale
   // TODO: add bonus if terms are in title, need that parameter from crawler/index
 public:
-  
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
   {
     (void)url;
-    if (term_positions.empty()){
+    if (term_positions.empty())
+    {
       return 0.0;
     }
 
     double score = 0.0;
     size_t valid_terms = 0;
-    for (const auto& positions : term_positions){
-      if (!positions.empty()){
+    for (const auto& positions : term_positions)
+    {
+      if (!positions.empty())
+      {
         score += 1.0 / log2(2.0 + positions[0]);
         ++valid_terms;
-      } 
+      }
     }
     return score / valid_terms;
   }
