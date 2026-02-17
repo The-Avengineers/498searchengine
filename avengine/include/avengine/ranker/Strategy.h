@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <fstream>
 #include <string>
+#include <cmath>
 
 using namespace avengine;
 
@@ -75,7 +76,7 @@ private:
 
 class DistanceFromSeeds : public Ranker::Strategy
 {
-  // scores the pages according to their distance from the seedlist (communicate with crawler)
+  // TODO: scores the pages according to their distance from the seedlist (communicate with crawler)
 public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 };
@@ -262,7 +263,7 @@ private:
 
 class OutlinkCount : public Ranker::Strategy
 {
-  // scores the pages based on the number of hyperlinks outwards
+  // TODO: scores the pages based on the number of hyperlinks outwards
 public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
 };
@@ -375,4 +376,29 @@ public:
 
 private:
   vector<avengine::string> QueryTerms;
+};
+
+class EarlyQueryTermMatch : public Ranker::Strategy
+{
+  // Scores how early each term appears in document on log scale
+  // TODO: add bonus if terms are in title, need that parameter from crawler/index
+public:
+  
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  {
+    (void)url;
+    if (term_positions.empty()){
+      return 0.0;
+    }
+
+    double score = 0.0;
+    size_t valid_terms = 0;
+    for (const auto& positions : term_positions){
+      if (!positions.empty()){
+        score += 1.0 / log2(2.0 + positions[0]);
+        ++valid_terms;
+      } 
+    }
+    return score / valid_terms;
+  }
 };
