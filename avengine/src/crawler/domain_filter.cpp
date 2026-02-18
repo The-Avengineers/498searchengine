@@ -5,7 +5,25 @@ namespace avengine
 namespace crawler
 {
 
-domainFilter::domainFilter() :
+[[gnu::always_inline]] inline static bool compare(const string a, const string b)
+{
+  return a == b;
+}
+
+[[gnu::always_inline]] inline static uint64_t stringHash(const string s)
+{
+  const uint64_t P = 1315423911ULL;
+  uint64_t h = 0;
+
+  for (unsigned char c : s)
+  {
+    h = h * P + c;
+  }
+  return h;
+}
+
+domainFilter::domainFilter()
+    : blockSet(compare, stringHash, 256)
 {
   // set the blocklist
 }
