@@ -1,7 +1,5 @@
 #include "../../include/avengine/crawler/fetcher.h"
-#include "../../../include/avengine_lib/LinuxGetUrlSslStarter/LinuxGetUrl.cpp"
 #include "../../include/avengine/crawler/url_normalizer.h"
-#include "../../include/avengine/expected/expected.h"
 #include <cstring>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -94,8 +92,8 @@ fetchResponse fetcher::parseResponse(const string& raw)
 expected<fetchResponse, error> fetcher::fetch(const string& url)
 {
   URLNormalizer normalizer;
-  string normalizedUrl = normalizer.normalize(url);
-  URL parsed = parseURL(normalizedUrl);
+  string normalizedUrl = normalizer.normalizeIndividual(url);
+  URL parsed = normalizer.parseURL(normalizedUrl);
 
   // Use default port if not specified
   string port = parsed.port;
