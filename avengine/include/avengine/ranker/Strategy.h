@@ -84,8 +84,8 @@ public:
 class ExactPhraseMatch : public Ranker::Strategy
 {
   // scores the pages based on the exact matching of query phrases
-  // 1 word queries return 1, missing term queries return 0
-  // runtime is O(1st_word_occurances * (query_len - 1) * avg_word_occurances)
+  // checks if current indices form phrase
+  // runs in O(sum_of_term_appearances)
 public:
   double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
   {
@@ -100,47 +100,48 @@ public:
         return 0.0;
     }
 
-    size_t first_absolute = 0;
-    for (size_t rel_pos : term_positions[0])
+    size_t n = term_positions.size();
+    avengine::vector<size_t> indices(n, 0);
+    avengine::vector<size_t> absolute(n, 0);
+
+    for (size_t i = 0; i < n; ++i)
     {
+      absolute[i] = term_positions[i][0];
+    }
 
-      first_absolute += rel_pos;
-
+    while (true)
+    {
+      size_t min_term = 0;
+      size_t min_val = absolute[0];
       bool is_phrase = true;
-
-      for (size_t term_idx = 1; term_idx < term_positions.size(); ++term_idx)
+      for (size_t i = 1; i < n; ++i)
       {
-        size_t expected_pos = first_absolute + term_idx;
-        if (!HasPositionAt(expected_pos, term_positions[term_idx]))
+        if (absolute[i] != absolute[0] + i)
         {
-          is_phrase = false;
-          break;
+            is_phrase = false;
         }
 
-        if (is_phrase)
-          return 1.0;
+        if (absolute[i] + min_term < min_val + i)
+        {
+            min_val = absolute[i];
+            min_term = i;
+        }
       }
-    }
-    return 0.0;
-  }
 
-private:
-  bool HasPositionAt(size_t target_pos, const avengine::vector<size_t>& relative_positions) const
-  {
-    size_t absolute_pos = 0;
-    for (size_t rel_pos : relative_positions)
-    {
-      absolute_pos += rel_pos;
-      if (absolute_pos == target_pos)
+      if (is_phrase)
       {
-        return true;
+        return 1.0;
       }
-      if (absolute_pos > target_pos)
+
+      indices[min_term]++;
+
+      if (indices[min_term] >= term_positions[min_term].size())
       {
-        return false;
+        return 0.0;
       }
-    }
-    return false;
+
+      absolute[min_term] += term_positions[min_term][indices[min_term]];
+  }
   }
 };
 
