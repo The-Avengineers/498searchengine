@@ -56,7 +56,8 @@ string domainFilter::extractDomain(const string& url) const
     {
       c += 32;
     }
-    domain += c;
+    char temp[2] = {c, '\0'};
+    domain += string(temp);
   }
   return domain;
 }
