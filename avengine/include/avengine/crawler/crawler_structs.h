@@ -1,5 +1,4 @@
 #pragma once
-#include "../avengine_lib/deque.h"
 #include "../avengine_lib/string.h"
 
 namespace avengine
@@ -13,11 +12,4 @@ struct urlEntry
   int depth; // from seed
 };
 
-struct hostQueue
-{
-  string domain;
-  deque<urlEntry> pending;
-  // URLs waiting to be fetched from this domain
-};
-
-}
+} // namespace avengine
