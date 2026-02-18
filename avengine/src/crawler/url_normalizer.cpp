@@ -1,5 +1,10 @@
 #include "../../include/avengine/crawler/url_normalizer.h"
 
+namespace avengine
+{
+namespace crawler
+{
+
 URL URLNormalizer::parseURL(const string& url)
 {
   // parse the URL into its components
@@ -246,3 +251,6 @@ string URLNormalizer::intToString(int num)
   }
   return result;
 }
+
+} // namespace crawler
+} // namespace avengine
