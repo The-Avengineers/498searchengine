@@ -118,13 +118,13 @@ public:
       {
         if (absolute[i] != absolute[0] + i)
         {
-            is_phrase = false;
+          is_phrase = false;
         }
 
         if (absolute[i] + min_term < min_val + i)
         {
-            min_val = absolute[i];
-            min_term = i;
+          min_val = absolute[i];
+          min_term = i;
         }
       }
 
@@ -141,7 +141,7 @@ public:
       }
 
       absolute[min_term] += term_positions[min_term][indices[min_term]];
-  }
+    }
   }
 };
 
