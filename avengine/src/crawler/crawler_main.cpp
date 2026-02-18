@@ -84,7 +84,6 @@ int main()
       // for each extracted link:
       for (size_t j = 0; j < parser.links.size(); ++j)
       {
-        // normalize(base, link)      pass in the normalized base + link    KINDA DONE (NEEDS TESTING)
         string baseURL;
         if (parser.base.size() > 0) 
         {
@@ -121,13 +120,13 @@ int main()
     if (crawlCount % checkpointInterval == 0 && crawlCount > 0)
     {
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-      // CrawlLogger.log("CHECKPOINT", crawlCount)                              NOT DONE
+      // CrawlLogger.log("CHECKPOINT", crawlCount)                             
     }
   }
 
   // Final checkpoint
   theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-  // CrawlLogger.log("DONE", crawlCount, theFrontier.seenCount())              NOT DONE
+  // CrawlLogger.log("DONE", crawlCount, theFrontier.seenCount())              
 
   return 0;
 }
