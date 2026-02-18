@@ -7,6 +7,11 @@
 // need to add non absolute url support and handling
 //  should queries be kept, fragments?
 
+namespace avengine
+{
+namespace crawler
+{
+
 struct URL
 {
   string protocol; // http or https
@@ -50,3 +55,6 @@ private:
   // int to string function for the port
   string intToString(int num);
 };
+
+} // namespace crawler
+} // namespace avengine
