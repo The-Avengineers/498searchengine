@@ -20,7 +20,7 @@ public:
     const double num_objects_double = static_cast<double>(num_objects);
     const double ln_fpr = std::log(false_positive_rate);
     size = static_cast<int64_t>(-(num_objects_double * ln_fpr / (ln_2 * ln_2)));
-    bits.resize(size);
+    bits.resize((size + 7) / 8, 0);
 
     // Determine number of hash functions to use.
 
@@ -45,7 +45,7 @@ public:
     for (uint64_t i{}; i < num_hash_funcs; ++i)
     {
       size_t idx = (hash1 + (i * hash2)) % size;
-      bits[idx] = true;
+      bits[idx / 8] |= (1 << (idx % 8));
     }
   }
 
@@ -64,7 +64,7 @@ public:
     for (uint64_t i{}; i < num_hash_funcs; ++i)
     {
       size_t idx = (hash1 + (i * hash2)) % size;
-      if (!bits[idx])
+      if (!(bits[idx / 8] & (1 << (idx % 8))))
       {
         return false;
       }
@@ -78,7 +78,7 @@ public:
 
   uint64_t getSize() const
   {
-    return size;
+    return bits.size();
   }
 
   uint64_t getCount() const
@@ -89,7 +89,7 @@ public:
 private:
   // Add any private member variables that may be neccessary.
   uint64_t count;
-  std::vector<bool> bits;
+  std::vector<uint8_t> bits;
   uint64_t size;
   uint64_t num_hash_funcs;
 
