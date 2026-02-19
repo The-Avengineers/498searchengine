@@ -2,6 +2,7 @@
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/crawler/domain_filter.h"
+#include "../../include/avengine/crawler/logger.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 
 using namespace avengine;
@@ -11,14 +12,15 @@ using namespace avengine::crawler;
 
 int main()
 {
-  // Crawler Components 
+  // Crawler Components
   frontier theFrontier;
   fetcher theFetcher;
   URLNormalizer normalizer;
   domainFilter filter;
+  CrawlLogger crawlLogger("crawl_log.csv");
 
   // ── Seed URLs ──
-  // normalize seed URLs with URLNormalizer (normalizeIndividual)   KINDA DONE (needs testing)
+  // normalize seed URLs with URLNormalizer (normalizeIndividual)
   vector<string> seeds;
   // add seeds here
 
@@ -60,7 +62,7 @@ int main()
       auto result = theFetcher.fetch(entry.url);
       if (!result.hasValue())
       {
-        // CrawlLogger.log(entry.url, "FAIL")                                  NOT DONE
+        crawlLogger.log(entry.url, "FAILED FETCHING");
         continue;
       }
 
@@ -69,11 +71,11 @@ int main()
       // check to ensure status == 200
       if (resp.statusCode != 200)
       {
-        // CrawlLogger.log(entry.url, "SKIP", resp.statusCode)                  NOT DONE
+        crawlLogger.log(entry.url, "SKIP, BAD RESP", resp.statusCode);
         continue;
       }
 
-      // CrawlLogger.log(entry.url, "OK", resp.body.size())                    NOT DONE
+      crawlLogger.log(entry.url, "OK, Code 200", resp.body.size());
 
       // Call the constructor to parse the HTML                             KINDA DONE (TEST)
       HtmlParser parser(resp.body.cstr(), resp.body.size());
@@ -110,9 +112,6 @@ int main()
         }
       }
 
-      // CrawlLogger.log(url, status, timestamp)
-      // crawlLogger.log(entry.url, resp.statusCode, time(nullptr));
-
       crawlCount++;
     }
 
@@ -120,13 +119,13 @@ int main()
     if (crawlCount % checkpointInterval == 0 && crawlCount > 0)
     {
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-      // CrawlLogger.log("CHECKPOINT", crawlCount)                             
+      crawlLogger.log("CHECKPOINT", crawlCount, theFrontier.seenCount(), theFrontier.size());
     }
   }
 
   // Final checkpoint
   theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-  // CrawlLogger.log("DONE", crawlCount, theFrontier.seenCount())              
+  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());              
 
   return 0;
 }
