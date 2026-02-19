@@ -1,5 +1,6 @@
 # OS files
 .DS_Store
+**/.DS_Store
 
 # Editors/IDEs
 .vscode/
@@ -14,8 +15,24 @@
 *.so
 *.dylib
 *.exe
-vgcore*
+
+data
 *.sfi
+/build/
+.cache/
+build/
+**/build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+Testing/
+CTestTestfile.cmake
+cmake_install.cmake
+vgcore*
 
 # Large files
 data/
+
+# CMake build dir
+avengine/build/

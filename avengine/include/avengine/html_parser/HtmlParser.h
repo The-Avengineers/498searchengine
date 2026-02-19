@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include <avengine/HtmlTags.h>
-#include <string>
-#include <vector>
+#include "HtmlTags.h"
+#include "../avengine_lib/string.h"
+#include "../avengine_lib/vector.h"
 
 namespace avengine
 {
@@ -75,16 +75,16 @@ namespace avengine
 class Link
 {
 public:
-  std::string URL;
-  std::vector<std::string> anchorText;
-  Link(std::string URL) : URL(URL) {}
+  string URL;
+  vector<string> anchorText;
+  Link(const string& URL) : URL(URL) {}
 };
 class HtmlParser
 {
 public:
-  std::vector<std::string> words, titleWords;
-  std::vector<Link> links;
-  std::string base;
+  vector<string> words, titleWords;
+  vector<Link> links;
+  string base;
 
 private:
   // curr ptr
@@ -103,29 +103,41 @@ private:
   };
   static inline char lower_ascii(unsigned char c)
   {
-    return static_cast<char>(std::tolower(c));
+    if (c >= 'A' && c <= 'Z')
+      return static_cast<char>(c + 32);
+    return static_cast<char>(c);
   }
   // check for spaces, tabs, newlines, returns
-  bool is_whitespace(char c)
+  static inline bool is_whitespace(char c)
   {
-    return std::isspace(static_cast<unsigned char>(c));
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+  }
+  // build a string from a pointer range
+  static string makeString(const char* start_, const char* end_)
+  {
+    string s;
+    for (const char* p = start_; p < end_; ++p)
+    {
+      s.pushBack(*p);
+    }
+    return s;
   }
   // add to correct data structures
   void add_to_words(const char* start_, const char* end_, bool in_title, int anchor_link_idx)
   {
 
-    std::string word(start_, end_ - start_);
+    string word = makeString(start_, end_);
     if (in_title)
     {
-      titleWords.push_back(word);
+      titleWords.pushBack(word);
     }
     else
     {
-      words.push_back(word);
+      words.pushBack(word);
     }
     if (anchor_link_idx >= 0 && static_cast<size_t>(anchor_link_idx) < links.size())
     {
-      links[anchor_link_idx].anchorText.push_back(word);
+      links[anchor_link_idx].anchorText.pushBack(word);
     }
   }
   // move curr past the section
@@ -172,7 +184,7 @@ private:
     }
   }
   // get src
-  std::string get_src(const char* start, const char* tag_end)
+  string get_src(const char* start, const char* tag_end)
   {
     const char* s = start;
 
@@ -205,16 +217,16 @@ private:
             {
               s++;
             }
-            return std::string(valueStart, s - valueStart);
+            return makeString(valueStart, s);
           }
         }
       }
       s++;
     }
-    return std::string();
+    return string();
   }
   // get href
-  std::string get_href(const char* start, const char* tag_end)
+  string get_href(const char* start, const char* tag_end)
   {
     const char* s = start;
 
@@ -246,13 +258,13 @@ private:
             {
               s++;
             }
-            return std::string(value_start, s - value_start);
+            return makeString(value_start, s);
           }
         }
       }
       s++;
     }
-    return std::string();
+    return string();
   }
   // proccess the tag
   tag_result process_tag()
@@ -369,7 +381,7 @@ private:
     bool self_closing = false;
     {
       const char* t = tag_end;
-      while (t > start_of_tag && std::isspace(static_cast<unsigned char>(*(t - 1))))
+      while (t > start_of_tag && is_whitespace(*(t - 1)))
       {
         t--;
       }
@@ -416,21 +428,21 @@ private:
       }
       else
       {
-        std::string href = get_href(attr_start, tag_end);
-        if (!href.empty())
+        string href = get_href(attr_start, tag_end);
+        if (href.size() > 0)
         {
-          links.push_back(Link(href));
+          links.pushBack(Link(href));
           res = tag_result::anchor_open;
         }
-        curr_in_anchor = (!self_closing && !href.empty());
+        curr_in_anchor = (!self_closing && href.size() > 0);
       }
       break;
 
     case DesiredAction::Base:
       if (!is_closing && !seen_base)
       {
-        std::string href = get_href(attr_start, tag_end);
-        if (!href.empty())
+        string href = get_href(attr_start, tag_end);
+        if (href.size() > 0)
         {
           base = href;
           seen_base = true;
@@ -441,9 +453,9 @@ private:
     case DesiredAction::Embed:
       if (!is_closing)
       {
-        std::string src = get_src(attr_start, tag_end);
-        if (!src.empty())
-          links.push_back(Link(src));
+        string src = get_src(attr_start, tag_end);
+        if (src.size() > 0)
+          links.pushBack(Link(src));
       }
       break;
 

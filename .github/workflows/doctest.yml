@@ -1,0 +1,35 @@
+name: Doctest
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "avengine/**"
+      - ".github/workflows/doctest.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "avengine/**"
+      - ".github/workflows/doctest.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ doctest-dev
+
+      - name: Configure
+        run: cmake -S avengine -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --no-tests=error

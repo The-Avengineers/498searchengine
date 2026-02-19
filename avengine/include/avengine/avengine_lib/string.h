@@ -1,6 +1,7 @@
 // string.h
 //
 // Starter file for a string template
+#pragma once
 
 #include <avengine/avengine_lib/vector.h>
 #include <cstddef>  // for size_t
@@ -17,17 +18,18 @@ public:
   // REQUIRES: Nothing
   // MODIFIES: *this
   // EFFECTS: Creates an empty string
-  string() : Heap(), Size(0), IsSmall(true)
+  string()
   {
-    Small[0] = '\0';
+    initSmallEmpty();
   }
 
   // string Literal / C string Constructor
   // REQUIRES: cstr is a null terminated C style string
   // MODIFIES: *this
   // EFFECTS: Creates a string with equivalent contents to cstr
-  string(const char* cstr) : Heap(), Size(0), IsSmall(true)
+  string(const char* cstr)
   {
+    initSmallEmpty();
     size_t len = 0;
     while (cstr[len] != '\0')
     {
@@ -40,9 +42,10 @@ public:
   // REQUIRES: Nothing
   // MODIFIES: *this
   // EFFECTS: Creates a copy of other
-  string(const string& other) : Heap(), Size(0), IsSmall(true)
+  string(const string& other)
   {
-    assignFrom(other.cstr(), other.Size);
+    initSmallEmpty();
+    assignFrom(other.cstr(), other.size());
   }
 
   // Copy Assignment
@@ -53,7 +56,7 @@ public:
   {
     if (this != &other)
     {
-      assignFrom(other.cstr(), other.Size);
+      assignFrom(other.cstr(), other.size());
     }
     return *this;
   }
@@ -61,31 +64,25 @@ public:
   // Move Constructor
   // REQUIRES: Nothing
   // MODIFIES: *this, leave other in default constructed state
-  string(string&& other) : Heap(), Size(0), IsSmall(true)
+  string(string&& other)
   {
-    if (other.IsSmall)
+    if (other.isSmall())
     {
-      // just copy the small buffer
-      Size = other.Size;
-      IsSmall = true;
-      for (size_t i = 0; i < Size; ++i)
+      initSmallEmpty();
+      const size_t otherSize = other.size();
+      for (size_t i = 0; i < otherSize; ++i)
       {
-        Small[i] = other.Small[i];
+        Data.Small.Buffer[i] = other.Data.Small.Buffer[i];
       }
-      Small[Size] = '\0';
+      setSmallSize(otherSize);
     }
     else
     {
-      // steal heap
-      Heap = std::move(other.Heap);
-      Size = other.Size;
-      IsSmall = false;
+      Data.Heap.Ptr = other.Data.Heap.Ptr;
+      Data.Heap.Size = other.Data.Heap.Size;
+      Data.Heap.CapAndTag = other.Data.Heap.CapAndTag;
+      other.initSmallEmpty();
     }
-    // reset other
-    other.Size = 0;
-    other.IsSmall = true;
-    other.Small[0] = '\0';
-    // NOTE: other.Heap is still valid but unused
   }
 
   // Move Assignment
@@ -95,31 +92,29 @@ public:
   {
     if (this != &other)
     {
-      if (other.IsSmall)
+      if (!isSmall())
       {
-        // discard existing heap contents
-        Heap.clear();
-        // copy into small buffer
-        Size = other.Size;
-        IsSmall = true;
-        for (size_t i = 0; i < Size; ++i)
+        delete[] Data.Heap.Ptr;
+      }
+
+      if (other.isSmall())
+      {
+        initSmallEmpty();
+        const size_t otherSize = other.size();
+        for (size_t i = 0; i < otherSize; ++i)
         {
-          Small[i] = other.Small[i];
+          Data.Small.Buffer[i] = other.Data.Small.Buffer[i];
         }
-        Small[Size] = '\0';
+        setSmallSize(otherSize);
       }
       else
       {
-        // steal heap
-        Heap = std::move(other.Heap);
-        Size = other.Size;
-        IsSmall = false;
+        Data.Heap.Ptr = other.Data.Heap.Ptr;
+        Data.Heap.Size = other.Data.Heap.Size;
+        Data.Heap.CapAndTag = other.Data.Heap.CapAndTag;
       }
 
-      // reset other
-      other.Size = 0;
-      other.IsSmall = true;
-      other.Small[0] = '\0';
+      other.initSmallEmpty();
     }
     return *this;
   }
@@ -127,8 +122,14 @@ public:
   // Destructor
   // REQUIRES: Nothing
   // MODIFES: Destroys *this
-  // EFFECTS: vector<char> Heap cleans up its own storage
-  ~string() = default;
+  // EFFECTS: Frees heap storage when active
+  ~string()
+  {
+    if (!isSmall())
+    {
+      delete[] Data.Heap.Ptr;
+    }
+  }
 
   // Size
   // REQUIRES: Nothing
@@ -136,7 +137,7 @@ public:
   // EFFECTS: Returns the number of characters in the string
   size_t size() const
   {
-    return Size;
+    return isSmall() ? static_cast<size_t>(Data.Small.Size) : Data.Heap.Size;
   }
 
   // C string Conversion
@@ -145,7 +146,23 @@ public:
   // EFFECTS: Returns a pointer to a null terminated C string of *this
   const char* cstr() const
   {
-    return IsSmall ? Small : Heap.begin();
+    if (!isSmall())
+    {
+      return Data.Heap.Ptr;
+    }
+
+    if (Data.Small.Size < SSO_CAP)
+    {
+      return Data.Small.Buffer;
+    }
+
+    static thread_local char fullSmallBuffer[SSO_CAP + 1];
+    for (size_t i = 0; i < SSO_CAP; ++i)
+    {
+      fullSmallBuffer[i] = Data.Small.Buffer[i];
+    }
+    fullSmallBuffer[SSO_CAP] = '\0';
+    return fullSmallBuffer;
   }
 
   // Iterator Begin
@@ -154,7 +171,7 @@ public:
   // EFFECTS: Returns a random access iterator to the start of the string
   const char* begin() const
   {
-    return IsSmall ? Small : Heap.begin();
+    return isSmall() ? Data.Small.Buffer : Data.Heap.Ptr;
   }
 
   // Iterator End
@@ -163,7 +180,7 @@ public:
   // EFFECTS: Returns a random access iterator to the end of the string
   const char* end() const
   {
-    return (IsSmall ? Small : Heap.begin()) + Size;
+    return begin() + size();
   }
 
   // Element Access
@@ -172,13 +189,13 @@ public:
   // EFFECTS: Returns the i'th character of the string
   char& operator[](size_t i)
   {
-    return IsSmall ? Small[i] : Heap[i];
+    return isSmall() ? Data.Small.Buffer[i] : Data.Heap.Ptr[i];
   }
 
   // Const Element Access
   const char& operator[](size_t i) const
   {
-    return IsSmall ? Small[i] : Heap[i];
+    return isSmall() ? Data.Small.Buffer[i] : Data.Heap.Ptr[i];
   }
 
   // string Append
@@ -188,71 +205,61 @@ public:
   //      memory at most once
   void operator+=(const string& other)
   {
-    const size_t otherLen = other.Size;
+    if (this == &other)
+    {
+      string tmp(other);
+      *this += tmp;
+      return;
+    }
+
+    const size_t selfSize = size();
+    const size_t otherLen = other.size();
     if (otherLen == 0)
     {
       return;
     }
 
-    const size_t newSize = Size + otherLen;
+    const size_t newSize = selfSize + otherLen;
     const char* otherData = other.cstr();
 
     // 1: Stay in small mode
-    if (IsSmall && newSize <= SSO_CAP)
+    if (isSmall() && newSize <= SSO_CAP)
     {
       for (size_t i = 0; i < otherLen; ++i)
       {
-        Small[Size + i] = otherData[i];
+        Data.Small.Buffer[selfSize + i] = otherData[i];
       }
-      Size = newSize;
-      Small[Size] = '\0';
+      setSmallSize(newSize);
       return;
     }
 
     // 2: need heap
-    if (IsSmall)
+    if (isSmall())
     {
-      // small -> heap
-      Heap.clear();
-      Heap.reserve(newSize + 1);
-      // copy current contents
-      for (size_t i = 0; i < Size; ++i)
+      size_t newCap = newSize;
+      char* newPtr = new char[newCap + 1];
+      for (size_t i = 0; i < selfSize; ++i)
       {
-        Heap.pushBack(Small[i]);
+        newPtr[i] = Data.Small.Buffer[i];
       }
-      // append other contents
-      for (size_t j = 0; j < otherLen; ++j)
+      for (size_t i = 0; i < otherLen; ++i)
       {
-        Heap.pushBack(otherData[j]);
+        newPtr[selfSize + i] = otherData[i];
       }
-      // add terminaotr
-      Heap.pushBack('\0');
-
-      Size = newSize;
-      IsSmall = false;
+      newPtr[newSize] = '\0';
+      Data.Heap.Ptr = newPtr;
+      Data.Heap.Size = newSize;
+      Data.Heap.CapAndTag = encodeHeapCap(newCap);
       return;
     }
 
-    // 3: already heap
-    // NOTE: Heap currently holds (Size + 1) chars with Heap[Size] == '\0'
-    Heap.reserve(newSize + 1);
-
-    if (otherLen > 0)
+    reserveHeap(newSize);
+    for (size_t i = 0; i < otherLen; ++i)
     {
-      // overwrite terminator
-      Heap[Size] = otherData[0];
-
-      // push remaining
-      for (size_t i = 1; i < otherLen; ++i)
-      {
-        Heap.pushBack(otherData[i]);
-      }
-
-      // add new terminator
-      Heap.pushBack('\0');
-
-      Size = newSize;
+      Data.Heap.Ptr[selfSize + i] = otherData[i];
     }
+    Data.Heap.Size = newSize;
+    Data.Heap.Ptr[newSize] = '\0';
   }
 
   size_t find(const char* sub, size_t pos = 0)
@@ -287,36 +294,34 @@ public:
   // EFFECTS: Appends c to the string
   void pushBack(char c)
   {
-    if (IsSmall)
+    const size_t oldSize = size();
+    if (isSmall())
     {
-      if (Size < SSO_CAP)
+      if (oldSize < SSO_CAP)
       {
-        Small[Size] = c;
-        ++Size;
-        Small[Size] = '\0';
+        Data.Small.Buffer[oldSize] = c;
+        setSmallSize(oldSize + 1);
         return;
       }
 
-      // must move to heap
-      const size_t newSize = Size + 1;
-      Heap.clear();
-      Heap.reserve(newSize + 1);
-      for (size_t i = 0; i < Size; ++i)
+      const size_t newSize = oldSize + 1;
+      char* newPtr = new char[newSize + 1];
+      for (size_t i = 0; i < oldSize; ++i)
       {
-        Heap.pushBack(Small[i]);
+        newPtr[i] = Data.Small.Buffer[i];
       }
-      Heap.pushBack(c);
-      Heap.pushBack('\0');
-
-      Size = newSize;
-      IsSmall = false;
+      newPtr[oldSize] = c;
+      newPtr[newSize] = '\0';
+      Data.Heap.Ptr = newPtr;
+      Data.Heap.Size = newSize;
+      Data.Heap.CapAndTag = encodeHeapCap(newSize);
       return;
     }
 
-    Heap.reserve(Size + 2);
-    Heap[Size] = c;
-    Heap.pushBack('\0');
-    ++Size;
+    reserveHeap(oldSize + 1);
+    Data.Heap.Ptr[oldSize] = c;
+    Data.Heap.Size = oldSize + 1;
+    Data.Heap.Ptr[oldSize + 1] = '\0';
   }
 
   // Pop Back
@@ -325,21 +330,20 @@ public:
   // EFFECTS: Removes the last charater of the string
   void popBack()
   {
-    if (Size == 0)
+    const size_t oldSize = size();
+    if (oldSize == 0)
     {
       return;
     }
 
-    if (IsSmall)
+    if (isSmall())
     {
-      --Size;
-      Small[Size] = '\0';
+      setSmallSize(oldSize - 1);
       return;
     }
 
-    --Size;
-    Heap.popBack();
-    Heap[Size] = '\0';
+    Data.Heap.Size = oldSize - 1;
+    Data.Heap.Ptr[oldSize - 1] = '\0';
   }
 
   // Equality Operator
@@ -350,11 +354,11 @@ public:
   bool operator==(const string& other) const
   {
 
-    if (Size != other.Size)
+    if (size() != other.size())
     {
       return false;
     }
-    for (size_t i = 0; i < Size; ++i)
+    for (size_t i = 0; i < size(); ++i)
     {
       if ((*this)[i] != other[i])
       {
@@ -380,7 +384,9 @@ public:
   // EFFECTS: Returns whether *this is lexigraphically less than other
   bool operator<(const string& other) const
   {
-    size_t n = (Size < other.Size) ? Size : other.Size;
+    const size_t selfSize = size();
+    const size_t otherSize = other.size();
+    size_t n = (selfSize < otherSize) ? selfSize : otherSize;
     for (size_t i = 0; i < n; ++i)
     {
       char a = (*this)[i];
@@ -390,7 +396,7 @@ public:
       if (a > b)
         return false;
     }
-    return Size < other.Size;
+    return selfSize < otherSize;
   }
 
   // Greater Than Operator
@@ -433,7 +439,7 @@ public:
     vector<string> result;
     string current;
 
-    for (size_t i = 0; i < Size; ++i)
+    for (size_t i = 0; i < size(); ++i)
     {
       if ((*this)[i] == delimiter)
       {
@@ -458,48 +464,121 @@ private:
   // NOTE: SSO being allocated to char array vs vector
   enum
   {
-    SSO_CAP = 15
+    SSO_CAP = 23
   };
 
   // Helper to assign from raw char buffer (assumes no '\0' at end)
   void assignFrom(const char* s, size_t len)
   {
+    if (!isSmall())
+    {
+      delete[] Data.Heap.Ptr;
+    }
+
     if (len <= SSO_CAP)
     {
-      // use small buffer
       for (size_t i = 0; i < len; ++i)
       {
-        Small[i] = s[i];
+        Data.Small.Buffer[i] = s[i];
       }
-      Small[len] = '\0';
-      Size = len;
-      IsSmall = true;
-
-      // NOTE: Heap may contain old unused data
-      // TODO: Do we care if we clear heap? Shouldn't matter
+      setSmallSize(len);
       return;
     }
 
-    // use heap
-    Heap.clear();
-    Heap.reserve(len + 1);
+    Data.Heap.Ptr = new char[len + 1];
     for (size_t i = 0; i < len; ++i)
     {
-      Heap.pushBack(s[i]);
+      Data.Heap.Ptr[i] = s[i];
     }
-    Heap.pushBack('\0');
-
-    Size = len;
-    IsSmall = false;
+    Data.Heap.Ptr[len] = '\0';
+    Data.Heap.Size = len;
+    Data.Heap.CapAndTag = encodeHeapCap(len);
   }
 
-  // NOTE: all strings null terminated
-  // TODO: Not null terminated strings? We are storing len so should be easy?
-  vector<char> Heap;
-  size_t Size;
-  bool IsSmall;
-  char Small[SSO_CAP + 1];
+  static constexpr size_t HEAP_TAG_BIT = size_t(1) << ((sizeof(size_t) * 8) - 1);
+
+  struct HeapRep
+  {
+    char* Ptr;
+    size_t Size;
+    size_t CapAndTag;
+  };
+
+  struct SmallRep
+  {
+    char Buffer[SSO_CAP];
+    unsigned char Size;
+  };
+
+  union Storage
+  {
+    HeapRep Heap;
+    SmallRep Small;
+  } Data;
+
+  static size_t encodeHeapCap(size_t capacity)
+  {
+    return capacity | HEAP_TAG_BIT;
+  }
+
+  static size_t decodeHeapCap(size_t capAndTag)
+  {
+    return capAndTag & ~HEAP_TAG_BIT;
+  }
+
+  bool isSmall() const
+  {
+    return (Data.Small.Size & 0x80u) == 0;
+  }
+
+  void initSmallEmpty()
+  {
+    Data.Small.Size = 0;
+    Data.Small.Buffer[0] = '\0';
+  }
+
+  void setSmallSize(size_t len)
+  {
+    Data.Small.Size = static_cast<unsigned char>(len);
+    if (len < SSO_CAP)
+    {
+      Data.Small.Buffer[len] = '\0';
+    }
+  }
+
+  size_t heapCapacity() const
+  {
+    return decodeHeapCap(Data.Heap.CapAndTag);
+  }
+
+  void reserveHeap(size_t minCapacity)
+  {
+    size_t currentCapacity = heapCapacity();
+    if (minCapacity <= currentCapacity)
+    {
+      return;
+    }
+
+    size_t newCapacity = currentCapacity == 0 ? 1 : currentCapacity;
+    while (newCapacity < minCapacity)
+    {
+      newCapacity *= 2;
+    }
+
+    char* newPtr = new char[newCapacity + 1];
+    for (size_t i = 0; i < Data.Heap.Size; ++i)
+    {
+      newPtr[i] = Data.Heap.Ptr[i];
+    }
+    newPtr[Data.Heap.Size] = '\0';
+    delete[] Data.Heap.Ptr;
+    Data.Heap.Ptr = newPtr;
+    Data.Heap.CapAndTag = encodeHeapCap(newCapacity);
+  }
 };
+
+static_assert(sizeof(string) == sizeof(void*) * 3,
+              "avengine::string should be three pointers wide");
 
 inline std::ostream& operator<<(std::ostream& os, const string& s)
 {

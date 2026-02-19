@@ -1,34 +1,88 @@
 #include "../../include/avengine/crawler/frontier.h"
+#include <cstdlib>
+#include <ctime>
+
+namespace logging_helpers
+{
+
+expected<void, error> write(const void* ptr, size_t size, FILE* f)
+{
+  if (fwrite(ptr, 1, size, f) != size)
+  {
+    fclose(f);
+    return expected<void, error>::error(error("write failed"));
+  }
+
+  return expected<void, error>::ok();
+}
+
+template <typename T> expected<void, error> writeVal(T val, FILE* f)
+{
+  return write(&val, sizeof(val), f);
+}
+
+expected<void, error> writeString(const string& s, FILE* f)
+{
+  auto res = writeVal(s.size(), f);
+  if (!res.hasValue())
+  {
+    return res;
+  }
+
+  return write(s.cstr(), s.size(), f);
+}
+
+expected<void, error> read(void* ptr, size_t size, FILE* f)
+{
+  if (fread(ptr, 1, size, f) != size)
+  {
+    fclose(f);
+    return expected<void, error>::error(error("read failed"));
+  }
+  return expected<void, error>::ok();
+}
+
+template <typename T> expected<void, error> readVal(T& val, FILE* f)
+{
+  return read(&val, sizeof(val), f);
+}
+
+expected<void, error> readString(string& s, FILE* f)
+{
+  size_t len;
+  auto res = readVal(len, f);
+  if (!res.hasValue())
+  {
+    return res;
+  }
+  // Build string char by char
+  s = "";
+  char c;
+  for (size_t i = 0; i < len; ++i)
+  {
+    res = read(&c, 1, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+    s += c;
+  }
+  return expected<void, error>::ok();
+}
+
+} // namespace logging_helpers
 
 namespace avengine
 {
 namespace crawler
 {
 
-[[gnu::always_inline]] inline static bool compare(const string& a, const string& b)
-{
-  return a == b;
-}
-
-[[gnu::always_inline]] inline static uint64_t stringHash(const string& s)
-{
-  const uint64_t P = 1315423911ULL;
-  uint64_t h = 0;
-
-  for (unsigned char c : s)
-  {
-    h = h * P + c;
-  }
-  return h;
-}
-
 frontier::frontier()
-    : seen(1000000, .0001),
+    : seen(1000000, .0001)
       // 1M expected items, 0.01% FP rate
-      domainMap(compare, stringHash, 4096)
 {
+  srand(static_cast<unsigned>(time(nullptr)));
 }
-// 4096 buckets to start with
 
 frontier::~frontier() {}
 
@@ -64,52 +118,15 @@ string frontier::extractDomain(const string& url) const
   return domain;
 }
 
-size_t frontier::domainLookup(const string& domain) const
-{
-  auto* t = domainMap.Find(domain);
-  if (t)
-  {
-    return t->value;
-  }
-  else
-  { // domain doesnt exist
-    return SIZE_MAX;
-  }
-}
-
-size_t frontier::domainInsert(const string& domain)
-{
-  auto* t = domainMap.Find(domain);
-  if (t)
-  { // already in map
-    return t->value;
-  }
-
-  size_t newIdx = perDomainQueues.size();
-  hostQueue hq;
-  hq.domain = domain;
-  perDomainQueues.pushBack(hq);
-  // set domain idx to prev # of domain queues
-  domainMap.Find(domain, newIdx);
-  return newIdx;
-}
-
-void frontier::pushToHeap(const string& domain, float priority)
-{
-  heapEntry he;
-  he.domain = domain;
-  he.topPriority = priority;
-  schedulingHeap.push(he);
-}
 
 bool frontier::alreadySeen(const string& url) const
 {
-  return seen.possiblyContains(url);
+  return seen.contains(url.cstr());
 }
 
 void frontier::markSeen(const string& url)
 {
-  seen.insert(url);
+  seen.insert(url.cstr());
 }
 
 void frontier::seed(const vector<string>& seedURLs)
@@ -135,84 +152,220 @@ void frontier::add(const string& url, float priority, int depth)
   entry.priority = priority;
   entry.depth = depth;
 
-  size_t hqIdx = domainInsert(entry.domain);
-  hostQueue& hq = perDomainQueues[hqIdx];
-  bool wasEmpty = false;
-  if (hq.pending.size() == 0)
-  {
-    wasEmpty = true;
-  }
-  hq.pending.push(entry);
-  totalURLs.fetch_add(1); // increments
-
-  // iff host just got its first URL add to scheduling
-  if (wasEmpty)
-  {
-    pushToHeap(entry.domain, priority);
-  }
+  masterList.pushBack(entry);
 }
 
-expected<urlEntry, error> frontier::next()
+vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
 {
-  while (!schedulingHeap.empty())
+  vector<urlEntry> batch;
+
+  if (masterList.size() == 0)
   {
-    heapEntry top = schedulingHeap.top();
-    schedulingHeap.pop();
-    size_t hqIdx = domainLookup(top.domain);
-    if (hqIdx == SIZE_MAX)
-    {
-      continue;
-    }
-    hostQueue& hq = perDomainQueues[hqIdx];
-
-    // host queue empty
-    if (hq.pending.size() == 0)
-    {
-      continue;
-    }
-
-    // Pop the front URL
-    urlEntry entry = hq.pending.top();
-    hq.pending.pop();
-    totalURLs.fetch_add(-1);
-
-    // If host still has URLs, re-push to heap
-    if (hq.pending.size() > 0)
-    {
-      pushToHeap(hq.domain, hq.pending.top().priority);
-    }
-
-    return expected<urlEntry, error>::ok(entry);
+    return batch;
   }
 
-  return expected<urlEntry, error>::error(error{"frontier empty"});
+  // Ensure we arent wasting work
+  vector<urlEntry> sample;
+  if (masterList.size() <= sampleSize)
+  {
+    sample = masterList;
+    masterList.clear();
+  }
+  else
+  {
+    // Pick sampleSize random URLs
+    size_t end = masterList.size();
+    for (size_t i = 0; i < sampleSize; ++i)
+    {
+      size_t j = rand() % end;
+      --end;
+      // swap to the end
+      urlEntry tmp = masterList[j];
+      masterList[j] = masterList[end];
+      masterList[end] = tmp;
+    }
+    // Pop the sample off the back of the list and add to a new list
+    for (size_t i = 0; i < sampleSize; ++i)
+    {
+      sample.pushBack(masterList[masterList.size() - 1]);
+      masterList.popBack();
+    }
+  }
+
+  // Insertion sort sample by priority in descending order
+  for (size_t i = 1; i < sample.size(); ++i)
+  {
+    urlEntry key = sample[i];
+    size_t j = i;
+    while (j > 0 && sample[j - 1].priority < key.priority)
+    {
+      sample[j] = sample[j - 1];
+      --j;
+    }
+    sample[j] = key;
+  }
+
+  // Take top batchSize
+  size_t actualBatchSize{};
+  if (batchSize < sample.size()) 
+  {
+    actualBatchSize = batchSize;
+  }
+  else 
+  {
+    actualBatchSize = sample.size();
+  }
+  for (size_t i = 0; i < actualBatchSize; ++i)
+  {
+    batch.pushBack(sample[i]);
+  }
+
+  // Put remaining back into master list
+  for (size_t i = actualBatchSize; i < sample.size(); ++i)
+  {
+    masterList.pushBack(sample[i]);
+  }
+
+  return batch;
 }
 
 expected<void, error> frontier::saveCheckpoint(const string& path) const
 {
-  // TODO
+  FILE* f = fopen(path.cstr(), "wb");
+  if (!f)
+  {
+    return expected<void, error>::error(error("failed to open checkpoint file"));
+  }
+
+  // bloom filter
+  auto res = logging_helpers::writeVal(seen.getSize(), f); // size
+  if (!res.hasValue())
+  {
+    return res;
+  }
+  res = logging_helpers::write(seen.data(), seen.getSize(), f); // data
+  if (!res.hasValue())
+  {
+    return res;
+  }
+
+  // master list size
+  res = logging_helpers::writeVal(masterList.size(), f);
+  if (!res.hasValue())
+  {
+    return res;
+  }
+
+  // write each entry
+  for (size_t i = 0; i < masterList.size(); ++i)
+  {
+    const urlEntry& entry = masterList[i];
+
+    res = logging_helpers::writeString(entry.url, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    res = logging_helpers::writeString(entry.domain, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    res = logging_helpers::writeVal(entry.priority, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    res = logging_helpers::writeVal(entry.depth, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+  }
+
+  fclose(f);
   return expected<void, error>::ok();
 }
 
 expected<void, error> frontier::loadCheckpoint(const string& path)
 {
-  // TODO
+  FILE* f = fopen(path.cstr(), "rb");
+  if (!f)
+  {
+    return expected<void, error>::error(error("failed to open checkpoint file"));
+  }
+
+  // bloom filter
+  uint64_t bloomSize;
+  auto res = logging_helpers::readVal(bloomSize, f); // size
+  if (!res.hasValue())
+  {
+    return res;
+  }
+  seen.resize(bloomSize);
+  res = logging_helpers::read(seen.data(), seen.getSize(), f); // data
+  if (!res.hasValue())
+  {
+    return res;
+  }
+
+  // master list
+  size_t listSize;
+  res = logging_helpers::readVal(listSize, f);
+  if (!res.hasValue())
+  {
+    return res;
+  }
+
+  masterList.clear();
+  for (size_t i = 0; i < listSize; ++i)
+  {
+    urlEntry entry;
+    // get URL
+    res = logging_helpers::readString(entry.url, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    // get domain
+    res = logging_helpers::readString(entry.domain, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    // get priority
+    res = logging_helpers::readVal(entry.priority, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+    
+    // get the depth
+    res = logging_helpers::readVal(entry.depth, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+    masterList.pushBack(entry);
+  }
+
+  fclose(f);
   return expected<void, error>::ok();
 }
 
 size_t frontier::size() const
 {
-  return totalURLs.load();
-}
-
-size_t frontier::hostCount() const
-{
-  return perDomainQueues.size();
+  return masterList.size();
 }
 
 size_t frontier::seenCount() const
 {
-  return seen.count();
+  return seen.getCount();
 }
 
 } // namespace crawler

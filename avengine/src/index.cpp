@@ -1,59 +1,20 @@
 #include "index.h"
-#include "avengine/vector.h"
 #include <cassert>
+#include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <dirent.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
-void parse_kjv_verses(char* content, avengine::vector<char*>& documents,
-                      avengine::vector<char*>& document_names)
-{
-  char* verse = strtok(content, "\n");
-
-  while (verse)
-  {
-    document_names.pushBack(verse);
-
-    while (*verse != '\t')
-      verse++;
-
-    *(verse++) = '\0';
-
-    for (size_t i = 0; verse[i]; i++)
-      if (verse[i] == ' ')
-        verse[i] = '\0';
-
-    documents.pushBack(verse);
-
-    verse = strtok(nullptr, "\n");
-  }
-}
-
-char* memory_map_file(char const* filename, size_t& length)
-{
-  int fd = open(filename, O_RDONLY);
-  struct stat sb;
-  if (fd == -1)
-    return nullptr;
-
-  assert(fstat(fd, &sb) != -1);
-
-  char* data =
-      static_cast<char*>(mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0));
-
-  length = sb.st_size;
-
-  // This might cause undefined behavior if it hits a new page.
-  data[length] = '\0';
-
-  return data;
-}
-
-size_t djb2_hash(char const* str)
+size_t djb2Hash(char const* str)
 {
   size_t hash = 5381;
   int c;
@@ -64,211 +25,264 @@ size_t djb2_hash(char const* str)
   return hash;
 }
 
-struct Posting
-{
-  uint32_t doc_id;
-  uint32_t term_freq;
-  // It might make sense to make the just an index if resizing is often changing
-  // the base pointer location.
-  uint32_t* positions;
-};
+PostingList::PostingList(char const* word, PostingList* nextBucket) : nextBucket(nextBucket)
 
-struct PostingList
 {
-  PostingList(char const* word, PostingList* next_bucket)
+  this->word = new char[strlen(word) + 1]();
+  strcpy(this->word, word);
+}
+
+void PostingList::ingest(uint32_t docId, size_t offset)
+{
+  if (postings.empty() || postings.back().docId != docId)
   {
-    this->word = word;
-    this->next_bucket = next_bucket;
-    capacity = 4096;
-    length = 0;
-
-    postings = (Posting*)malloc(this->capacity * sizeof(Posting));
-    positions_start = position_head = (uint32_t*)malloc(8 * sizeof(uint32_t));
-    positions_end = &positions_start[8];
+    postings.pushBack({.docId = docId, .termFreq = 0, .positions = positions.size() - 1});
   }
 
-  void ingest(uint32_t doc_id, size_t offset)
+  Posting& posting = postings.back();
+
+  posting.termFreq++;
+  positions.pushBack(offset);
+}
+
+uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
+{
+  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
+  while (value >= 0x80u)
   {
-    if (!length || postings[length - 1].doc_id != doc_id)
+    *buffer++ = static_cast<uint8_t>((value & 0x7Fu) | 0x80u);
+    value >>= 7;
+  }
+  *buffer++ = static_cast<uint8_t>(value);
+  return buffer;
+}
+
+uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
+{
+  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
+  memcpy(buffer, &value, sizeof(uint64_t));
+  return buffer + sizeof(uint64_t);
+}
+
+static void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
+{
+  while (value >= 0x80u)
+  {
+    out.pushBack(static_cast<uint8_t>((value & 0x7Fu) | 0x80u));
+    value >>= 7;
+  }
+  out.pushBack(static_cast<uint8_t>(value));
+}
+
+struct SkipPointer
+{
+  uint32_t positionIndex;
+  uint32_t positionValue;
+  uint32_t byteOffset;
+};
+
+PostingList* Index::getBucket(char const* word)
+{
+  PostingList** bucket = &buckets[djb2Hash(word) % HASHMAP_SIZE];
+
+  while (*bucket && strcmp((*bucket)->word, word))
+  {
+    bucket = &(*bucket)->nextBucket;
+  }
+
+  if (!*bucket)
+  {
+    totalUniqWords++;
+    *bucket = new PostingList(word, nullptr);
+  }
+
+  return *bucket;
+}
+
+Index::Index() : buckets(HASHMAP_SIZE)
+{
+  for (PostingList*& bucket : buckets)
+  {
+    bucket = nullptr;
+  }
+}
+
+void Index::serialize(int fd)
+{
+  size_t needed = 2;
+
+  needed += (totalUniqWords + 1) * 2 * 2;
+
+  uint64_t* dictionaryBuffer = new uint64_t[needed]();
+  // TODO: We currently use an offset of zero as a sentinel is indicate an unused offset, however
+  // this perfecty valid. We either need to use another sentinel value or make an offset of zero
+  // impossible.
+
+  // std::fill(dictionary_buffer, dictionary_buffer + needed, UINT64_MAX);
+
+  // TODO: Write magic bytes to identity file format and version. Maybe an emoji?
+  dictionaryBuffer[0] = documentNames.size();
+  dictionaryBuffer[1] = totalUniqWords + 1;
+
+  avengine::vector<char> stringBuffer;
+
+  for (size_t i = 0; i < HASHMAP_SIZE; i++)
+  {
+    PostingList* bucket = buckets[i];
+
+    while (bucket)
     {
-      if (length >= capacity)
+      size_t hash = djb2Hash(bucket->word) % (totalUniqWords * 2);
+
+      // Find an empty bucket
+      while (dictionaryBuffer[2 + hash * 2] > 0)
       {
-        capacity *= 2;
-        postings = (Posting*)realloc((void*)postings, capacity * sizeof(Posting));
+        // TODO: We should benchmark (when quering the index) on what kind of probing method
+        // performs the best.
+        hash += 1;
+        hash %= (totalUniqWords * 2);
       }
 
-      postings[length].doc_id = doc_id;
-      postings[length].positions = position_head;
-      postings[length++].term_freq = 0;
+      dictionaryBuffer[2 + hash * 2] = stringBuffer.size();
+
+      // Add the term to the string buffer
+      for (char const* str = bucket->word; *str; str++)
+        stringBuffer.pushBack(*str);
+
+      stringBuffer.pushBack('\0');
+
+      bucket->hash = hash;
+      bucket = bucket->nextBucket;
     }
+  }
 
-    Posting& posting = postings[length - 1];
+  // TODO: maybe fallocate?
+  lseek(fd, needed * sizeof(uint64_t), SEEK_SET);
 
-    posting.term_freq++;
+  write(fd, stringBuffer.begin(), stringBuffer.size());
 
-    if (position_head >= positions_end)
+  size_t postingsOffset = 0;
+  avengine::vector<uint8_t> deltaBuffer;
+  avengine::vector<SkipPointer> skipPointers;
+  avengine::vector<uint8_t> skipBuffer;
+
+  // Now we write out the posting list
+  for (size_t i = 0; i < HASHMAP_SIZE; i++)
+  {
+    PostingList* bucket = buckets[i];
+
+    while (bucket)
     {
-      size_t current_capacity = positions_end - positions_start;
-      size_t new_capacity = current_capacity * 2;
+      size_t hash = bucket->hash;
 
-      size_t position_head_offset = position_head - positions_start;
-      positions_start = (uint32_t*)realloc(positions_start, new_capacity * sizeof(uint32_t));
+      dictionaryBuffer[2 + hash * 2 + 1] = postingsOffset;
 
-      positions_end = positions_start + new_capacity;
-      position_head = positions_start + position_head_offset;
+      const uint64_t documentFrequency = bucket->postings.size();
+      const uint64_t collectionFrequency = bucket->positions.size();
 
-      // We have to update the pointers the postings. In future implentions this
-      // may not be necessary.
-      for (size_t i = 0; i < length; i++)
+      deltaBuffer.clear();
+      skipPointers.clear();
+      skipBuffer.clear();
+
+      // TODO: Write index synchronization points and skip pointers.
+      // Encode position list as varint deltas.
+      uint32_t lastPosition = 0;
+      const uint32_t skipStride =
+          collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
+
+      // Skip pointers are sampled every sqrt(N) positions. Each skip entry stores:
+      // [position_index varint][absolute_position varint][delta_stream_byte_offset varint].
+      for (uint32_t i = 0; i < collectionFrequency; i++)
       {
-        size_t offset = postings[i].positions - (positions_start - position_head_offset);
-        postings[i].positions = positions_start + offset;
+        uint32_t position = bucket->positions[i];
+        if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
+        {
+          skipPointers.pushBack({.positionIndex = i,
+                                 .positionValue = position,
+                                 .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
+        }
+
+        append_var_uint32(deltaBuffer, position - lastPosition);
+        lastPosition = position;
       }
+
+      for (const SkipPointer& skip : skipPointers)
+      {
+        append_var_uint32(skipBuffer, skip.positionIndex);
+        append_var_uint32(skipBuffer, skip.positionValue);
+        append_var_uint32(skipBuffer, skip.byteOffset);
+      }
+
+      // Per-term posting-list header:
+      // [doc_frequency u64][collection_frequency u64][skip_count u64].
+      uint8_t postingHeader[24];
+      uint8_t* headerCursor = postingHeader;
+      headerCursor = write_uint64(headerCursor, documentFrequency);
+      headerCursor = write_uint64(headerCursor, collectionFrequency);
+      write_uint64(headerCursor, skipPointers.size());
+      write(fd, postingHeader, sizeof(postingHeader));
+
+      if (!skipBuffer.empty())
+        write(fd, skipBuffer.begin(), skipBuffer.size());
+      if (!deltaBuffer.empty())
+        write(fd, deltaBuffer.begin(), deltaBuffer.size());
+
+      postingsOffset += sizeof(postingHeader);
+      postingsOffset += skipBuffer.size();
+      postingsOffset += deltaBuffer.size();
+
+      bucket = bucket->nextBucket;
     }
-
-    *(position_head++) = offset;
   }
 
-  char const* word;
-  PostingList* next_bucket;
-  size_t capacity;
-  size_t length;
-  Posting* postings;
+  lseek(fd, 0, SEEK_SET);
+  write(fd, dictionaryBuffer, needed * sizeof(uint64_t));
+}
 
-  uint32_t* positions_end;
-  uint32_t* position_head;
-  uint32_t* positions_start;
-};
-
-struct Index
+uint32_t Index::beginDocument(const char* url)
 {
-  PostingList** buckets;
-  size_t offset = 0;
-  size_t total_uniq_words = 0;
-  avengine::vector<const char*> document_names;
+  documentNames.pushBack(url);
+  currentDocId = static_cast<uint32_t>(documentNames.size() - 1);
+  return currentDocId;
+}
 
-  PostingList*& get_bucket(char const* word)
+void Index::ingest(char const* word)
+{
+  assert(currentDocId != UINT32_MAX);
+  PostingList* bucket = getBucket(word);
+
+  bucket->ingest(currentDocId, offset++);
+}
+
+Index globalIndex;
+
+// TODO: When string slice is merged we should use that everywhere instead of cstrings.
+size_t indexDocument(char const* url, char* pharses)
+{
+  globalIndex.beginDocument(url);
+  size_t words = 0;
+
+  while (*pharses && !isalpha(*pharses))
+    pharses++;
+
+  while (*pharses)
   {
-    size_t index = djb2_hash(word) % 4096;
-    PostingList*& bucket = buckets[index];
+    char const* word = pharses;
 
-    while (bucket && strcmp(bucket->word, word))
-      bucket = bucket->next_bucket;
-
-    if (!bucket)
-      bucket = new PostingList(word, nullptr);
-
-    return bucket;
-  }
-
-  Index()
-  {
-    buckets = new PostingList*[4096]();
-  }
-
-  uint32_t begin_document(const char* url)
-  {
-    document_names.pushBack(url);
-    offset = 0;
-    return document_names.size() - 1;
-  }
-
-  // TODO: ingest should only take the word and get the `doc_id` from the
-  // `Index`.
-  void ingest(uint32_t doc_id, char const* word)
-  {
-    size_t index = djb2_hash(word) % 4096;
-    PostingList* bucket = buckets[index];
-
-    while (bucket && strcmp(bucket->word, word))
-      bucket = bucket->next_bucket;
-
-    if (!bucket)
+    while (*pharses && isalpha(*pharses))
     {
-      total_uniq_words++;
-      bucket = buckets[index] = new PostingList(word, buckets[index]);
+      *pharses = *pharses | 32;
+      pharses++;
     }
 
-    bucket->ingest(doc_id, offset++);
-  }
-};
+    *(pharses++) = '\0';
 
-Index global_index;
-
-size_t index_document(char const* url, char* words)
-{
-  uint32_t doc_id = global_index.begin_document(url);
-
-  while (*words)
-  {
-    char const* word = words;
-
-    global_index.ingest(doc_id, word);
-
-    while (*words)
-      words++;
-
+    globalIndex.ingest(word);
     words++;
+
+    while (*pharses && !isalpha(*pharses))
+      pharses++;
   }
 
-  return 0;
-}
-
-void two_way_merge(const char* first_word, const char* second_word)
-{
-  PostingList* first_bucket = global_index.get_bucket(first_word);
-  PostingList* second_bucket = global_index.get_bucket(second_word);
-
-  size_t first_index = 0;
-  size_t second_index = 0;
-
-  while (first_index < first_bucket->length && second_index < second_bucket->length)
-  {
-    uint32_t first_id = first_bucket->postings[first_index].doc_id;
-    uint32_t second_id = second_bucket->postings[second_index].doc_id;
-
-    if (first_id > second_id)
-    {
-      second_index++;
-    }
-    else if (first_id < second_id)
-    {
-      first_index++;
-    }
-    else
-    {
-      printf("%s matches both %s and %s\n", global_index.document_names[first_id], first_word,
-             second_word);
-      first_index++;
-      second_index++;
-    }
-  }
-}
-
-void inspect_bucket(PostingList* bucket)
-{
-  for (size_t i = 0; i < bucket->length; i++)
-  {
-    printf("%s :", global_index.document_names[bucket->postings[i].doc_id]);
-
-    for (size_t j = 0; j < bucket->postings[i].term_freq; j++)
-      printf(" %d", bucket->postings[i].positions[j]);
-
-    printf("\n");
-  }
-}
-
-int main(int argc, char** argv)
-{
-  size_t length;
-  char* content = memory_map_file("../../data/kjv.txt", length);
-
-  avengine::vector<char*> documents;
-  avengine::vector<char*> document_names;
-  parse_kjv_verses(content, documents, document_names);
-
-  for (size_t i = 0; i < documents.size(); i++)
-    index_document(document_names[i], documents[i]);
-
-  two_way_merge(argv[1], argv[2]);
+  return words;
 }
