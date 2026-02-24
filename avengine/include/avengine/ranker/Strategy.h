@@ -119,7 +119,9 @@ class DistanceFromSeeds : public Ranker::Strategy
 {
   // TODO: scores the pages according to their distance from the seedlist (communicate with crawler)
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+    return 0.0;
+  }
 };
 
 class ExactPhraseMatch : public Ranker::Strategy
@@ -307,7 +309,9 @@ class OutlinkCount : public Ranker::Strategy
 {
   // TODO: scores the pages based on the number of hyperlinks outwards
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {}
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+    return 0.0;
+  }
 };
 
 class UrlDepth : public Ranker::Strategy
@@ -364,7 +368,7 @@ public:
         continue;
       }
 
-      size_t start_pos = const_cast<avengine::string&>(url).find(first_term.cstr(), 0);
+      size_t start_pos = url.find(first_term.cstr(), 0);
       while (start_pos != avengine::string::npos)
       {
         size_t len = 1;
@@ -379,7 +383,7 @@ public:
             continue;
           }
 
-          size_t next_pos = const_cast<avengine::string&>(url).find(term.cstr(), prev_end);
+          size_t next_pos = url.find(term.cstr(), prev_end);
           if (next_pos == avengine::string::npos)
           {
             break;
@@ -400,7 +404,7 @@ public:
           best_gap = gap_sum;
         }
 
-        start_pos = const_cast<avengine::string&>(url).find(first_term.cstr(), start_pos + 1);
+        start_pos = url.find(first_term.cstr(), start_pos + 1);
       }
     }
 
@@ -443,6 +447,7 @@ public:
         ++valid_terms;
       }
     }
-    return score / valid_terms;
+
+    return (valid_terms > 0) ?  score / valid_terms : 0.0;
   }
 };

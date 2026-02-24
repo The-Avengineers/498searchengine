@@ -262,7 +262,7 @@ public:
     Data.Heap.Ptr[newSize] = '\0';
   }
 
-  size_t find(const char* sub, size_t pos = 0)
+  size_t find(const char* sub, size_t pos = 0) const
   {
     size_t source_len = this->size();
     size_t sub_len = avengine::string(sub).size();
