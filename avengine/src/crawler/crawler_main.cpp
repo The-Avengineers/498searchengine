@@ -1,9 +1,8 @@
 #include "../../include/avengine/crawler/domain_filter.h"
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/frontier.h"
-#include "../../include/avengine/crawler/url_normalizer.h"
-#include "../../include/avengine/crawler/domain_filter.h"
 #include "../../include/avengine/crawler/logger.h"
+#include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 
 using namespace avengine;
@@ -127,7 +126,7 @@ int main()
 
   // Final checkpoint
   theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());              
+  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());
 
   return 0;
 }
