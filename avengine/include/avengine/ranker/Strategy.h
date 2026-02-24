@@ -119,7 +119,8 @@ class DistanceFromSeeds : public Ranker::Strategy
 {
   // TODO: scores the pages according to their distance from the seedlist (communicate with crawler)
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  {
     return 0.0;
   }
 };
@@ -309,7 +310,8 @@ class OutlinkCount : public Ranker::Strategy
 {
   // TODO: scores the pages based on the number of hyperlinks outwards
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const {
+  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  {
     return 0.0;
   }
 };
@@ -448,6 +450,6 @@ public:
       }
     }
 
-    return (valid_terms > 0) ?  score / valid_terms : 0.0;
+    return (valid_terms > 0) ? score / valid_terms : 0.0;
   }
 };
