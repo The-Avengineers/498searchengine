@@ -1,4 +1,4 @@
-#include <avengine/ranker.h>
+#include <avengine/ranker/ranker.h>
 
 namespace avengine
 {
@@ -14,6 +14,33 @@ void Ranker::AddStrategy(const Strategy* strategy, double weight)
 void Ranker::ClearStrategies()
 {
   Strategies.clear();
+}
+
+void Ranker::Consider(
+    const string& url,
+    const vector<vector<size_t>>& term_positions) // using insertion sort to dynamically pick top10
+{
+  RankedResult candidate;
+  candidate.url = url;
+  candidate.score = Score(url, term_positions);
+
+  size_t insert_pos = 0;
+  while (insert_pos < Top10.size() && Top10[insert_pos].score >= candidate.score)
+  {
+    ++insert_pos;
+  }
+
+  Top10.insert(insert_pos, candidate);
+
+  if (Top10.size() > 10)
+  {
+    Top10.popBack();
+  }
+}
+
+const vector<Ranker::RankedResult>& Ranker::TopResults() const
+{
+  return Top10;
 }
 
 double Ranker::Score(const string& url, const vector<vector<size_t>>& term_positions) const

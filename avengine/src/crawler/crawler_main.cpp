@@ -1,8 +1,8 @@
-#include "../../include/avengine/crawler/frontier.h"
-#include "../../include/avengine/crawler/fetcher.h"
-#include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/crawler/domain_filter.h"
+#include "../../include/avengine/crawler/fetcher.h"
+#include "../../include/avengine/crawler/frontier.h"
 #include "../../include/avengine/crawler/logger.h"
+#include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 
 using namespace avengine;
@@ -34,7 +34,7 @@ int main()
     }
   }
 
-  // Seed URLs to URLFrontier      
+  // Seed URLs to URLFrontier
   theFrontier.seed(filteredSeeds);
 
   size_t crawlCount = 0;
@@ -58,7 +58,8 @@ int main()
       // RobotsParser.isAllowed()                                             NOT DONE
       // if (!robotsParser.isAllowed(entry.url)) continue;
 
-      // GET request using the fetcher                                        KINDA DONE (needs testing)
+      // GET request using the fetcher                                        KINDA DONE (needs
+      // testing)
       auto result = theFetcher.fetch(entry.url);
       if (!result.hasValue())
       {
@@ -87,19 +88,19 @@ int main()
       for (size_t j = 0; j < parser.links.size(); ++j)
       {
         string baseURL;
-        if (parser.base.size() > 0) 
+        if (parser.base.size() > 0)
         {
           baseURL = parser.base;
         }
-        else 
+        else
         {
           baseURL = entry.url;
         }
-        
+
         // normalize the domain
         string normalized = normalizer.normalize(baseURL, parser.links[j].URL);
 
-        // filter the domain              
+        // filter the domain
         if (filter.isBlocked(normalized))
         {
           continue;
@@ -108,7 +109,7 @@ int main()
         // if BloomFilter says unseen then add to the frontier
         if (!theFrontier.alreadySeen(normalized))
         {
-          theFrontier.add(normalized, /* NEED TO FIGURE OUT PRIORITY*/50, entry.depth + 1);
+          theFrontier.add(normalized, /* NEED TO FIGURE OUT PRIORITY*/ 50, entry.depth + 1);
         }
       }
 
@@ -125,7 +126,7 @@ int main()
 
   // Final checkpoint
   theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());              
+  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());
 
   return 0;
 }

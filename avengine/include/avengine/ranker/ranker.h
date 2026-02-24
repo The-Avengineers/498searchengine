@@ -3,8 +3,8 @@
 
 #include <cstddef>
 
-#include <avengine/string.h>
-#include <avengine/vector.h>
+#include <avengine/avengine_lib/string.h>
+#include <avengine/avengine_lib/vector.h>
 
 namespace avengine
 {
@@ -61,6 +61,22 @@ public:
    */
   double Score(const string& url, const vector<vector<size_t>>& term_positions) const;
 
+  struct RankedResult
+  {
+    string url;
+    double score{0.0};
+  };
+
+  /**
+   * Consider a URL and update the top results using insertion sort.
+   */
+  void Consider(const string& url, const vector<vector<size_t>>& term_positions);
+
+  /**
+   * Return the current top results (highest score first).
+   */
+  const vector<RankedResult>& TopResults() const;
+
 private:
   struct WeightedStrategy
   {
@@ -69,6 +85,7 @@ private:
   };
 
   vector<WeightedStrategy> Strategies;
+  vector<RankedResult> Top10;
 };
 
 } // namespace avengine

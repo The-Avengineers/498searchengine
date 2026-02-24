@@ -15,7 +15,6 @@ namespace crawler
 class frontier
 {
 public:
-
   frontier();
 
   ~frontier();
@@ -67,7 +66,6 @@ private:
   // Modifies Nothing
   // Returns the domain of the URL
   string extractDomain(const string& url) const;
-  
 };
 
 } // namespace crawler

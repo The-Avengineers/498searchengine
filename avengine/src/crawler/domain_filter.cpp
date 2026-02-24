@@ -22,8 +22,7 @@ namespace crawler
   return h;
 }
 
-domainFilter::domainFilter()
-    : blockSet(compare, stringHash, 256)
+domainFilter::domainFilter() : blockSet(compare, stringHash, 256)
 {
   // set the blocklist
 }

@@ -3,9 +3,8 @@
 // Starter file for a string template
 #pragma once
 
-#include "vector.h"
-#include <cstddef> // for size_t
-#include <cstdint>
+#include <avengine/avengine_lib/vector.h>
+#include <cstddef>  // for size_t
 #include <iostream> // for ostream
 #include <utility>
 
@@ -263,7 +262,7 @@ public:
     Data.Heap.Ptr[newSize] = '\0';
   }
 
-  size_t find(const char* sub, size_t pos = 0)
+  size_t find(const char* sub, size_t pos = 0) const
   {
     size_t source_len = this->size();
     size_t sub_len = avengine::string(sub).size();

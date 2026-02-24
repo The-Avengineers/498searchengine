@@ -77,9 +77,8 @@ namespace avengine
 namespace crawler
 {
 
-frontier::frontier()
-    : seen(1000000, .0001)
-      // 1M expected items, 0.01% FP rate
+frontier::frontier() : seen(1000000, .0001)
+// 1M expected items, 0.01% FP rate
 {
   srand(static_cast<unsigned>(time(nullptr)));
 }
@@ -117,7 +116,6 @@ string frontier::extractDomain(const string& url) const
   }
   return domain;
 }
-
 
 bool frontier::alreadySeen(const string& url) const
 {
@@ -207,11 +205,11 @@ vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
 
   // Take top batchSize
   size_t actualBatchSize{};
-  if (batchSize < sample.size()) 
+  if (batchSize < sample.size())
   {
     actualBatchSize = batchSize;
   }
-  else 
+  else
   {
     actualBatchSize = sample.size();
   }
@@ -344,7 +342,7 @@ expected<void, error> frontier::loadCheckpoint(const string& path)
     {
       return res;
     }
-    
+
     // get the depth
     res = logging_helpers::readVal(entry.depth, f);
     if (!res.hasValue())

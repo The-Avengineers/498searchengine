@@ -1,8 +1,8 @@
 #pragma once
 
-#include <fstream>
-#include <ctime>
 #include "../avengine_lib/string.h"
+#include <ctime>
+#include <fstream>
 
 namespace avengine
 {
@@ -12,17 +12,16 @@ namespace crawler
 class CrawlLogger
 {
 public:
-    // File path for the logger
+  // File path for the logger
   CrawlLogger(const char* path);
   ~CrawlLogger();
 
   // NOTE, ALL log overloads have the same functionality essentially
-  
-  
+
   // Requires URL and a Message
   // Modifys the logger by appending a message
   // Returns nothing
-  // Used when fetch failed 
+  // Used when fetch failed
   void log(const string& url, const char* msg);
 
   // Requires a URL, message, and an http status code
@@ -50,15 +49,13 @@ public:
   void log(const char* event, size_t count, size_t seenCount);
 
 private:
-
   std::ofstream logFile;
 
   // Requires. nothing
   // Modifys the log file
   // returns nothing
   void writeTimestamp();
-
 };
 
-}
-}
+} // namespace crawler
+} // namespace avengine
