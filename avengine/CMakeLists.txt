@@ -18,10 +18,11 @@ add_library(avengine
   src/expression.cpp
   src/HashBlob.cpp
   src/HashTable.cpp
-  src/HtmlParser.cpp
-  src/HtmlTags.cpp
+  src/html_parser/HtmlParser.cpp
+  src/html_parser/HtmlTags.cpp
   src/index.cpp
   src/parser.cpp
+  src/ranker/ranker.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
 )

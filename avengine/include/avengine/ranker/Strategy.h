@@ -1,8 +1,8 @@
 #include "ranker.h"
-#include <avengine/HtmlParser.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
@@ -67,8 +67,49 @@ private:
       return length_thres + 1;
     }
 
-    avengine::HtmlParser parser(buffer.data(), buffer.size());
-    return parser.titleWords.size();
+    std::string lowered = buffer;
+    for (char& c : lowered)
+    {
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+
+    const std::string title_open = "<title";
+    const std::string title_close = "</title>";
+    const size_t open_tag = lowered.find(title_open);
+    if (open_tag == std::string::npos)
+    {
+      return length_thres + 1;
+    }
+
+    const size_t content_start = lowered.find('>', open_tag);
+    if (content_start == std::string::npos)
+    {
+      return length_thres + 1;
+    }
+
+    const size_t close_tag = lowered.find(title_close, content_start + 1);
+    if (close_tag == std::string::npos || close_tag <= content_start + 1)
+    {
+      return length_thres + 1;
+    }
+
+    size_t words = 0;
+    bool in_word = false;
+    for (size_t i = content_start + 1; i < close_tag; ++i)
+    {
+      const bool ws = std::isspace(static_cast<unsigned char>(buffer[i])) != 0;
+      if (!ws && !in_word)
+      {
+        ++words;
+        in_word = true;
+      }
+      else if (ws)
+      {
+        in_word = false;
+      }
+    }
+
+    return words;
   }
 
   const size_t length_thres = 10;

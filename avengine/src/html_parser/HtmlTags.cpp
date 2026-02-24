@@ -1,4 +1,4 @@
-#include <avengine/HtmlTags.h>
+#include <avengine/html_parser/HtmlTags.h>
 #include <cassert>
 #include <cstring>
 #include <ctype.h>
