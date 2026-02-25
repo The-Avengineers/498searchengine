@@ -128,8 +128,10 @@ void testDomainStrat()
 {
   DomainStrat strat;
   vector<vector<size_t>> positions;
-  EXPECT(nearlyEqual(strat.Score(makeEntry("https://university.edu/page", "university.edu"), positions), 1.0));
-  EXPECT(nearlyEqual(strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions), 1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://university.edu/page", "university.edu"), positions), 1.0));
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions), 1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com", "example.com"), positions), 0.0));
 }
 
@@ -153,7 +155,8 @@ void testShortTitleStrat()
 
   EXPECT(nearlyEqual(strat.Score(makeEntry(shortTitle.cstr()), positions), 1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry(longTitle.cstr()), positions), 0.0));
-  EXPECT(nearlyEqual(strat.Score(makeEntry("/tmp/path/does/not/exist/ranker_test.html"), positions), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("/tmp/path/does/not/exist/ranker_test.html"), positions),
+                     0.0));
 
   EXPECT(unlink(shortTitle.cstr()) == 0);
   EXPECT(unlink(longTitle.cstr()) == 0);

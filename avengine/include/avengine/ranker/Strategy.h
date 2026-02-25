@@ -1,7 +1,7 @@
 #include "ranker.h"
-#include <avengine/crawler/crawler_structs.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
+#include <avengine/crawler/crawler_structs.h>
 
 #include <cctype>
 #include <cmath>

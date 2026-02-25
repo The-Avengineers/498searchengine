@@ -3,9 +3,9 @@
 
 #include <cstddef>
 
-#include <avengine/crawler/crawler_structs.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
+#include <avengine/crawler/crawler_structs.h>
 
 namespace avengine
 {
@@ -44,7 +44,8 @@ public:
   {
   public:
     virtual ~Strategy() = default;
-    virtual double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const = 0;
+    virtual double Score(const urlEntry& entry,
+                         const vector<vector<size_t>>& term_positions) const = 0;
   };
 
   /**
