@@ -22,9 +22,16 @@ struct ParsedSkipPointer
   uint32_t byteOffset;
 };
 
+struct ParsedDecorator
+{
+  uint32_t type;
+  uint32_t payloadBytes;
+};
+
 struct DecodedField
 {
   avengine::vector<ParsedSkipPointer> skips;
+  avengine::vector<ParsedDecorator> decorators;
   avengine::vector<uint32_t> previewPositions;
   size_t decodedCount = 0;
   const uint8_t* next = nullptr;
@@ -104,16 +111,25 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
   dst[i] = '\0';
 }
 
-static bool is_empty_dictionary_entry(const DictEntry& e, bool isV2)
+static bool is_empty_dictionary_entry(const DictEntry& e, bool hasHeaderSentinel)
 {
-  if (isV2)
+  if (hasHeaderSentinel)
     return e.stringOffset == UINT64_MAX && e.postingOffset == UINT64_MAX;
 
   return e.stringOffset == 0 && e.postingOffset == 0;
 }
 
-static DecodedField decode_field(const uint8_t* cursor, const uint8_t* postingEnd,
-                                 uint64_t skipCount, uint64_t collectionFrequency)
+static bool skip_bytes(const uint8_t** cursor, const uint8_t* end, size_t count)
+{
+  if (count > static_cast<size_t>(end - *cursor))
+    return false;
+
+  *cursor += count;
+  return true;
+}
+
+static DecodedField decode_field_v2(const uint8_t* cursor, const uint8_t* postingEnd,
+                                    uint64_t skipCount, uint64_t collectionFrequency)
 {
   DecodedField out;
 
@@ -158,6 +174,50 @@ static DecodedField decode_field(const uint8_t* cursor, const uint8_t* postingEn
   return out;
 }
 
+static DecodedField decode_field_v3(const uint8_t* cursor, const uint8_t* postingEnd,
+                                    uint64_t decoratorCount, uint64_t collectionFrequency)
+{
+  DecodedField out;
+
+  for (uint64_t i = 0; i < decoratorCount; i++)
+  {
+    const uint8_t* next = nullptr;
+    const uint32_t type = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      return out;
+    cursor = next;
+
+    const uint32_t payloadBytes = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      return out;
+    cursor = next;
+
+    if (!skip_bytes(&cursor, postingEnd, payloadBytes))
+      return out;
+
+    out.decorators.pushBack({type, payloadBytes});
+  }
+
+  uint32_t pos = 0;
+  for (uint64_t i = 0; i < collectionFrequency; i++)
+  {
+    const uint8_t* next = nullptr;
+    uint32_t delta = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      return out;
+    cursor = next;
+
+    pos += delta;
+    if (out.previewPositions.size() < 25)
+      out.previewPositions.pushBack(pos);
+    out.decodedCount++;
+  }
+
+  out.next = cursor;
+  out.ok = true;
+  return out;
+}
+
 static void print_skip_preview(const avengine::vector<ParsedSkipPointer>& skips)
 {
   if (skips.empty())
@@ -171,6 +231,23 @@ static void print_skip_preview(const avengine::vector<ParsedSkipPointer>& skips)
   {
     const ParsedSkipPointer& sp = skips[i];
     std::printf(" [idx=%u pos=%u off=%u]", sp.positionIndex, sp.positionValue, sp.byteOffset);
+  }
+  std::printf("\n");
+}
+
+static void print_decorator_preview(const avengine::vector<ParsedDecorator>& decorators)
+{
+  if (decorators.empty())
+  {
+    std::printf("  Decorator preview: (none)\n");
+    return;
+  }
+
+  std::printf("  Decorator preview:");
+  for (size_t i = 0; i < decorators.size() && i < 8; i++)
+  {
+    const ParsedDecorator& d = decorators[i];
+    std::printf(" [type=%u bytes=%u]", d.type, d.payloadBytes);
   }
   std::printf("\n");
 }
@@ -238,6 +315,7 @@ int main(int argc, char** argv)
   }
 
   bool isV2 = false;
+  bool isV3 = false;
   uint64_t documentCount = 0;
   uint64_t uniqueWordsPlusOne = 0;
   uint64_t fieldCount = 1;
@@ -247,7 +325,7 @@ int main(int argc, char** argv)
   {
     const uint64_t magic = read_u64_le(data);
     const uint64_t version = read_u64_le(data + 8);
-    if (magic == INDEX_FILE_MAGIC_V2 && version == INDEX_FILE_VERSION_V2)
+    if (magic == INDEX_FILE_MAGIC && version == INDEX_FILE_VERSION_V2)
     {
       isV2 = true;
       headerBytes = 40;
@@ -255,9 +333,17 @@ int main(int argc, char** argv)
       uniqueWordsPlusOne = read_u64_le(data + 24);
       fieldCount = read_u64_le(data + 32);
     }
+    else if (magic == INDEX_FILE_MAGIC && version == INDEX_FILE_VERSION_V3)
+    {
+      isV3 = true;
+      headerBytes = 40;
+      documentCount = read_u64_le(data + 16);
+      uniqueWordsPlusOne = read_u64_le(data + 24);
+      fieldCount = read_u64_le(data + 32);
+    }
   }
 
-  if (!isV2)
+  if (!isV2 && !isV3)
   {
     documentCount = read_u64_le(data);
     uniqueWordsPlusOne = read_u64_le(data + 8);
@@ -292,7 +378,7 @@ int main(int argc, char** argv)
 
   for (const DictEntry& e : entries)
   {
-    if (is_empty_dictionary_entry(e, isV2))
+    if (is_empty_dictionary_entry(e, isV2 || isV3))
       continue;
 
     if (dictionaryBytes + e.stringOffset >= static_cast<uint64_t>(sb.st_size))
@@ -320,11 +406,16 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::printf("Format: %s\n", isV2 ? "v2" : "v1");
+  const char* formatLabel = "v1";
+  if (isV3)
+    formatLabel = "v3";
+  else if (isV2)
+    formatLabel = "v2";
+  std::printf("Format: %s\n", formatLabel);
   std::printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
   std::printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
   std::printf("Parsed terms (best effort): %zu\n", parsedTerms);
-  if (isV2)
+  if (isV2 || isV3)
     std::printf("Fields: %llu\n", static_cast<unsigned long long>(fieldCount));
 
   if (listMode)
@@ -378,11 +469,11 @@ int main(int argc, char** argv)
 
   std::printf("Term: %s\n", queryLower);
 
-  if (isV2)
+  if (isV2 || isV3)
   {
     if (startOff + 56 > endOff || endOff > static_cast<size_t>(sb.st_size))
     {
-      std::fprintf(stderr, "Corrupt v2 posting list boundaries.\n");
+      std::fprintf(stderr, "Corrupt %s posting list boundaries.\n", isV3 ? "v3" : "v2");
       std::free(queryLower);
       munmap(data, sb.st_size);
       return 1;
@@ -395,37 +486,46 @@ int main(int argc, char** argv)
     uint64_t normalCollectionFrequency = read_u64_le(posting + 8);
     uint64_t titleCollectionFrequency = read_u64_le(posting + 16);
     uint64_t anchorCollectionFrequency = read_u64_le(posting + 24);
-    uint64_t normalSkipCount = read_u64_le(posting + 32);
-    uint64_t titleSkipCount = read_u64_le(posting + 40);
-    uint64_t anchorSkipCount = read_u64_le(posting + 48);
+    uint64_t normalSectionCount = read_u64_le(posting + 32);
+    uint64_t titleSectionCount = read_u64_le(posting + 40);
+    uint64_t anchorSectionCount = read_u64_le(posting + 48);
 
     const uint8_t* cursor = posting + 56;
 
-    DecodedField normalField =
-        decode_field(cursor, postingEnd, normalSkipCount, normalCollectionFrequency);
+    DecodedField normalField = isV3
+                                   ? decode_field_v3(cursor, postingEnd, normalSectionCount,
+                                                     normalCollectionFrequency)
+                                   : decode_field_v2(cursor, postingEnd, normalSectionCount,
+                                                     normalCollectionFrequency);
     if (!normalField.ok)
     {
-      std::fprintf(stderr, "Corrupt v2 normal field encoding.\n");
+      std::fprintf(stderr, "Corrupt %s normal field encoding.\n", isV3 ? "v3" : "v2");
       std::free(queryLower);
       munmap(data, sb.st_size);
       return 1;
     }
 
-    DecodedField titleField =
-        decode_field(normalField.next, postingEnd, titleSkipCount, titleCollectionFrequency);
+    DecodedField titleField = isV3
+                                  ? decode_field_v3(normalField.next, postingEnd, titleSectionCount,
+                                                    titleCollectionFrequency)
+                                  : decode_field_v2(normalField.next, postingEnd, titleSectionCount,
+                                                    titleCollectionFrequency);
     if (!titleField.ok)
     {
-      std::fprintf(stderr, "Corrupt v2 title field encoding.\n");
+      std::fprintf(stderr, "Corrupt %s title field encoding.\n", isV3 ? "v3" : "v2");
       std::free(queryLower);
       munmap(data, sb.st_size);
       return 1;
     }
 
-    DecodedField anchorField =
-        decode_field(titleField.next, postingEnd, anchorSkipCount, anchorCollectionFrequency);
+    DecodedField anchorField = isV3
+                                   ? decode_field_v3(titleField.next, postingEnd, anchorSectionCount,
+                                                     anchorCollectionFrequency)
+                                   : decode_field_v2(titleField.next, postingEnd, anchorSectionCount,
+                                                     anchorCollectionFrequency);
     if (!anchorField.ok)
     {
-      std::fprintf(stderr, "Corrupt v2 anchor field encoding.\n");
+      std::fprintf(stderr, "Corrupt %s anchor field encoding.\n", isV3 ? "v3" : "v2");
       std::free(queryLower);
       munmap(data, sb.st_size);
       return 1;
@@ -435,22 +535,46 @@ int main(int argc, char** argv)
 
     std::printf("Normal collection frequency: %llu\n",
                 static_cast<unsigned long long>(normalCollectionFrequency));
-    std::printf("Normal skip pointers: %zu\n", normalField.skips.size());
-    print_skip_preview(normalField.skips);
+    if (isV3)
+    {
+      std::printf("Normal decorators: %zu\n", normalField.decorators.size());
+      print_decorator_preview(normalField.decorators);
+    }
+    else
+    {
+      std::printf("Normal skip pointers: %zu\n", normalField.skips.size());
+      print_skip_preview(normalField.skips);
+    }
     print_position_preview(normalField.previewPositions);
     std::printf("  Decoded positions: %zu\n", normalField.decodedCount);
 
     std::printf("Title collection frequency: %llu\n",
                 static_cast<unsigned long long>(titleCollectionFrequency));
-    std::printf("Title skip pointers: %zu\n", titleField.skips.size());
-    print_skip_preview(titleField.skips);
+    if (isV3)
+    {
+      std::printf("Title decorators: %zu\n", titleField.decorators.size());
+      print_decorator_preview(titleField.decorators);
+    }
+    else
+    {
+      std::printf("Title skip pointers: %zu\n", titleField.skips.size());
+      print_skip_preview(titleField.skips);
+    }
     print_position_preview(titleField.previewPositions);
     std::printf("  Decoded positions: %zu\n", titleField.decodedCount);
 
     std::printf("Anchor collection frequency: %llu\n",
                 static_cast<unsigned long long>(anchorCollectionFrequency));
-    std::printf("Anchor skip pointers: %zu\n", anchorField.skips.size());
-    print_skip_preview(anchorField.skips);
+    if (isV3)
+    {
+      std::printf("Anchor decorators: %zu\n", anchorField.decorators.size());
+      print_decorator_preview(anchorField.decorators);
+    }
+    else
+    {
+      std::printf("Anchor skip pointers: %zu\n", anchorField.skips.size());
+      print_skip_preview(anchorField.skips);
+    }
     print_position_preview(anchorField.previewPositions);
     std::printf("  Decoded positions: %zu\n", anchorField.decodedCount);
 
@@ -475,7 +599,7 @@ int main(int argc, char** argv)
     uint64_t collectionFrequency = read_u64_le(posting + 8);
     uint64_t skipCount = read_u64_le(posting + 16);
 
-    DecodedField field = decode_field(posting + 24, postingEnd, skipCount, collectionFrequency);
+    DecodedField field = decode_field_v2(posting + 24, postingEnd, skipCount, collectionFrequency);
     if (!field.ok)
     {
       std::fprintf(stderr, "Corrupt v1 field encoding.\n");

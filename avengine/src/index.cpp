@@ -1,20 +1,12 @@
 #include "index.h"
 #include <cassert>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <unistd.h>
 
 namespace
 {
-struct SkipPointer
-{
-  uint32_t positionIndex;
-  uint32_t positionValue;
-  uint32_t byteOffset;
-};
-
 struct DictEntry
 {
   uint64_t stringOffset;
@@ -53,39 +45,24 @@ static bool write_all(int fd, const void* buffer, size_t bytes)
   return true;
 }
 
+// TODO: update instead of start of document to use offset from start of index
 static void encode_field(const avengine::vector<uint32_t>& positions,
                          avengine::vector<uint8_t>& deltaBuffer,
-                         avengine::vector<uint8_t>& skipBuffer,
-                         avengine::vector<SkipPointer>& skipPointers)
+                         avengine::vector<uint8_t>& decoratorBuffer,
+                         uint64_t& decoratorCount)
 {
   deltaBuffer.clear();
-  skipBuffer.clear();
-  skipPointers.clear();
+  decoratorBuffer.clear();
+  decoratorCount = 0;
 
   uint32_t lastPosition = 0;
   const uint32_t collectionFrequency = static_cast<uint32_t>(positions.size());
-  const uint32_t skipStride =
-      collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
 
   for (uint32_t i = 0; i < collectionFrequency; i++)
   {
     const uint32_t position = positions[i];
-    if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
-    {
-      skipPointers.pushBack({.positionIndex = i,
-                             .positionValue = position,
-                             .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
-    }
-
     append_var_uint32(deltaBuffer, position - lastPosition);
     lastPosition = position;
-  }
-
-  for (const SkipPointer& skip : skipPointers)
-  {
-    append_var_uint32(skipBuffer, skip.positionIndex);
-    append_var_uint32(skipBuffer, skip.positionValue);
-    append_var_uint32(skipBuffer, skip.byteOffset);
   }
 }
 } // namespace
@@ -239,16 +216,16 @@ void Index::serialize(int fd)
 
   size_t postingsOffset = 0;
   avengine::vector<uint8_t> normalDeltaBuffer;
-  avengine::vector<uint8_t> normalSkipBuffer;
-  avengine::vector<SkipPointer> normalSkips;
+  avengine::vector<uint8_t> normalDecoratorBuffer;
+  uint64_t normalDecoratorCount = 0;
 
   avengine::vector<uint8_t> titleDeltaBuffer;
-  avengine::vector<uint8_t> titleSkipBuffer;
-  avengine::vector<SkipPointer> titleSkips;
+  avengine::vector<uint8_t> titleDecoratorBuffer;
+  uint64_t titleDecoratorCount = 0;
 
   avengine::vector<uint8_t> anchorDeltaBuffer;
-  avengine::vector<uint8_t> anchorSkipBuffer;
-  avengine::vector<SkipPointer> anchorSkips;
+  avengine::vector<uint8_t> anchorDecoratorBuffer;
+  uint64_t anchorDecoratorCount = 0;
 
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
@@ -259,18 +236,21 @@ void Index::serialize(int fd)
       const size_t hash = bucket->hash;
       dictionary[hash].postingOffset = static_cast<uint64_t>(postingsOffset);
 
-      encode_field(bucket->normalPositions, normalDeltaBuffer, normalSkipBuffer, normalSkips);
-      encode_field(bucket->titlePositions, titleDeltaBuffer, titleSkipBuffer, titleSkips);
-      encode_field(bucket->anchorPositions, anchorDeltaBuffer, anchorSkipBuffer, anchorSkips);
+      encode_field(bucket->normalPositions, normalDeltaBuffer, normalDecoratorBuffer,
+                   normalDecoratorCount);
+      encode_field(bucket->titlePositions, titleDeltaBuffer, titleDecoratorBuffer,
+                   titleDecoratorCount);
+      encode_field(bucket->anchorPositions, anchorDeltaBuffer, anchorDecoratorBuffer,
+                   anchorDecoratorCount);
 
       const uint64_t postingHeader[] = {
           static_cast<uint64_t>(bucket->postings.size()),
           static_cast<uint64_t>(bucket->normalPositions.size()),
           static_cast<uint64_t>(bucket->titlePositions.size()),
           static_cast<uint64_t>(bucket->anchorPositions.size()),
-          static_cast<uint64_t>(normalSkips.size()),
-          static_cast<uint64_t>(titleSkips.size()),
-          static_cast<uint64_t>(anchorSkips.size()),
+          normalDecoratorCount,
+          titleDecoratorCount,
+          anchorDecoratorCount,
       };
 
       if (!write_all(fd, postingHeader, sizeof(postingHeader)))
@@ -279,8 +259,8 @@ void Index::serialize(int fd)
         return;
       }
 
-      if (!normalSkipBuffer.empty() &&
-          !write_all(fd, normalSkipBuffer.begin(), normalSkipBuffer.size()))
+      if (!normalDecoratorBuffer.empty() &&
+          !write_all(fd, normalDecoratorBuffer.begin(), normalDecoratorBuffer.size()))
       {
         delete[] dictionary;
         return;
@@ -292,8 +272,8 @@ void Index::serialize(int fd)
         return;
       }
 
-      if (!titleSkipBuffer.empty() &&
-          !write_all(fd, titleSkipBuffer.begin(), titleSkipBuffer.size()))
+      if (!titleDecoratorBuffer.empty() &&
+          !write_all(fd, titleDecoratorBuffer.begin(), titleDecoratorBuffer.size()))
       {
         delete[] dictionary;
         return;
@@ -305,8 +285,8 @@ void Index::serialize(int fd)
         return;
       }
 
-      if (!anchorSkipBuffer.empty() &&
-          !write_all(fd, anchorSkipBuffer.begin(), anchorSkipBuffer.size()))
+      if (!anchorDecoratorBuffer.empty() &&
+          !write_all(fd, anchorDecoratorBuffer.begin(), anchorDecoratorBuffer.size()))
       {
         delete[] dictionary;
         return;
@@ -319,9 +299,9 @@ void Index::serialize(int fd)
       }
 
       postingsOffset += sizeof(postingHeader);
-      postingsOffset += normalSkipBuffer.size() + normalDeltaBuffer.size();
-      postingsOffset += titleSkipBuffer.size() + titleDeltaBuffer.size();
-      postingsOffset += anchorSkipBuffer.size() + anchorDeltaBuffer.size();
+      postingsOffset += normalDecoratorBuffer.size() + normalDeltaBuffer.size();
+      postingsOffset += titleDecoratorBuffer.size() + titleDeltaBuffer.size();
+      postingsOffset += anchorDecoratorBuffer.size() + anchorDeltaBuffer.size();
 
       bucket = bucket->nextBucket;
     }
@@ -333,9 +313,9 @@ void Index::serialize(int fd)
     return;
   }
 
-  const uint64_t fileHeader[] = {INDEX_FILE_MAGIC_V2, INDEX_FILE_VERSION_V2,
+  const uint64_t fileHeader[] = {INDEX_FILE_MAGIC, INDEX_FILE_VERSION_V3,
                                  static_cast<uint64_t>(documentNames.size()), uniqueWordsPlusOne,
-                                 INDEX_FILE_FIELD_COUNT_V2};
+                                 INDEX_FILE_FIELD_COUNT};
 
   if (!write_all(fd, fileHeader, sizeof(fileHeader)))
   {

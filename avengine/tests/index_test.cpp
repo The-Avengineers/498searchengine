@@ -218,7 +218,7 @@ TEST_CASE("indexDocument tokenization")
   CHECK(gamma->normalPositions[0] == 3u);
 }
 
-TEST_CASE("v2 serialization header and field sections")
+TEST_CASE("v3 serialization header and field sections")
 {
   Index index;
   index.beginDocument("doc://serialize");
@@ -262,12 +262,12 @@ TEST_CASE("v2 serialization header and field sections")
   CHECK(close(readFd) == 0);
   CHECK(unlink(pathTemplate) == 0);
 
-  CHECK(readU64LE(bytes) == INDEX_FILE_MAGIC_V2);
-  CHECK(readU64LE(bytes + 8) == INDEX_FILE_VERSION_V2);
+  CHECK(readU64LE(bytes) == INDEX_FILE_MAGIC);
+  CHECK(readU64LE(bytes + 8) == INDEX_FILE_VERSION_V3);
   CHECK(readU64LE(bytes + 16) == 1u);
   const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
   CHECK(uniqueWordsPlusOne == 2u);
-  CHECK(readU64LE(bytes + 32) == INDEX_FILE_FIELD_COUNT_V2);
+  CHECK(readU64LE(bytes + 32) == INDEX_FILE_FIELD_COUNT);
 
   const size_t dictionaryBytes = static_cast<size_t>(40u + (uniqueWordsPlusOne * 2u * 16u));
   const size_t stringBytes = std::strlen("alpha") + 1u;
@@ -280,24 +280,12 @@ TEST_CASE("v2 serialization header and field sections")
   CHECK(readU64LE(posting + 8) == 10u);
   CHECK(readU64LE(posting + 16) == 2u);
   CHECK(readU64LE(posting + 24) == 3u);
-  CHECK(readU64LE(posting + 32) == 3u);
+  CHECK(readU64LE(posting + 32) == 0u);
   CHECK(readU64LE(posting + 40) == 0u);
   CHECK(readU64LE(posting + 48) == 0u);
 
   const uint8_t* cursor = posting + 56u;
   const uint8_t* end = bytes + fileSize;
-
-  CHECK(readVarU32(cursor, end) == 3u);
-  CHECK(readVarU32(cursor, end) == 3u);
-  CHECK(readVarU32(cursor, end) == 3u);
-
-  CHECK(readVarU32(cursor, end) == 6u);
-  CHECK(readVarU32(cursor, end) == 6u);
-  CHECK(readVarU32(cursor, end) == 6u);
-
-  CHECK(readVarU32(cursor, end) == 9u);
-  CHECK(readVarU32(cursor, end) == 9u);
-  CHECK(readVarU32(cursor, end) == 9u);
 
   CHECK(readVarU32(cursor, end) == 0u);
   for (int i = 0; i < 9; ++i)

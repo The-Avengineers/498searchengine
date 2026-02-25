@@ -5,9 +5,10 @@
 
 size_t djb2Hash(char const* str);
 
-constexpr uint64_t INDEX_FILE_MAGIC_V2 = 0x3256465345584449ULL;
+constexpr uint64_t INDEX_FILE_MAGIC = 0x3256465345584449ULL;
 constexpr uint64_t INDEX_FILE_VERSION_V2 = 2;
-constexpr uint64_t INDEX_FILE_FIELD_COUNT_V2 = 3;
+constexpr uint64_t INDEX_FILE_VERSION_V3 = 3;
+constexpr uint64_t INDEX_FILE_FIELD_COUNT = 3;
 
 // TODO: Use support phrases of different kinds and decorate or index titles differently.
 enum class PhraseKind
@@ -37,8 +38,7 @@ struct PostingList
   char* word;
   size_t hash;
   PostingList* nextBucket;
-  // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
-  // points in the on-disk-format we should update this to match.
+  // NOTE: On-disk field streams are decorator blocks followed by delta positions.
   avengine::vector<Posting> postings;
   avengine::vector<uint32_t> normalPositions;
   avengine::vector<uint32_t> titlePositions;
