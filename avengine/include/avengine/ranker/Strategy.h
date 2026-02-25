@@ -1,4 +1,5 @@
 #include "ranker.h"
+#include <avengine/crawler/crawler_structs.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 
@@ -13,13 +14,13 @@ using namespace avengine;
 class DomainStrat : public Ranker::Strategy
 {
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
     (void)term_positions;
-    avengine::string url_copy = url;
+    const avengine::string& domain = entry.domain;
     for (size_t i = 0; i < GoodDomains.size(); i++)
     {
-      if (url_copy.find(GoodDomains[i]) != avengine::string::npos)
+      if (domain.find(GoodDomains[i]) != avengine::string::npos)
       {
         return 1.0;
       }
@@ -36,20 +37,20 @@ class ShortURLStrat : public Ranker::Strategy
 {
   // naïve implementation: take the reciprocal of the length of url
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
     (void)term_positions;
-    return url.size() == 0 ? 0.0 : 1 / double(url.size());
+    return entry.url.size() == 0 ? 0.0 : 1 / double(entry.url.size());
   }
 };
 
 class ShortTitleStrat : public Ranker::Strategy
 {
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
     (void)term_positions;
-    return getTitleLen(url) <= length_thres ? 1.0 : 0.0;
+    return getTitleLen(entry.url) <= length_thres ? 1.0 : 0.0;
   }
 
 private:
@@ -119,8 +120,9 @@ class DistanceFromSeeds : public Ranker::Strategy
 {
   // TODO: scores the pages according to their distance from the seedlist (communicate with crawler)
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
+    (void)entry;
     return 0.0;
   }
 };
@@ -131,9 +133,9 @@ class ExactPhraseMatch : public Ranker::Strategy
   // checks if current indices form phrase
   // runs in O(sum_of_term_appearances)
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
-    (void)url;
+    (void)entry;
 
     if (term_positions.size() < 2)
       return 1.0;
@@ -194,9 +196,9 @@ class CorrectOrdering : public Ranker::Strategy
   // reward longer in-order runs of query terms and favor tighter spans.
   // Score scales up with ordered run length and down with extra gap between terms.
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
-    (void)url;
+    (void)entry;
 
     const size_t query_len = term_positions.size();
     if (query_len == 0)
@@ -310,35 +312,31 @@ class OutlinkCount : public Ranker::Strategy
 {
   // TODO: scores the pages based on the number of hyperlinks outwards
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
+    (void)entry;
     return 0.0;
   }
 };
 
 class UrlDepth : public Ranker::Strategy
 {
-  // scores the pages based on reciprocal '/' count in URL, assuming all url have at least 2 in
-  // 'https://'
+  // scores pages by reciprocal crawl depth from urlEntry.
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
-    size_t slash_count = 0;
-    for (char c : url)
-    {
-      if (c == '/')
-        ++slash_count;
-    }
-    return slash_count == 0 ? 0.0 : 1 / static_cast<double>(slash_count);
+    (void)term_positions;
+    return entry.depth == 0 ? 0.0 : 1.0 / static_cast<double>(entry.depth);
   }
 };
 
 class HttpsMatch : public Ranker::Strategy
 {
   // scores page based on https vs http
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
-    return (url.size() >= 8 && url[4] == 's') ? 1.0 : 0.0;
+    (void)term_positions;
+    return (entry.url.size() >= 8 && entry.url[4] == 's') ? 1.0 : 0.0;
   }
 };
 
@@ -349,9 +347,10 @@ class QueryOccurrence : public Ranker::Strategy
 public:
   explicit QueryOccurrence(const vector<avengine::string>& query_terms) : QueryTerms(query_terms) {}
 
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
     (void)term_positions;
+    const avengine::string& url = entry.url;
 
     const size_t query_len = QueryTerms.size();
     if (query_len == 0)
@@ -431,9 +430,9 @@ class EarlyQueryTermMatch : public Ranker::Strategy
   // Scores how early each term appears in document on log scale
   // TODO: add bonus if terms are in title, need that parameter from crawler/index
 public:
-  double Score(const avengine::string& url, const vector<vector<size_t>>& term_positions) const
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const
   {
-    (void)url;
+    (void)entry;
     if (term_positions.empty())
     {
       return 0.0;

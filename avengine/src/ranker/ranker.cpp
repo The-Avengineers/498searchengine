@@ -17,12 +17,12 @@ void Ranker::ClearStrategies()
 }
 
 void Ranker::Consider(
-    const string& url,
+    const urlEntry& entry,
     const vector<vector<size_t>>& term_positions) // using insertion sort to dynamically pick top10
 {
   RankedResult candidate;
-  candidate.url = url;
-  candidate.score = Score(url, term_positions);
+  candidate.entry = entry;
+  candidate.score = Score(entry, term_positions);
 
   size_t insert_pos = 0;
   while (insert_pos < Top10.size() && Top10[insert_pos].score >= candidate.score)
@@ -43,19 +43,19 @@ const vector<Ranker::RankedResult>& Ranker::TopResults() const
   return Top10;
 }
 
-double Ranker::Score(const string& url, const vector<vector<size_t>>& term_positions) const
+double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions) const
 {
   double combined = 0.0;
 
   for (size_t i = 0; i < Strategies.size(); ++i)
   {
-    const WeightedStrategy& entry = Strategies[i];
-    if (entry.strategy == nullptr)
+    const WeightedStrategy& weighted = Strategies[i];
+    if (weighted.strategy == nullptr)
     {
       return 0.0;
     }
 
-    combined += entry.weight * entry.strategy->Score(url, term_positions);
+    combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions);
   }
 
   return combined;

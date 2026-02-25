@@ -3,6 +3,7 @@
 
 #include <cstddef>
 
+#include <avengine/crawler/crawler_structs.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 
@@ -43,7 +44,7 @@ public:
   {
   public:
     virtual ~Strategy() = default;
-    virtual double Score(const string& url, const vector<vector<size_t>>& term_positions) const = 0;
+    virtual double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const = 0;
   };
 
   /**
@@ -59,18 +60,18 @@ public:
   /**
    * Score a single URL using all strategies.
    */
-  double Score(const string& url, const vector<vector<size_t>>& term_positions) const;
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const;
 
   struct RankedResult
   {
-    string url;
+    urlEntry entry;
     double score{0.0};
   };
 
   /**
    * Consider a URL and update the top results using insertion sort.
    */
-  void Consider(const string& url, const vector<vector<size_t>>& term_positions);
+  void Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions);
 
   /**
    * Return the current top results (highest score first).

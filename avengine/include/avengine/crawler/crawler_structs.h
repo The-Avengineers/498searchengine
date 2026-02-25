@@ -9,7 +9,7 @@ struct urlEntry
   string url;
   string domain;
   float priority;
-  int depth; // from seed
+  uint depth; // from seed
 };
 
 } // namespace avengine
