@@ -30,6 +30,7 @@ add_library(avengine
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/index.cpp
+  src/index_stream_reader.cpp
   src/parser.cpp
   src/ranker/ranker.cpp
   src/tokenstream.cpp
