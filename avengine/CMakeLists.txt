@@ -21,6 +21,7 @@ add_library(avengine
   src/HtmlParser.cpp
   src/HtmlTags.cpp
   src/index.cpp
+  src/index_stream_reader.cpp
   src/parser.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
