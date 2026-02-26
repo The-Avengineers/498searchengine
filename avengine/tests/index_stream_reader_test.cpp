@@ -61,9 +61,9 @@ TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
   appendVarU32(stream, 5u);
 
   avengine::IndexFieldStreamReader reader;
-  REQUIRE(avengine::IndexFieldStreamReader::init(
-      stream.begin(), stream.end(), 1u, 3u, avengine::FieldStreamEncoding::V2_SKIP_POINTERS,
-      &reader));
+  REQUIRE(avengine::IndexFieldStreamReader::init(stream.begin(), stream.end(), 1u, 3u,
+                                                 avengine::FieldStreamEncoding::V2_SKIP_POINTERS,
+                                                 &reader));
 
   uint32_t position = 0;
   REQUIRE(reader.nextPosition(&position));
@@ -97,8 +97,7 @@ TEST_CASE("IndexFieldStreamReader decodes v3 decorators and position deltas")
 
   avengine::IndexFieldStreamReader reader;
   REQUIRE(avengine::IndexFieldStreamReader::init(
-      stream.begin(), stream.end(), 2u, 3u, avengine::FieldStreamEncoding::V3_DECORATORS,
-      &reader));
+      stream.begin(), stream.end(), 2u, 3u, avengine::FieldStreamEncoding::V3_DECORATORS, &reader));
 
   REQUIRE(reader.decorators().size() == 2u);
   CHECK(reader.decorators()[0].type == 1u);
@@ -115,4 +114,3 @@ TEST_CASE("IndexFieldStreamReader decodes v3 decorators and position deltas")
   CHECK(position == 11u);
   CHECK(reader.remainingPositions() == 0u);
 }
-

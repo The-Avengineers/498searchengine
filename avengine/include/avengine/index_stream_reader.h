@@ -36,7 +36,8 @@ class IndexFieldStreamReader
 {
 public:
   static bool init(const uint8_t* begin, const uint8_t* end, uint64_t sectionCount,
-                   uint64_t positionCount, FieldStreamEncoding encoding, IndexFieldStreamReader* out);
+                   uint64_t positionCount, FieldStreamEncoding encoding,
+                   IndexFieldStreamReader* out);
 
   bool nextPosition(uint32_t* absolutePosition);
   const uint8_t* nextCursor() const;
@@ -55,4 +56,3 @@ bool parsePostingBlobHeader(const uint8_t* begin, const uint8_t* end, PostingBlo
                             const uint8_t** fieldStreamsBegin);
 
 } // namespace avengine
-
