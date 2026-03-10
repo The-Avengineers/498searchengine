@@ -117,8 +117,9 @@ int main()
     }
 
     // checkpoint
-    if (crawlCount % checkpointInterval == 0 && crawlCount > 0)
+    if (crawlCount >= checkpointInterval) 
     {
+      checkpointInterval += 100;
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");
       crawlLogger.log("CHECKPOINT", crawlCount, theFrontier.seenCount(), theFrontier.size());
     }
