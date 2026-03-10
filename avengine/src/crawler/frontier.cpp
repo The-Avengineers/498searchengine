@@ -1,6 +1,11 @@
 #include "../../include/avengine/crawler/frontier.h"
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
+
+using avengine::error;
+using avengine::expected;
+using avengine::string;
 
 namespace logging_helpers
 {
@@ -65,7 +70,7 @@ expected<void, error> readString(string& s, FILE* f)
     {
       return res;
     }
-    s += c;
+    s.pushBack(c);
   }
   return expected<void, error>::ok();
 }
@@ -112,7 +117,7 @@ string frontier::extractDomain(const string& url) const
     {
       c += 32;
     }
-    domain += c;
+    domain.pushBack(c);
   }
   return domain;
 }
@@ -131,11 +136,11 @@ void frontier::seed(const vector<string>& seedURLs)
 {
   for (size_t i = 0; i < seedURLs.size(); ++i)
   {
-    add(seedURLs[i], 100.0f, 0); // priority is placeholder for now
+    add(seedURLs[i], 0);
   }
 }
 
-void frontier::add(const string& url, float priority, int depth)
+void frontier::add(const string& url, int depth)
 {
   if (alreadySeen(url))
   {
@@ -147,7 +152,6 @@ void frontier::add(const string& url, float priority, int depth)
   urlEntry entry;
   entry.url = url;
   entry.domain = extractDomain(url);
-  entry.priority = priority;
   entry.depth = depth;
 
   masterList.pushBack(entry);
@@ -190,12 +194,12 @@ vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
     }
   }
 
-  // Insertion sort sample by priority in descending order
+  // Insertion sort sample by depth in ascending order (closer to seed first)
   for (size_t i = 1; i < sample.size(); ++i)
   {
     urlEntry key = sample[i];
     size_t j = i;
-    while (j > 0 && sample[j - 1].priority < key.priority)
+    while (j > 0 && sample[j - 1].depth > key.depth)
     {
       sample[j] = sample[j - 1];
       --j;
@@ -271,12 +275,6 @@ expected<void, error> frontier::saveCheckpoint(const string& path) const
       return res;
     }
 
-    res = logging_helpers::writeVal(entry.priority, f);
-    if (!res.hasValue())
-    {
-      return res;
-    }
-
     res = logging_helpers::writeVal(entry.depth, f);
     if (!res.hasValue())
     {
@@ -331,13 +329,6 @@ expected<void, error> frontier::loadCheckpoint(const string& path)
 
     // get domain
     res = logging_helpers::readString(entry.domain, f);
-    if (!res.hasValue())
-    {
-      return res;
-    }
-
-    // get priority
-    res = logging_helpers::readVal(entry.priority, f);
     if (!res.hasValue())
     {
       return res;
