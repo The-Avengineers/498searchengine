@@ -66,7 +66,7 @@ int main()
         crawlLogger.log(entry.url, "FAILED FETCHING");
         continue;
       }
-
+      // ensure html text
       fetchResponse resp = result.value();
 
       // check to ensure status == 200
