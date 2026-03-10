@@ -3,6 +3,7 @@
 
 #include "string.h"
 #include "vector.h"
+#include <cstring>
 #include <math.h>
 #include <openssl/md5.h>
 #include <stddef.h>
