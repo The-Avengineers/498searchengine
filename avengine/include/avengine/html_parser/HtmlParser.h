@@ -77,6 +77,7 @@ class Link
 public:
   string URL;
   vector<string> anchorText;
+  Link() : URL("") {}
   Link(const string& URL) : URL(URL) {}
 };
 class HtmlParser
