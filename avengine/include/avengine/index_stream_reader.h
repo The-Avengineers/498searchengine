@@ -3,9 +3,14 @@
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace avengine
 {
+
+using Location = size_t;
+using FileOffset = size_t;
 
 enum class FieldStreamEncoding
 {
@@ -30,8 +35,239 @@ struct PostingBlobHeader
   uint64_t anchorSectionCount = 0;
 };
 
-// Incremental reader for one posting field stream. This is intended as a stable
-// ISR primitive for future constraint-solver iterators.
+struct WordAttributes
+{
+  uint32_t documentId = 0;
+  uint32_t documentFrequency = 0;
+};
+
+struct DocumentAttributes
+{
+  uint32_t documentId = 0;
+  uint32_t documentLength = 0;
+  uint32_t titleLength = 0;
+  uint32_t urlLength = 0;
+};
+
+struct Attributes
+{
+  enum class Kind
+  {
+    NONE,
+    WORD,
+    DOCUMENT,
+  };
+
+  Kind kind = Kind::NONE;
+  WordAttributes Word = {};
+  DocumentAttributes Document = {};
+};
+
+class Post
+{
+public:
+  Post() = default;
+  Post(Location start, Location end, const Attributes& attributes)
+      : start_(start), end_(end), attributes_(attributes)
+  {
+  }
+
+  Location GetStartLocation() const
+  {
+    return start_;
+  }
+
+  Location GetEndLocation() const
+  {
+    return end_;
+  }
+
+  Attributes GetAttributes() const
+  {
+    return attributes_;
+  }
+
+  void Set(Location start, Location end, const Attributes& attributes)
+  {
+    start_ = start;
+    end_ = end;
+    attributes_ = attributes;
+  }
+
+private:
+  Location start_ = 0;
+  Location end_ = 0;
+  Attributes attributes_ = {};
+};
+
+struct DocumentInfo
+{
+  uint32_t documentId = 0;
+  Location start = 0;
+  Location end = 0;
+  uint32_t titleLength = 0;
+  uint32_t urlLength = 0;
+};
+
+class ISR
+{
+public:
+  virtual ~ISR() = default;
+
+  virtual Post* GetCurrentPost();
+  virtual Post* Next() = 0;
+  virtual Post* Seek(Location target) = 0;
+  virtual Location GetStartLocation() const;
+  virtual Location GetEndLocation() const;
+  virtual unsigned GetNumberOfOccurrences() const = 0;
+
+protected:
+  void ClearCurrent();
+  Post* SetCurrent(Location start, Location end, const Attributes& attributes);
+
+  Post currentPost_ = {};
+  bool hasCurrentPost_ = false;
+};
+
+class ISRWord : public ISR
+{
+public:
+  ISRWord() = default;
+  ISRWord(const vector<Location>& occurrences, const vector<DocumentInfo>& documents,
+          uint32_t documentCount);
+
+  Post* Next() override;
+  Post* Seek(Location target) override;
+  Location GetStartLocation() const override;
+  Location GetEndLocation() const override;
+  unsigned GetNumberOfOccurrences() const override;
+  unsigned GetDocumentCount() const;
+
+protected:
+  Post* SetCurrentFromIndex(size_t index);
+  bool ResolveCurrentDocument(DocumentInfo* out) const;
+
+  vector<Location> occurrences_;
+  vector<DocumentInfo> documents_;
+  uint32_t documentCount_ = 0;
+  size_t currentIndex_ = 0;
+  bool exhausted_ = true;
+};
+
+class ISREndDoc : public ISRWord
+{
+public:
+  ISREndDoc() = default;
+  explicit ISREndDoc(const vector<DocumentInfo>& documents);
+
+  unsigned GetDocumentLength() const;
+  unsigned GetTitleLength() const;
+  unsigned GetUrlLength() const;
+  uint32_t GetCurrentDocumentId() const;
+  Location GetDocumentStart() const;
+};
+
+class ISROr : public ISR
+{
+public:
+  ISROr() = default;
+  explicit ISROr(const vector<ISR*>& terms);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+  Post* NextDocument();
+  unsigned GetNumberOfOccurrences() const override;
+
+  vector<ISR*> Terms;
+  unsigned NumberOfTerms = 0;
+
+private:
+  Post* RefreshCurrentFromChildren();
+
+  unsigned nearestTerm_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
+class ISRAnd : public ISR
+{
+public:
+  ISRAnd() = default;
+  ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+  unsigned GetNumberOfOccurrences() const override;
+
+  vector<ISR*> Terms;
+  unsigned NumberOfTerms = 0;
+  ISREndDoc* DocumentEnd = nullptr;
+
+private:
+  unsigned nearestTerm_ = 0;
+  unsigned farthestTerm_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
+class ISRPhrase : public ISR
+{
+public:
+  ISRPhrase() = default;
+  explicit ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd = nullptr);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+  unsigned GetNumberOfOccurrences() const override;
+
+  vector<ISR*> Terms;
+  unsigned NumberOfTerms = 0;
+  ISREndDoc* DocumentEnd = nullptr;
+};
+
+class ISRContainer : public ISR
+{
+public:
+  ISRContainer() = default;
+  ISRContainer(const vector<ISR*>& contained, const vector<ISR*>& excluded, ISREndDoc* endDoc);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+  unsigned GetNumberOfOccurrences() const override;
+
+  vector<ISR*> Contained;
+  vector<ISR*> Excluded;
+  ISREndDoc* EndDoc = nullptr;
+  unsigned CountContained = 0;
+  unsigned CountExcluded = 0;
+
+private:
+  unsigned nearestContained_ = 0;
+  unsigned farthestContained_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
+class Dictionary
+{
+public:
+  void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
+  void AddOccurrence(const char* token, Location location);
+
+  ISRWord* OpenIsr(const char* token) const;
+  ISREndDoc* OpenEndDocIsr() const;
+  size_t GetNumberOfWords() const;
+  size_t GetNumberOfUniqueWords() const;
+  size_t GetNumberOfDocuments() const;
+
+private:
+  vector<DocumentInfo> documents_;
+  std::unordered_map<std::string, vector<Location>> termLocations_;
+  size_t totalWords_ = 0;
+};
+
+// Incremental reader for one posting field stream. This is the low-level
+// primitive underneath higher-level ISRs.
 class IndexFieldStreamReader
 {
 public:
