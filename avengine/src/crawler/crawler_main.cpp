@@ -76,6 +76,12 @@ int main()
         continue;
       }
 
+      if (!fetcher::isHtmlContentType(resp.headers))
+      {
+        crawlLogger.log(entry.url, "SKIP, NON-HTML CONTENT");
+        continue;
+      }
+
       crawlLogger.log(entry.url, "OK, Code 200", resp.body.size());
 
       // Call the constructor to parse the HTML                             KINDA DONE (TEST)
@@ -117,7 +123,7 @@ int main()
     }
 
     // checkpoint
-    if (crawlCount >= checkpointInterval) 
+    if (crawlCount >= checkpointInterval)
     {
       checkpointInterval += 100;
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");

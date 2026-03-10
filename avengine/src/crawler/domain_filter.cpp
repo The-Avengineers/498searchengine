@@ -24,13 +24,17 @@ namespace crawler
 
 domainFilter::domainFilter() : blockSet(compare, stringHash, 256)
 {
-  // set the blocklist
+  // Blocklist entries should be inserted here (already lowercased).
+  // Example:
+  // auto* e = blockSet.Find("example.com", false);
+  // e->value = true;
 }
 
 domainFilter::~domainFilter() {}
 
 string domainFilter::extractDomain(const string& url) const
 {
+  // Look for "://". If missing, treat input as starting with host.
   size_t start = 0;
   for (size_t i = 0; i + 2 < url.size(); ++i)
   {
@@ -41,12 +45,12 @@ string domainFilter::extractDomain(const string& url) const
     }
   }
 
-  // find end of the host
+  // Host ends before path or explicit port.
   size_t end = start;
   while (end < url.size() && url[end] != '/' && url[end] != ':')
     ++end;
 
-  // Build lowercase domain
+  // Normalize host case so lookups are stable.
   string domain;
   for (size_t i = start; i < end; ++i)
   {
@@ -63,6 +67,7 @@ string domainFilter::extractDomain(const string& url) const
 
 bool domainFilter::isBlocked(const string& url) const
 {
+  // Filtering is host-based (no subdomain wildcard logic yet).
   string domain = extractDomain(url);
   auto* t = blockSet.Find(domain);
   if (t)
