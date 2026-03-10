@@ -123,7 +123,7 @@ int main()
     }
 
     // checkpoint
-    if (crawlCount >= checkpointInterval) 
+    if (crawlCount >= checkpointInterval)
     {
       checkpointInterval += 100;
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");

@@ -17,4 +17,3 @@ TEST_CASE("domainFilter - isBlocked returns false for standard HTTP URL")
   domainFilter f;
   CHECK(f.isBlocked("http://google.com/") == false);
 }
-

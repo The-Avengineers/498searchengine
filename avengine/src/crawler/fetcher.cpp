@@ -86,8 +86,7 @@ static string getHeaderValue(const string& headers, const char* headerName)
     {
       ++valueEnd;
     }
-    while (valueEnd > valueStart &&
-           (headers[valueEnd - 1] == ' ' || headers[valueEnd - 1] == '\t'))
+    while (valueEnd > valueStart && (headers[valueEnd - 1] == ' ' || headers[valueEnd - 1] == '\t'))
     {
       --valueEnd;
     }

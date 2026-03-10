@@ -2,8 +2,8 @@
 #include <doctest/doctest.h>
 
 #include <avengine/crawler/fetcher.h>
-#include <zlib.h>
 #include <cstring>
+#include <zlib.h>
 
 using namespace avengine;
 using namespace avengine::crawler;
@@ -270,7 +270,6 @@ TEST_CASE("isHtmlContentType - xhtml with charset parameter is accepted")
 
 TEST_CASE("isHtmlContentType - html token in unrelated header does not count")
 {
-  string headers =
-      "HTTP/1.1 200 OK\r\nX-Note: text/html\r\nContent-Type: text/plain\r\n\r\n";
+  string headers = "HTTP/1.1 200 OK\r\nX-Note: text/html\r\nContent-Type: text/plain\r\n\r\n";
   CHECK(fetcher::isHtmlContentType(headers) == false);
 }
