@@ -2,7 +2,7 @@
 #define BLOOMFILTER_H
 
 #include "string.h"
-#include "vector"
+#include "vector.h"
 #include <cmath>
 #include <openssl/md5.h>
 
@@ -49,7 +49,7 @@ public:
     }
   }
 
-  bool contains(const std::string& s)
+  bool contains(const std::string& s) const
   {
     // Hash the string into two unqiue hashes.
 
@@ -86,6 +86,30 @@ public:
     return count;
   }
 
+  uint8_t* data()
+  {
+    if (bits.empty())
+    {
+      return nullptr;
+    }
+    return bits.data();
+  }
+
+  const uint8_t* data() const
+  {
+    if (bits.empty())
+    {
+      return nullptr;
+    }
+    return bits.data();
+  }
+
+  void resize(uint64_t bytes)
+  {
+    bits.resize(bytes, 0);
+    size = bytes * 8;
+  }
+
 private:
   // Add any private member variables that may be neccessary.
   uint64_t count;
@@ -93,7 +117,7 @@ private:
   uint64_t size;
   uint64_t num_hash_funcs;
 
-  std::pair<uint64_t, uint64_t> hash(const std::string& datum)
+  std::pair<uint64_t, uint64_t> hash(const std::string& datum) const
   {
     // Use MD5 to hash the string into one 128 bit hash, and split into 2
     // hashes.
