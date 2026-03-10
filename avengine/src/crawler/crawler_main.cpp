@@ -43,7 +43,7 @@ int main()
   // ── Main crawl loop ──
   while (theFrontier.size() > 0)
   {
-    // Grab batch: sample 100, sort by priority, return top 10
+    // Grab batch: sample 100, sort by depth, return top 10
     vector<urlEntry> batch = theFrontier.nextBatch(100, 10);
 
     if (batch.size() == 0)
@@ -115,7 +115,7 @@ int main()
         // if BloomFilter says unseen then add to the frontier
         if (!theFrontier.alreadySeen(normalized))
         {
-          theFrontier.add(normalized, /* NEED TO FIGURE OUT PRIORITY*/ 50, entry.depth + 1);
+          theFrontier.add(normalized, entry.depth + 1);
         }
       }
 
