@@ -21,10 +21,26 @@ public:
   fetcher();
   ~fetcher();
 
-  // Requires: url is a valid HTTP or HTTPS URL string
+  // Requires: url is a valid URL string
   // Modifies: nothing persistent
-  // Returns: fetchResponse on success, error on failure
+  // Returns: fetchResponse on success, error on failure.
+  //          Always attempts HTTPS.
   expected<fetchResponse, error> fetch(const string& url);
+
+  // Requires: body is a valid HTTP chunked-transfer-encoded string
+  // Modifies: nothing
+  // Returns: decoded body with chunk framing removed
+  static string decodeChunked(const string& body);
+
+  // Requires: compressed is gzip-compressed data
+  // Modifies: nothing
+  // Returns: decompressed data, or empty string on failure
+  static string decompressGzip(const string& compressed);
+
+  // Requires: response headers from an HTTP response
+  // Modifies: nothing
+  // Returns: true if Content-Type indicates HTML
+  static bool isHtmlContentType(const string& headers);
 
 private:
   void* sslCtx_;

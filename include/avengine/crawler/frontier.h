@@ -24,15 +24,15 @@ public:
 
   // Requires Nothing
   // Modifyies the master list by grabbing
-  // 100 pseudorandom URLs from master list, sort by priority,
+  // 100 pseudorandom URLs from master list, sort by depth,
   // return the top 10. Remaining go back.
   vector<urlEntry> nextBatch(size_t sampleSize = 100, size_t batchSize = 10);
 
-  // Requires a url, priority, depth
+  // Requires a url and depth
   // Modifys frontier by adding new URL
   // Checks for duplicate URLS
   // Returns nothing
-  void add(const string& url, float priority, int depth);
+  void add(const string& url, int depth);
 
   // Requires a URL
   // Modifys nothing

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(avengine LANGUAGES CXX)
 
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+
 include(CTest)
 enable_testing()
 
@@ -25,12 +28,17 @@ add_library(avengine
   src/ranker/ranker.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
+  src/crawler/url_normalizer.cpp
+  src/crawler/domain_filter.cpp
+  src/crawler/fetcher.cpp
 )
 
 target_include_directories(avengine
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
 
 # Example for usage
 # NOTE: not filled yet unsure end compilation

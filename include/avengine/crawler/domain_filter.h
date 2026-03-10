@@ -1,10 +1,9 @@
 #pragma once
 
-#include "../avengine_lib/hashTable.h"
+#include "../avengine_lib/HashTable.h"
 #include "../avengine_lib/string.h"
 #include "../avengine_lib/vector.h"
 
-// need to add the blocked list
 namespace avengine
 {
 namespace crawler
@@ -22,6 +21,8 @@ public:
   bool isBlocked(const string& url) const;
 
 private:
+  // Domain -> blocked flag.
+  // The table is queried by exact host match after lowercasing.
   hashTable<string, bool> blockSet;
 
   // Requires: a URL string

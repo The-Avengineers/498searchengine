@@ -1,3 +1,5 @@
+#pragma once
+
 #include "string.h"
 
 namespace avengine
@@ -9,7 +11,7 @@ struct error
 
   error() {}
   error(const char* m) : msg(m) {}
-  error(const String& m) : msg(m) {}
+  error(const string& m) : msg(m) {}
 };
 
 // for returning non void

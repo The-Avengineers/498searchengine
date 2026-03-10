@@ -66,13 +66,19 @@ int main()
         crawlLogger.log(entry.url, "FAILED FETCHING");
         continue;
       }
-
+      // ensure html text
       fetchResponse resp = result.value();
 
       // check to ensure status == 200
       if (resp.statusCode != 200)
       {
         crawlLogger.log(entry.url, "SKIP, BAD RESP", resp.statusCode);
+        continue;
+      }
+
+      if (!fetcher::isHtmlContentType(resp.headers))
+      {
+        crawlLogger.log(entry.url, "SKIP, NON-HTML CONTENT");
         continue;
       }
 
@@ -117,8 +123,9 @@ int main()
     }
 
     // checkpoint
-    if (crawlCount % checkpointInterval == 0 && crawlCount > 0)
+    if (crawlCount >= checkpointInterval)
     {
+      checkpointInterval += 100;
       theFrontier.saveCheckpoint("frontier_checkpoint.bin");
       crawlLogger.log("CHECKPOINT", crawlCount, theFrontier.seenCount(), theFrontier.size());
     }
