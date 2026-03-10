@@ -3,7 +3,7 @@
 
 // Demo for avengine::vector usage
 // Run the following command from the repo root
-// g++ -std=c++17 -I avengine/include avengine/examples/vector_demo.cpp -o /tmp/vector_demo
+// g++ -std=c++17 -I include examples/vector_demo.cpp -o /tmp/vector_demo
 // /tmp/vector_demo
 
 int main()
