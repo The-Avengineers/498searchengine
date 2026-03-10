@@ -134,8 +134,8 @@ Post* ISR::SetCurrent(Location start, Location end, const Attributes& attributes
 
 ISRWord::ISRWord(const vector<Location>& occurrences, const vector<DocumentInfo>& documents,
                  uint32_t documentCount)
-    : occurrences_(occurrences), documents_(documents), documentCount_(documentCount), currentIndex_(0),
-      exhausted_(occurrences.empty())
+    : occurrences_(occurrences), documents_(documents), documentCount_(documentCount),
+      currentIndex_(0), exhausted_(occurrences.empty())
 {
   if (!exhausted_)
     SetCurrentFromIndex(0);
@@ -280,7 +280,8 @@ Location ISREndDoc::GetDocumentStart() const
   return doc.start;
 }
 
-ISROr::ISROr(const vector<ISR*>& terms) : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
+ISROr::ISROr(const vector<ISR*>& terms)
+    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
 {
   RefreshCurrentFromChildren();
 }
@@ -698,8 +699,8 @@ void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_
   if (endLocation < startLocation)
     return;
 
-  documents_.pushBack({static_cast<uint32_t>(documents_.size()), startLocation, endLocation, titleLength,
-                       urlLength});
+  documents_.pushBack({static_cast<uint32_t>(documents_.size()), startLocation, endLocation,
+                       titleLength, urlLength});
 }
 
 void Dictionary::AddOccurrence(const char* token, Location location)
