@@ -5,7 +5,12 @@ on:
     branches:
       - main
     paths:
-      - "avengine/**"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "examples/**"
+      - "tests/**"
+      - "deploy/**"
       - "infra/deploy/**"
       - ".github/workflows/deploy-avengine.yml"
   workflow_dispatch:

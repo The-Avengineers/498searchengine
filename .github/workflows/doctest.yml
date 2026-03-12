@@ -4,12 +4,18 @@ on:
   pull_request:
     branches: [main, master]
     paths:
-      - "avengine/**"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "tests/**"
       - ".github/workflows/doctest.yml"
   push:
     branches: [main, master]
     paths:
-      - "avengine/**"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "tests/**"
       - ".github/workflows/doctest.yml"
 
 jobs:
@@ -26,7 +32,7 @@ jobs:
           sudo apt-get install -y cmake g++ doctest-dev
 
       - name: Configure
-        run: cmake -S avengine -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release -j

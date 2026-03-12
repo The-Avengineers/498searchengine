@@ -1,3 +1,0 @@
-Usage: wordCount <filenames>
-Count the total number of word in the files.
-Invalid paths are ignored.

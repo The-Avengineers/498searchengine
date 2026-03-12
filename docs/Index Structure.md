@@ -43,8 +43,8 @@ That collides with a valid first term at offset 0, so the first serialized term 
 
 ## Tools
 
-- `avengine/src/index_builder.cpp` builds `index.sfi`.
-- `avengine/src/index_reader.cpp` reads this format in a best-effort way.
+- `src/index_builder.cpp` builds `index.sfi`.
+- `src/index_reader.cpp` reads this format in a best-effort way.
 
 ## Planned / TODO Format Fields
 

@@ -1,0 +1,273 @@
+#include "../../include/avengine/crawler/url_normalizer.h"
+
+namespace avengine
+{
+namespace crawler
+{
+
+URL URLNormalizer::parseURL(const string& url)
+{
+  // parse the URL into its components
+  // general format is protocol://host:port/path?query
+  URL result;
+
+  // make a non-const copy so we can call find() (which is not const)
+  string localUrl = url;
+
+  // Ignore fragment for crawling; it does not change the fetched resource.
+  size_t hashPos = localUrl.find("#");
+  size_t urlSize = (hashPos != string::npos) ? hashPos : localUrl.size();
+
+  // find the protocol
+  size_t pos = localUrl.find("://");
+  if (pos != string::npos && pos < urlSize)
+  {
+    result.protocol = toLower(substr(localUrl, 0, pos));
+    pos += 3; // skip past ://
+  }
+  else
+  {
+    result.protocol = string("http");
+    pos = 0;
+  }
+
+  // Host/port runs from after scheme up to first '/' (or end of URL).
+  size_t host_start = pos;
+  pos = localUrl.find("/", host_start);
+  size_t host_end = (pos != string::npos && pos < urlSize) ? pos : urlSize;
+  string host_port = toLower(substr(url, host_start, host_end));
+
+  // Split host and port (if present).
+  size_t port_pos = host_port.find(":");
+  if (port_pos != string::npos)
+  {
+    result.host = substr(host_port, 0, port_pos);
+    string portStr = substr(host_port, port_pos + 1, host_port.size());
+    if ((portStr == "80" && result.protocol == "http") ||
+        (portStr == "443" && result.protocol == "https"))
+    {
+      result.port = string(""); // canonical form drops default ports
+    }
+    else
+    {
+      result.port = portStr;
+    }
+  }
+  else
+  {
+    result.host = host_port;
+    result.port = string(""); // default port
+  }
+
+  // Path includes query string in this implementation.
+  if (pos < urlSize)
+  {
+    result.path = substr(localUrl, pos, urlSize);
+    if (result.path.size() > 1 && result.path[result.path.size() - 1] == '/')
+    {
+      result.path = substr(result.path, 0, result.path.size() - 1); // remove trailing slash
+    }
+    result.path = resolveDotSegments(result.path);
+  }
+  else
+  {
+    result.path = string("/");
+  }
+
+  return result;
+}
+
+// resolves . and .. segments in a path
+string URLNormalizer::resolveDotSegments(const string& path)
+{
+  if (path.size() == 0)
+    return string("/");
+
+  // Split on '/' and drop empty pieces to collapse repeated slashes.
+  vector<string> segments;
+  string current;
+  for (size_t i = 0; i < path.size(); ++i)
+  {
+    if (path[i] == '/')
+    {
+      if (current.size() > 0)
+      {
+        segments.pushBack(current);
+      }
+      current = string();
+    }
+    else
+    {
+      current.pushBack(path[i]);
+    }
+  }
+  if (current.size() > 0)
+  {
+    segments.pushBack(current);
+  }
+
+  // Resolve navigation markers in order.
+  vector<string> resolved;
+  for (size_t i = 0; i < segments.size(); ++i)
+  {
+    if (segments[i] == ".")
+    {
+      continue;
+    }
+    else if (segments[i] == "..")
+    {
+      if (resolved.size() > 0)
+      {
+        resolved.popBack();
+      }
+    }
+    else
+    {
+      resolved.pushBack(segments[i]);
+    }
+  }
+
+  // Rebuild as absolute path.
+  if (resolved.size() == 0)
+    return string("/");
+  string result;
+  for (size_t i = 0; i < resolved.size(); ++i)
+  {
+    result += "/";
+    result += resolved[i];
+  }
+  return result;
+}
+
+// turns the parsed url back into a string, should be in normalized form already
+string URLNormalizer::URLtoString(const URL& url)
+{
+  string result = url.protocol;
+  result += "://";
+  result += url.host;
+  if (url.port.size() > 0)
+  {
+    result += ":";
+    result += url.port;
+  }
+  result += url.path;
+  return result;
+}
+
+// takes in the url, parses it and returns the normalized url
+string URLNormalizer::normalizeIndividual(const string& url)
+{
+  URL parsedURL = parseURL(url);
+  return URLtoString(parsedURL);
+}
+
+string URLNormalizer::normalize(const string& base, const string& extension)
+{
+  // make a non-const copy so we can call find() (which is not const)
+  string localExt = extension;
+
+  // Fully-qualified link: normalize as-is.
+  if (localExt.find("://") != string::npos)
+  {
+    return normalizeIndividual(localExt);
+  }
+
+  URL baseURL = parseURL(base);
+
+  // Protocol-relative link: keep base scheme, replace host/path.
+  if (localExt.size() >= 2 && localExt[0] == '/' && localExt[1] == '/')
+  {
+    string tmp = baseURL.protocol;
+    tmp += ":";
+    tmp += localExt;
+    return normalizeIndividual(tmp);
+  }
+
+  // Absolute path on same host.
+  if (localExt.size() > 0 && localExt[0] == '/')
+  {
+    baseURL.path = resolveDotSegments(localExt);
+    return URLtoString(baseURL);
+  }
+
+  // Relative link: replace everything after the last slash in base path.
+  size_t lastSlash = 0;
+  for (size_t i = 0; i < baseURL.path.size(); ++i)
+  {
+    if (baseURL.path[i] == '/')
+      lastSlash = i;
+  }
+  string combined = substr(baseURL.path, 0, lastSlash + 1);
+  combined += localExt;
+  baseURL.path = resolveDotSegments(combined);
+  return URLtoString(baseURL);
+}
+
+// returns substring from start to end-1
+string URLNormalizer::substr(const string& str, size_t start, size_t end)
+{
+  string result;
+  for (size_t i = start; i < end && i < str.size(); ++i)
+  {
+    result.pushBack(str[i]);
+  }
+  return result;
+}
+
+// lowercases the current string
+string URLNormalizer::toLower(const string& str)
+{
+  string result;
+  for (size_t i = 0; i < str.size(); ++i)
+  {
+    char c = str[i];
+    if (c >= 'A' && c <= 'Z')
+    {
+      c = c - 'A' + 'a';
+    }
+    result.pushBack(c);
+  }
+  return result;
+}
+
+// helper functions for port conversion, not used right now -> port is now a string
+// string to int function for the port, returns -1 if not valid
+int URLNormalizer::stringToInt(const string& str)
+{
+  int result = 0;
+  for (size_t i = 0; i < str.size(); ++i)
+  {
+    char c = str[i];
+    if (c >= '0' && c <= '9')
+    {
+      result = result * 10 + (c - '0');
+    }
+    else
+    {
+      // handle non-digit characters, could throw an error or return -1
+      return -1;
+    }
+  }
+  return result;
+}
+
+// int to string function for the port
+string URLNormalizer::intToString(int num)
+{
+  if (num == 0)
+    return string("0");
+  char buf[12];
+  int len = 0;
+  while (num > 0)
+  {
+    buf[len++] = '0' + (num % 10);
+    num /= 10;
+  }
+  string result;
+  for (int i = len - 1; i >= 0; --i)
+    result.pushBack(buf[i]);
+  return result;
+}
+
+} // namespace crawler
+} // namespace avengine
