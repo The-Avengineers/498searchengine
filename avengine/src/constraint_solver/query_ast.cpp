@@ -4,13 +4,29 @@ namespace avengine
 {
 namespace constraint_solver
 {
+namespace
+{
+void destroyNodeList(vector<QueryNode*>& nodes)
+{
+  for (QueryNode* node : nodes)
+  {
+    DestroyQueryTree(node);
+  }
+}
+} // namespace
 
-// TODO: Implement DestroyQueryTree(QueryNode*).
-// Planned behavior:
-// 1. Return immediately on nullptr.
-// 2. Recursively delete RequiredChildren, ExcludedChildren, and Children.
-// 3. Delete the root node itself.
-// 4. Keep cleanup centralized here so parser/solver code stays simple.
+void DestroyQueryTree(QueryNode* root)
+{
+  if (root == nullptr)
+  {
+    return;
+  }
+
+  destroyNodeList(root->RequiredChildren);
+  destroyNodeList(root->ExcludedChildren);
+  destroyNodeList(root->Children);
+  delete root;
+}
 
 } // namespace constraint_solver
 } // namespace avengine
