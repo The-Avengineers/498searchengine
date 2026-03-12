@@ -15,6 +15,10 @@ include(CTest)
 
 add_library(avengine
   src/Common.cpp
+  src/constraint_solver/constraint_solver.cpp
+  src/constraint_solver/query_ast.cpp
+  src/constraint_solver/query_lexer.cpp
+  src/constraint_solver/query_parser.cpp
   src/expression.cpp
   src/HashBlob.cpp
   src/HashTable.cpp
