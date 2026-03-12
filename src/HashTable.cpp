@@ -42,10 +42,10 @@ void Search(const Hash* hashtable)
 {
   // Search the HashTable for words read from cin.
 
-  string word;
+  char word[4096];
   while (cin >> word)
   {
-    const Pair* p = hashtable->Find(word.c_str());
+    const Pair* p = hashtable->Find(word);
     cout << (p ? p->value : 0) << "   " << word << endl;
   }
 }

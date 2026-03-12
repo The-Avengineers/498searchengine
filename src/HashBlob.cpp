@@ -44,10 +44,10 @@ void Search(const HashBlob* hashblob)
 {
   // Search the HashBlob for words read from cin.
 
-  string word;
+  char word[4096];
   while (cin >> word)
   {
-    const SerialTuple* s = hashblob->Find(word.c_str());
+    const SerialTuple* s = hashblob->Find(word);
     cout << (s ? s->Value : 0) << "   " << word << endl;
   }
 }

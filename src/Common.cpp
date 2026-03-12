@@ -6,13 +6,10 @@
 #include <avengine/HashTable.h>
 #include <cstring>
 #include <fstream>
-#include <string>
-#include <vector>
+#include <iostream>
 
 namespace avengine
 {
-
-using namespace std;
 
 // -v (verbose) command line option instantiation and
 // initial value.
@@ -61,7 +58,7 @@ Hash* BuildHashTable(const vector<string>& words, uint64_t (*hash)(const char* k
   // for each word find if it's in the tbl, (if not then add w/ value 0) and iterate that value
   for (const string& word : words)
   {
-    Pair* ptr = tbl->Find(word.c_str(), 0);
+    Pair* ptr = tbl->Find(word.cstr(), 0);
     ptr->value++;
   }
 
@@ -97,40 +94,46 @@ int CollectWordsIn(int argc, char** argv, vector<string>& words)
 
   assert(i < argc);
 
-  ifstream wordsin(argv[i]);
+  std::ifstream wordsin(argv[i]);
 
   assert(wordsin.is_open());
 
-  string word;
   size_t sumLengths = 0;
 
   if (optLines)
-    while (!wordsin.eof())
+  {
+    char lineBuffer[8192];
+    while (wordsin.getline(lineBuffer, sizeof(lineBuffer)))
     {
-      getline(wordsin, word);
-      if (word != "")
+      string word(lineBuffer);
+      if (word != string(""))
       {
-        words.push_back(word);
+        words.pushBack(word);
         sumLengths += word.size();
       }
     }
+  }
   else
-    while (wordsin >> word)
+  {
+    char tokenBuffer[4096];
+    while (wordsin >> tokenBuffer)
     {
-      words.push_back(word);
+      string word(tokenBuffer);
+      words.pushBack(word);
       sumLengths += word.size();
     }
+  }
 
   wordsin.close();
 
   if (optVerbose)
   {
     size_t numberOfTokens = words.size();
-    cout << "Number of tokens = " << numberOfTokens << endl;
-    cout << "Total characters = " << sumLengths << endl;
-    cout << "Average token length = " << (double)sumLengths / (double)numberOfTokens
-         << " characters" << endl
-         << endl;
+    std::cout << "Number of tokens = " << numberOfTokens << std::endl;
+    std::cout << "Total characters = " << sumLengths << std::endl;
+    std::cout << "Average token length = " << (double)sumLengths / (double)numberOfTokens
+              << " characters" << std::endl
+              << std::endl;
   }
 
   return i;
