@@ -185,7 +185,7 @@ int main()
   testTwoWordDecoration();
   testNotDecoration();
   testNullInput();
-  testStandaloneNotRejected();
+  testSoloNotRejected();
   testComplexDecoration();
 
   std::printf("All query_compiler_test tests passed.\n");

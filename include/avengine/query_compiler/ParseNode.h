@@ -149,5 +149,4 @@ public:
   string ToString(int indent = 0) const override;
 };
 
-}
-
+} // namespace avengine
