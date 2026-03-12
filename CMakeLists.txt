@@ -27,6 +27,11 @@ add_library(avengine
   src/html_parser/HtmlTags.cpp
   src/index.cpp
   src/parser.cpp
+  src/query_compiler/ParseNode.cpp
+  src/query_compiler/QueryCompiler.cpp
+  src/query_compiler/QueryDecorator.cpp
+  src/query_compiler/QueryLexer.cpp
+  src/query_compiler/QueryParser.cpp
   src/ranker/ranker.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
