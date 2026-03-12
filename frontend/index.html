@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Avengine Search</title>
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body>
+    <main class="landing">
+      <div class="logo-stack" aria-label="Avengine logo">
+        <img class="logo-image" src="./media/logo.png" alt="Avengine logo" />
+      </div>
+
+      <form class="search-form" action="./results.html" method="get">
+        <label class="sr-only" for="search-query">Search query</label>
+        <input
+          id="search-query"
+          class="search-input"
+          type="text"
+          name="q"
+          placeholder="Search..."
+          autocomplete="off"
+          required
+        />
+      </form>
+    </main>
+  </body>
+</html>
