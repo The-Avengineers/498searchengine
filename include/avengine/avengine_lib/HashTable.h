@@ -6,13 +6,9 @@
 
 #include <cassert>
 #include <cstdint>
-#include <iomanip>
-#include <iostream>
 
 namespace avengine
 {
-
-using namespace std;
 
 // You may add additional members or helper functions.
 

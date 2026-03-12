@@ -4,9 +4,9 @@
 // Nicole Hamilton  nham@umich.edu
 
 #include <avengine/HashTable.h>
+#include <avengine/avengine_lib/string.h>
+#include <avengine/avengine_lib/vector.h>
 #include <cstdint>
-#include <string>
-#include <vector>
 
 namespace avengine
 {
