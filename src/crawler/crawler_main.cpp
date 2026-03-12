@@ -22,7 +22,16 @@ int main()
   // ── Seed URLs ──
   // normalize seed URLs with URLNormalizer (normalizeIndividual)
   vector<string> seeds;
-  // add seeds here
+  seeds.pushBack("https://en.wikipedia.org/wiki/Main_Page");
+  seeds.pushBack("https://news.ycombinator.com/");
+  seeds.pushBack("https://www.bbc.com/news");
+  seeds.pushBack("https://www.nasa.gov/");
+  seeds.pushBack("https://www.cdc.gov/");
+  seeds.pushBack("https://www.gutenberg.org/");
+  seeds.pushBack("https://openlibrary.org/");
+  seeds.pushBack("https://www.loc.gov/");
+  seeds.pushBack("https://arxiv.org/");
+  seeds.pushBack("https://www.w3.org/");
 
   // Filter domains of the seed list                      KINDA DONE (needs testing + blocked list)
   vector<string> filteredSeeds;
