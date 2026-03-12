@@ -47,14 +47,12 @@ static bool isRedirectStatus(int code)
 }
 
 // Pull a single header value (trimmed) from the raw header block.
-// Header lookup is case-insensitive and must start at line start.
 static string getHeaderValue(const string& headers, const char* headerName)
 {
   const size_t nameLen = strlen(headerName);
 
   for (size_t i = 0; i + nameLen <= headers.size(); ++i)
   {
-    // Only match real header lines, not substrings in values.
     if (i != 0 && headers[i - 1] != '\n')
     {
       continue;
@@ -102,7 +100,7 @@ static string getHeaderValue(const string& headers, const char* headerName)
   return string();
 }
 
-// Check whether a header value contains a token, case-insensitive.
+// Check whether a header value contains a token
 // Example: headerValueContainsToken(headers, "content-type:", "text/html")
 static bool headerValueContainsToken(const string& headers, const char* headerName,
                                      const char* token)
@@ -112,7 +110,6 @@ static bool headerValueContainsToken(const string& headers, const char* headerNa
 
   for (size_t i = 0; i + nameLen <= headers.size(); ++i)
   {
-    // Only match real header lines, not substrings in values.
     if (i != 0 && headers[i - 1] != '\n')
     {
       continue;
@@ -170,7 +167,7 @@ fetchResponse fetcher::parseResponse(const string& raw)
   fetchResponse resp;
   resp.statusCode = 0;
 
-  // Split response into headers/body at the first CRLF CRLF.
+  // Split response into headers/body
   size_t boundary = raw.size();
   for (size_t i = 3; i < raw.size(); ++i)
   {
@@ -220,7 +217,7 @@ fetchResponse fetcher::parseResponse(const string& raw)
     resp.statusCode = code;
   }
 
-  // HTTP wire format is chunked framing first, then optional content coding.
+  // HTTP wire format is chunked first then optional content coding.
   if (headerValueContainsToken(resp.headers, "transfer-encoding:", "chunked"))
   {
     resp.body = decodeChunked(resp.body);
@@ -249,9 +246,8 @@ string fetcher::decodeChunked(const string& body)
     }
 
     if (lineEnd + 1 >= body.size())
-      break; // malformed
+      break; 
 
-    // Parse hex chunk size; stop at ';' for optional chunk extensions
     size_t chunkSize = 0;
     for (size_t j = i; j < lineEnd; ++j)
     {
@@ -331,12 +327,12 @@ expected<fetchResponse, error> fetcher::fetch(const string& url)
   URLNormalizer normalizer;
   string currentUrl = normalizer.normalizeIndividual(url);
 
-  // Follow redirect chain in fetcher so callers get the terminal response.
+  // follow up to max redirects
   for (int redirects = 0; redirects <= MAX_REDIRECTS; ++redirects)
   {
     URL parsed = normalizer.parseURL(currentUrl);
 
-    // Hard policy: if we see HTTP, upgrade before making the next request.
+    // upgrade to https 
     if (parsed.protocol != "https")
     {
       parsed.protocol = "https";
@@ -349,7 +345,7 @@ expected<fetchResponse, error> fetcher::fetch(const string& url)
 
     currentUrl = normalizer.URLtoString(parsed);
 
-    // HTTP transport is kept for reference, but fetch() dispatches HTTPS only.
+
     string port = parsed.port;
     if (port == "")
     {

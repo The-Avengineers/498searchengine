@@ -11,10 +11,10 @@ URL URLNormalizer::parseURL(const string& url)
   // general format is protocol://host:port/path?query
   URL result;
 
-  // make a non-const copy so we can call find() (which is not const)
+  // make a copy to use find() (non-const)
   string localUrl = url;
 
-  // Ignore fragment for crawling; it does not change the fetched resource.
+  // ignore fragments denoted by #
   size_t hashPos = localUrl.find("#");
   size_t urlSize = (hashPos != string::npos) ? hashPos : localUrl.size();
 
@@ -46,7 +46,7 @@ URL URLNormalizer::parseURL(const string& url)
     if ((portStr == "80" && result.protocol == "http") ||
         (portStr == "443" && result.protocol == "https"))
     {
-      result.port = string(""); // canonical form drops default ports
+      result.port = string(""); // default port for that protocol
     }
     else
     {
@@ -59,13 +59,13 @@ URL URLNormalizer::parseURL(const string& url)
     result.port = string(""); // default port
   }
 
-  // Path includes query string in this implementation.
+  // Path includes query strings
   if (pos < urlSize)
   {
     result.path = substr(localUrl, pos, urlSize);
     if (result.path.size() > 1 && result.path[result.path.size() - 1] == '/')
     {
-      result.path = substr(result.path, 0, result.path.size() - 1); // remove trailing slash
+      result.path = substr(result.path, 0, result.path.size() - 1); // remove trailing slash from urls
     }
     result.path = resolveDotSegments(result.path);
   }
@@ -204,7 +204,7 @@ string URLNormalizer::normalize(const string& base, const string& extension)
     return string();
   }
 
-  // Protocol-relative link: keep base scheme, replace host/path.
+  // replace host + path
   if (localExt.size() >= 2 && localExt[0] == '/' && localExt[1] == '/')
   {
     size_t hostStart = 2;
