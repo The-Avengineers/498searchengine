@@ -6,11 +6,11 @@
 
 namespace
 {
+using avengine::string;
 using avengine::constraint_solver::ParseResult;
 using avengine::constraint_solver::QueryNode;
 using avengine::constraint_solver::QueryNodeKind;
 using avengine::constraint_solver::QueryParser;
-using avengine::string;
 
 void fail(const char* expr, int line)
 {
@@ -47,7 +47,8 @@ void expectTerm(const QueryNode* node, const char* expected)
   EXPECT(node->Value == string(expected));
 }
 
-void expectPhrase(const QueryNode* node, const char* a, const char* b = nullptr, const char* c = nullptr)
+void expectPhrase(const QueryNode* node, const char* a, const char* b = nullptr,
+                  const char* c = nullptr)
 {
   EXPECT(node != nullptr);
   EXPECT(node->Kind == QueryNodeKind::Phrase);
