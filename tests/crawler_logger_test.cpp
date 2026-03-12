@@ -24,7 +24,7 @@ void fail(const char* expr, int line)
 int main()
 {
   // Write all log overloads.
-  char pathTemplate[] = "/tmp/crawl_logger";
+  char pathTemplate[] = "/tmp/crawl_logger_XXXXXX";
   int fd = mkstemp(pathTemplate);
   EXPECT(fd >= 0);
   EXPECT(close(fd) == 0);

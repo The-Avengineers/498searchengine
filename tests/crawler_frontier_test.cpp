@@ -175,7 +175,7 @@ int main()
   original.add("https://b.com/start", 2);
 
   // create temp file for checkpointing
-  char pathTemplate[] = "/tmp/frontier_checkpoint";
+  char pathTemplate[] = "/tmp/frontier_checkpoint_XXXXXX";
   int fd = mkstemp(pathTemplate);
   EXPECT(fd >= 0);
   EXPECT(close(fd) == 0);
