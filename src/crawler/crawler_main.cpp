@@ -4,14 +4,40 @@
 #include "../../include/avengine/crawler/logger.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
+#include <csignal>
 
 using namespace avengine;
 using namespace avengine::crawler;
 
 // TODO THREAD POOL AROUND ALL THIS
 
+namespace
+{
+volatile std::sig_atomic_t gStopRequested = 0;
+
+void handleStopSignal(int)
+{
+  gStopRequested = 1;
+}
+
+bool stopRequested()
+{
+  return gStopRequested != 0;
+}
+
+bool hasValidHost(URLNormalizer& normalizer, const string& url)
+{
+  URL parsed = normalizer.parseURL(url);
+  return parsed.host.size() > 0;
+}
+
+} // namespace
+
 int main()
 {
+  std::signal(SIGINT, handleStopSignal);
+  std::signal(SIGTERM, handleStopSignal);
+
   // Crawler Components
   frontier theFrontier;
   fetcher theFetcher;
@@ -46,11 +72,12 @@ int main()
   // Seed URLs to URLFrontier
   theFrontier.seed(filteredSeeds);
 
-  size_t crawlCount = 0;
+  size_t processedCount = 0;
   size_t checkpointInterval = 100;
+  const string checkpointPath = "frontier_checkpoint.bin";
 
   // ── Main crawl loop ──
-  while (theFrontier.size() > 0)
+  while (theFrontier.size() > 0 && !stopRequested())
   {
     // Grab batch: sample 100, sort by depth, return top 10
     vector<urlEntry> batch = theFrontier.nextBatch(100, 10);
@@ -60,9 +87,10 @@ int main()
       break;
     }
 
-    for (size_t i = 0; i < batch.size(); ++i)
+    for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
     {
       const urlEntry& entry = batch[i];
+      processedCount++;
 
       // RobotsParser.isAllowed()                                             NOT DONE
       // if (!robotsParser.isAllowed(entry.url)) continue;
@@ -72,7 +100,9 @@ int main()
       auto result = theFetcher.fetch(entry.url);
       if (!result.hasValue())
       {
-        crawlLogger.log(entry.url, "FAILED FETCHING");
+        string msg = "FAILED FETCHING: ";
+        msg += result.error().msg;
+        crawlLogger.log(entry.url, msg.cstr());
         continue;
       }
       // ensure html text
@@ -120,6 +150,13 @@ int main()
           continue;
         }
 
+        // Guard against malformed normalized URLs (e.g. empty host).
+        if (!hasValidHost(normalizer, normalized))
+        {
+          crawlLogger.log(normalized, "SKIP, INVALID NORMALIZED URL");
+          continue;
+        }
+
         // filter the domain
         if (filter.isBlocked(normalized))
         {
@@ -133,21 +170,27 @@ int main()
         }
       }
 
-      crawlCount++;
     }
 
     // checkpoint
-    if (crawlCount >= checkpointInterval)
+    if (processedCount >= checkpointInterval)
     {
       checkpointInterval += 100;
-      theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-      crawlLogger.log("CHECKPOINT", crawlCount, theFrontier.seenCount(), theFrontier.size());
+      theFrontier.saveCheckpoint(checkpointPath);
+      crawlLogger.log("CHECKPOINT", processedCount, theFrontier.seenCount(), theFrontier.size());
     }
   }
 
   // Final checkpoint
-  theFrontier.saveCheckpoint("frontier_checkpoint.bin");
-  crawlLogger.log("DONE, FINAL CHECKPOINT", crawlCount, theFrontier.seenCount());
+  theFrontier.saveCheckpoint(checkpointPath);
+  if (stopRequested())
+  {
+    crawlLogger.log("DONE, SIGNAL STOP", processedCount, theFrontier.seenCount());
+  }
+  else
+  {
+    crawlLogger.log("DONE, FINAL CHECKPOINT", processedCount, theFrontier.seenCount());
+  }
 
   return 0;
 }
