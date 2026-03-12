@@ -58,10 +58,7 @@ string PhraseNode::ToString(int indent) const
 // AndNode
 AndNode::AndNode(vector<ParseNode*> ch) : children(ch) {}
 
-AndNode::AndNode(vector<ParseNode*> ch, vector<ParseNode*> ex)
-    : children(ch), excluded(ex)
-{
-}
+AndNode::AndNode(vector<ParseNode*> ch, vector<ParseNode*> ex) : children(ch), excluded(ex) {}
 
 AndNode::~AndNode()
 {

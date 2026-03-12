@@ -29,8 +29,8 @@ static string SubStr(const char* s, size_t start, size_t len)
 
 bool QueryLexer::NeedsImplicitAnd(TokenType prev, TokenType cur)
 {
-  bool prevIsValue = (prev == TokenType::WORD || prev == TokenType::RPAREN ||
-                      prev == TokenType::PHRASE_END);
+  bool prevIsValue =
+      (prev == TokenType::WORD || prev == TokenType::RPAREN || prev == TokenType::PHRASE_END);
   bool curIsValue = (cur == TokenType::WORD || cur == TokenType::LPAREN ||
                      cur == TokenType::PHRASE_START || cur == TokenType::NOT);
   return prevIsValue && curIsValue;
@@ -86,8 +86,7 @@ QueryLexer::QueryLexer(const char* input) : pos(0)
       continue;
     }
 
-    if (c == '-' && i + 1 < srcLen &&
-        !std::isspace(static_cast<unsigned char>(src[i + 1])))
+    if (c == '-' && i + 1 < srcLen && !std::isspace(static_cast<unsigned char>(src[i + 1])))
     {
       raw.pushBack(Token(TokenType::NOT));
       ++i;
@@ -106,8 +105,7 @@ QueryLexer::QueryLexer(const char* input) : pos(0)
           continue;
         }
         size_t start = i;
-        while (i < srcLen && src[i] != '"' &&
-               !std::isspace(static_cast<unsigned char>(src[i])))
+        while (i < srcLen && src[i] != '"' && !std::isspace(static_cast<unsigned char>(src[i])))
         {
           ++i;
         }
@@ -140,8 +138,7 @@ QueryLexer::QueryLexer(const char* input) : pos(0)
     else if (raw[j].type == TokenType::PHRASE_END)
       inPhrase = false;
 
-    if (!inPhrase && tokens.size() > 0 &&
-        NeedsImplicitAnd(tokens.back().type, raw[j].type))
+    if (!inPhrase && tokens.size() > 0 && NeedsImplicitAnd(tokens.back().type, raw[j].type))
     {
       tokens.pushBack(Token(TokenType::AND));
     }

@@ -35,8 +35,7 @@ static ParseNode* DecoratePhrase(PhraseNode* phrase)
     vector<WordNode*> decorated;
     for (size_t w = 0; w < phrase->words.size(); ++w)
     {
-      decorated.pushBack(
-          new WordNode(PrefixTerm(FieldPrefixes[f], phrase->words[w]->term)));
+      decorated.pushBack(new WordNode(PrefixTerm(FieldPrefixes[f], phrase->words[w]->term)));
     }
     variants.pushBack(new PhraseNode(decorated));
   }

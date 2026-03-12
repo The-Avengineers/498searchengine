@@ -42,7 +42,7 @@ void testSingleWord()
   delete root;
 }
 
-// two words make an AndNode 
+// two words make an AndNode
 void testImplicitAnd()
 {
   QueryParser parser("apple banana");
@@ -96,7 +96,7 @@ void testOr()
   delete root;
 }
 
-// NOT make an exclusion in AndNode 
+// NOT make an exclusion in AndNode
 void testNot()
 {
   QueryParser parser("apple -banana");

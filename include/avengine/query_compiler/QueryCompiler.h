@@ -21,4 +21,3 @@ namespace avengine
 ParseNode* CompileQuery(const char* queryString);
 
 } // namespace avengine
-

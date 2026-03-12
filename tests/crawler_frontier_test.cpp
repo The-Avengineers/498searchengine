@@ -38,12 +38,12 @@ bool hasEntry(const avengine::vector<avengine::urlEntry>& batch, const char* url
   }
   return false;
 }
-}
+} // namespace
 
 int main()
 {
   // Empty frontier and zero batch-size edge cases.
-  
+
   avengine::crawler::frontier empty;
   avengine::vector<avengine::urlEntry> b = empty.nextBatch(10, 5);
   EXPECT(b.size() == 0);
@@ -53,7 +53,7 @@ int main()
   avengine::vector<avengine::urlEntry> zeroBatch = empty.nextBatch(10, 0);
   EXPECT(zeroBatch.size() == 0);
   EXPECT(empty.size() == 1);
-  
+
   avengine::crawler::frontier f;
 
   avengine::vector<avengine::string> seeds;
@@ -97,7 +97,6 @@ int main()
   dup.add("https://dup.example/a", 2);
   EXPECT(dup.size() == 1);
   EXPECT(dup.seenCount() == 1);
-  
 
   // Force random sampling (sampleSize < size) and ensure all URLs are returned once
   avengine::crawler::frontier sampled;
@@ -121,15 +120,15 @@ int main()
     avengine::vector<avengine::urlEntry> one = sampled.nextBatch(2, 1);
     EXPECT(one.size() == 1);
 
-    if (strEq(one[0].url, "https://rand.example/u1")) 
+    if (strEq(one[0].url, "https://rand.example/u1"))
     {
       got1 = true;
     }
-    else if (strEq(one[0].url, "https://rand.example/u2")) 
+    else if (strEq(one[0].url, "https://rand.example/u2"))
     {
       got2 = true;
     }
-    else if (strEq(one[0].url, "https://rand.example/u3")) 
+    else if (strEq(one[0].url, "https://rand.example/u3"))
     {
       got3 = true;
     }
@@ -156,18 +155,16 @@ int main()
 
   EXPECT(got1 && got2 && got3 && got4 && got5 && got6);
 
-
   // Checkpoint file save error
   avengine::crawler::frontier err;
   avengine::expected<void, avengine::error> saveBad =
-                        err.saveCheckpoint("/this/path/does/not/exist/frontier.bin");
+      err.saveCheckpoint("/this/path/does/not/exist/frontier.bin");
   EXPECT(!saveBad.hasValue());
 
   // Checkpoint file load error
   avengine::expected<void, avengine::error> loadBad =
       err.loadCheckpoint("/this/path/does/not/exist/frontier.bin");
   EXPECT(!loadBad.hasValue());
-  
 
   // Test checkpointing
   avengine::crawler::frontier original;

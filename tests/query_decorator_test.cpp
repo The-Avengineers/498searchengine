@@ -30,7 +30,7 @@ void fail(const char* expr, int line)
 
 using namespace avengine;
 
-// WordNode becomes OrNode with 4 decorators  
+// WordNode becomes OrNode with 4 decorators
 void testDecorateWord()
 {
   ParseNode* root = QueryDecorator::Decorate(new WordNode("apple"));
@@ -53,7 +53,7 @@ void testDecorateWord()
   delete root;
 }
 
-// PhraseNode becomes OrNode with 4 decorated PhraseNodes 
+// PhraseNode becomes OrNode with 4 decorated PhraseNodes
 void testDecoratePhrase()
 {
   vector<WordNode*> words;
@@ -144,7 +144,7 @@ void testDecorateAndNodeWithExclusions()
   delete root;
 }
 
-// OrNode children are decorated and structure preserved 
+// OrNode children are decorated and structure preserved
 void testDecorateOrNode()
 {
   vector<ParseNode*> children;
@@ -190,7 +190,7 @@ void testDecorateNull()
   EXPECT(QueryDecorator::Decorate(nullptr) == nullptr);
 }
 
-// Nested structure of And containing Or containing Words 
+// Nested structure of And containing Or containing Words
 void testDecorateNestedTree()
 {
   vector<ParseNode*> orChildren;

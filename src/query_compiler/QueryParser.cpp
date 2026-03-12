@@ -77,7 +77,6 @@ ParseNode* QueryParser::ParseAndExpr()
   return new AndNode(andChildren, excluded);
 }
 
-
 ParseNode* QueryParser::ParseNotPrefix()
 {
   if (lexer.Match(TokenType::NOT))

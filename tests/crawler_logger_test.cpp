@@ -19,7 +19,7 @@ void fail(const char* expr, int line)
     if (!(expr))                                                                                   \
       fail(#expr, __LINE__);                                                                       \
   } while (false)
-}
+} // namespace
 
 int main()
 {
@@ -36,8 +36,7 @@ int main()
   logger.log("https://example.com/c", "OK", static_cast<size_t>(123));
   logger.log("CHECKPOINT", 7, 11, 13);
   logger.log("DONE", 9, 17);
-  
-  
+
   // open file
   FILE* fp = fopen(pathTemplate, "rb");
   EXPECT(fp != nullptr);
@@ -59,7 +58,7 @@ int main()
       EXPECT(strstr(line, ",DONE,9,17") != nullptr);
     lineNo++;
   }
-  
+
   // close file
   EXPECT(lineNo == 5);
   EXPECT(fclose(fp) == 0);
@@ -68,7 +67,6 @@ int main()
   avengine::crawler::CrawlLogger appendLogger(pathTemplate);
   appendLogger.log("https://example.com/d", "APPEND_OK");
   appendLogger.log("https://example.com/e", "APPEND_OK_2");
-  
 
   // Verify append works
   fp = fopen(pathTemplate, "rb");
@@ -93,7 +91,7 @@ int main()
   avengine::crawler::CrawlLogger badLogger("/this/path/does/not/exist/crawl_log.csv");
   badLogger.log("https://example.com/e", "NO_CRASH");
   badLogger.log("CHECKPOINT", 1, 2, 3);
-  
+
   EXPECT(unlink(pathTemplate) == 0);
 
   return 0;

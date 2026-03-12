@@ -133,7 +133,7 @@ void testNotDecoration()
   delete root;
 }
 
-// test Null or empty input 
+// test Null or empty input
 void testNullInput()
 {
   EXPECT(CompileQuery(nullptr) == nullptr);
