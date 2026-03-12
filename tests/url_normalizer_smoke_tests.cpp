@@ -393,6 +393,12 @@ TEST_CASE("normalizeIndividual - custom protocol is preserved")
   CHECK(n.normalizeIndividual("FTP://Example.com/File.txt") == "ftp://example.com/File.txt");
 }
 
+TEST_CASE("normalizeIndividual - malformed triple-slash absolute URL is repaired")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https:///www.google.com") == "https://www.google.com/");
+}
+
 // ---------------------------------------------------------------------------
 // normalize - additional edge cases
 // ---------------------------------------------------------------------------
@@ -451,6 +457,14 @@ TEST_CASE("normalize - protocol-relative extension keeps base protocol, drops ba
   string base = "http://example.com:8080/dir/page.html";
   string ext = "//other.example/path";
   CHECK(n.normalize(base, ext) == "http://other.example/path");
+}
+
+TEST_CASE("normalize - protocol-relative extension with extra slash is repaired")
+{
+  URLNormalizer n;
+  string base = "https://example.com/dir/page.html";
+  string ext = "///www.google.com";
+  CHECK(n.normalize(base, ext) == "https://www.google.com/");
 }
 
 TEST_CASE("normalize - base with no explicit path and relative extension")

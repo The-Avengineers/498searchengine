@@ -102,18 +102,23 @@ int main()
       // for each extracted link:
       for (size_t j = 0; j < parser.links.size(); ++j)
       {
-        string baseURL;
+        string baseURL = entry.url;
         if (parser.base.size() > 0)
         {
-          baseURL = parser.base;
-        }
-        else
-        {
-          baseURL = entry.url;
+          // <base href> can be relative or malformed; resolve against fetched URL.
+          string resolvedBase = normalizer.normalize(entry.url, parser.base);
+          if (resolvedBase.size() > 0)
+          {
+            baseURL = resolvedBase;
+          }
         }
 
         // normalize the domain
         string normalized = normalizer.normalize(baseURL, parser.links[j].URL);
+        if (normalized.size() == 0)
+        {
+          continue;
+        }
 
         // filter the domain
         if (filter.isBlocked(normalized))
