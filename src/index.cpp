@@ -197,7 +197,7 @@ bool Index::serialize(int fd)
   uint64_t* dictionaryBuffer = new uint64_t[needed]();
 
   // TODO: Write magic bytes to identify file format and version.
-  dictionaryBuffer[0] = documentNames.size();
+  dictionaryBuffer[0] = documentMetadata.size();
   dictionaryBuffer[1] = totalUniqWords + 1;
 
   avengine::vector<char> stringBuffer;
@@ -237,10 +237,10 @@ bool Index::serialize(int fd)
   return false;
 }
 
-uint32_t Index::beginDocument(const char* url)
+uint32_t Index::beginDocument(DocumentMetadata metadata)
 {
-  documentNames.pushBack(url);
-  currentDocId = static_cast<uint32_t>(documentNames.size() - 1);
+  documentMetadata.pushBack(metadata);
+  currentDocId = static_cast<uint32_t>(documentMetadata.size() - 1);
   return currentDocId;
 }
 
@@ -250,6 +250,11 @@ void Index::ingest(char const* word)
   PostingList* bucket = getBucket(word);
 
   bucket->ingest(currentDocId, offset++);
+}
+
+void Index::endDocument()
+{
+  ingest(DOCEND_TOKEN);
 }
 
 Index globalIndex;
@@ -282,12 +287,13 @@ static size_t tokenizeInto(char* text, Index& idx)
       text++;
   }
 
+  idx.endDocument();
   return words;
 }
 
 // TODO: When string slice is merged we should use that everywhere instead of cstrings.
 size_t indexDocument(char const* url, char* phrases)
 {
-  globalIndex.beginDocument(url);
+  globalIndex.beginDocument({.url = url, .title = url, .input = 0});
   return tokenizeInto(phrases, globalIndex);
 }
