@@ -45,26 +45,7 @@ void PostingList::ingest(uint32_t docId, size_t offset)
   positions.pushBack(offset);
 }
 
-uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value)
-{
-  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
-  while (value >= 0x80u)
-  {
-    *buffer++ = static_cast<uint8_t>((value & 0x7Fu) | 0x80u);
-    value >>= 7;
-  }
-  *buffer++ = static_cast<uint8_t>(value);
-  return buffer;
-}
-
-uint8_t* write_uint64(uint8_t* buffer, uint64_t value)
-{
-  // TODO: Convert this helper to write directly into avengine::vector<uint8_t>.
-  memcpy(buffer, &value, sizeof(uint64_t));
-  return buffer + sizeof(uint64_t);
-}
-
-static void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
+void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
 {
   while (value >= 0x80u)
   {
@@ -72,6 +53,33 @@ static void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
     value >>= 7;
   }
   out.pushBack(static_cast<uint8_t>(value));
+}
+
+static void append_bytes(avengine::vector<uint8_t>& out, const void* data, size_t size)
+{
+  const uint8_t* bytes = static_cast<const uint8_t*>(data);
+  for (size_t i = 0; i < size; i++)
+  {
+    out.pushBack(bytes[i]);
+  }
+}
+
+void append_uint64(avengine::vector<uint8_t>& out, uint64_t value)
+{
+  append_bytes(out, &value, sizeof(uint64_t));
+}
+
+static void append_string(avengine::vector<uint8_t>& out, const char* str)
+{
+  if (!str)
+  {
+    append_var_uint32(out, 0);
+    return;
+  }
+
+  const size_t len = strlen(str);
+  append_var_uint32(out, static_cast<uint32_t>(len));
+  append_bytes(out, str, len);
 }
 
 struct SkipPointer
@@ -162,6 +170,7 @@ void Index::serialize(int fd)
   write(fd, stringBuffer.begin(), stringBuffer.size());
 
   size_t postingsOffset = 0;
+  avengine::vector<uint8_t> postingBuffer;
   avengine::vector<uint8_t> deltaBuffer;
   avengine::vector<SkipPointer> skipPointers;
   avengine::vector<uint8_t> skipBuffer;
@@ -215,21 +224,15 @@ void Index::serialize(int fd)
 
       // Per-term posting-list header:
       // [doc_frequency u64][collection_frequency u64][skip_count u64].
-      uint8_t postingHeader[24];
-      uint8_t* headerCursor = postingHeader;
-      headerCursor = write_uint64(headerCursor, documentFrequency);
-      headerCursor = write_uint64(headerCursor, collectionFrequency);
-      write_uint64(headerCursor, skipPointers.size());
-      write(fd, postingHeader, sizeof(postingHeader));
+      postingBuffer.clear();
+      append_uint64(postingBuffer, documentFrequency);
+      append_uint64(postingBuffer, collectionFrequency);
+      append_uint64(postingBuffer, skipPointers.size());
+      append_bytes(postingBuffer, skipBuffer.begin(), skipBuffer.size());
+      append_bytes(postingBuffer, deltaBuffer.begin(), deltaBuffer.size());
 
-      if (!skipBuffer.empty())
-        write(fd, skipBuffer.begin(), skipBuffer.size());
-      if (!deltaBuffer.empty())
-        write(fd, deltaBuffer.begin(), deltaBuffer.size());
-
-      postingsOffset += sizeof(postingHeader);
-      postingsOffset += skipBuffer.size();
-      postingsOffset += deltaBuffer.size();
+      write(fd, postingBuffer.begin(), postingBuffer.size());
+      postingsOffset += postingBuffer.size();
 
       bucket = bucket->nextBucket;
     }
