@@ -111,15 +111,17 @@ void testIndexIngestAcrossDocuments()
 {
   Index index;
 
-  EXPECT(index.beginDocument("doc://0") == 0u);
+  EXPECT(index.beginDocument({.url = "doc://0", .title = "Doc 0", .scores = {1, 2, 3, 4, 5}}) ==
+         0u);
   index.ingest("apple");
   index.ingest("banana");
   index.ingest("apple");
 
-  EXPECT(index.beginDocument("doc://1") == 1u);
+  EXPECT(index.beginDocument({.url = "doc://1", .title = "Doc 1", .scores = {5, 4, 3, 2, 1}}) ==
+         1u);
   index.ingest("apple");
 
-  EXPECT(index.documentNames.size() == 2);
+  EXPECT(index.documentMetadata.size() == 2);
   EXPECT(index.currentDocId == 1u);
   EXPECT(index.totalUniqWords == 2u);
   EXPECT(index.offset == 4u);
@@ -150,7 +152,7 @@ void testIndexDocumentTokenization()
   const size_t words = indexDocument("doc://tokenized", text);
 
   EXPECT(words == 4u);
-  EXPECT(globalIndex.documentNames.size() == 1);
+  EXPECT(globalIndex.documentMetadata.size() == 1);
 
   PostingList* alpha = globalIndex.getBucket("alpha");
   PostingList* beta = globalIndex.getBucket("beta");
@@ -175,7 +177,7 @@ void testIndexDocumentTokenization()
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  index.beginDocument("doc://serialize");
+  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .scores = {0}});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
