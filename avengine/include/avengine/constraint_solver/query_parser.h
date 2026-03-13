@@ -9,28 +9,28 @@ namespace avengine
 namespace constraint_solver
 {
 
-// Recursive descent parser for the constraint solver query language.
+// Small recursive-descent parser for the query language.
 class QueryParser
 {
 public:
   explicit QueryParser(const string& input);
 
-  // TODO: Parse the full query and return either an AST or parse errors.
+  // Parse the full query and return either a tree or errors.
   ParseResult Parse();
 
 private:
-  // TODO: Parse OR chains and flatten adjacent OR nodes into one Or node.
+  // Parse OR chains.
   QueryNode* ParseOrExpression();
-  // TODO: Parse implicit conjunctions and split required vs excluded children.
+  // Parse implicit AND groups.
   QueryNode* ParseConjunction();
-  // TODO: Parse unary exclusion using '-'.
-  QueryNode* ParseUnary();
-  // TODO: Parse a word, phrase, or parenthesized subexpression.
+  // Parse an optional leading '-'.
+  QueryNode* ParseUnary(bool& excluded);
+  // Parse a term, phrase, or parenthesized group.
   QueryNode* ParsePrimary();
 
-  // TODO: Consume the current token when it matches the requested kind.
+  // Consume the current token if it matches.
   bool Match(QueryTokenKind kind);
-  // TODO: Append a structured parse error to Result.Errors.
+  // Add one parse error.
   void AddError(size_t offset, const char* message);
 
   QueryLexer Lexer;

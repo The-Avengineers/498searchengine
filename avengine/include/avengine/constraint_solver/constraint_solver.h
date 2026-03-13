@@ -9,13 +9,11 @@ namespace avengine
 namespace constraint_solver
 {
 
-// Facade for the constraint-solver component.
-// For now it only exposes query parsing.
+// Thin entry point for the constraint-solver component.
 class ConstraintSolver
 {
 public:
-  // TODO: Call QueryParser and return its ParseResult.
-  // Later this class can also own AST-to-ISR lowering hooks.
+  // Parse one query into a syntax tree.
   ParseResult ParseQuery(const string& query);
 };
 

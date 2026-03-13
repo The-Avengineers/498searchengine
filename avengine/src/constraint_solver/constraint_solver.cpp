@@ -4,13 +4,11 @@ namespace avengine
 {
 namespace constraint_solver
 {
-
-// TODO: Implement ConstraintSolver::ParseQuery().
-// Planned behavior:
-// 1. Construct a QueryParser for the incoming query string.
-// 2. Return the ParseResult from the parser unchanged.
-// 3. Later extend this file to connect parsed ASTs to the ISR layer
-//    once that component exists.
+ParseResult ConstraintSolver::ParseQuery(const string& query)
+{
+  QueryParser parser(query);
+  return parser.Parse();
+}
 
 } // namespace constraint_solver
 } // namespace avengine
