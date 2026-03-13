@@ -35,18 +35,17 @@ bool containsWord(const avengine::vector<avengine::string>& words, const char* t
   }
   return false;
 }
-}
+} // namespace
 
 int main()
 {
   // Basic crawler parsing
-  const char html[] =
-      "<html><head><title>Search Engine</title>"
-      "<base href=\"https://base.example/root/\"></head>"
-      "<body><a href=\"/docs/page\">Read More</a>"
-      "<embed src=\"https://cdn.example/file.pdf\">"
-      "<script>hidden text</script>"
-      "visible text</body></html>";
+  const char html[] = "<html><head><title>Search Engine</title>"
+                      "<base href=\"https://base.example/root/\"></head>"
+                      "<body><a href=\"/docs/page\">Read More</a>"
+                      "<embed src=\"https://cdn.example/file.pdf\">"
+                      "<script>hidden text</script>"
+                      "visible text</body></html>";
 
   avengine::HtmlParser parser(html, strlen(html));
 
@@ -74,20 +73,19 @@ int main()
 
   // Edge cases: first base wins, case-insensitive tags/attrs, missing href anchor,
   // and comment/script/style/svg content should be discarded.
-  const char html2[] =
-      "<HTML><HEAD>"
-      "<BASE HREF=\"https://first.example/root/\">"
-      "<base href=\"https://second.example/root/\">"
-      "<TITLE>UPPER Title</TITLE>"
-      "</HEAD><BODY>"
-      "<!-- hidden comment words -->"
-      "<A>no href anchor</A>"
-      "<A HREF=\"/Keep\">Keep Text</A>"
-      "<STYLE>style words should disappear</STYLE>"
-      "<SVG>svg words should disappear</SVG>"
-      "<SCRIPT>script words should disappear</SCRIPT>"
-      "body words"
-      "</BODY></HTML>";
+  const char html2[] = "<HTML><HEAD>"
+                       "<BASE HREF=\"https://first.example/root/\">"
+                       "<base href=\"https://second.example/root/\">"
+                       "<TITLE>UPPER Title</TITLE>"
+                       "</HEAD><BODY>"
+                       "<!-- hidden comment words -->"
+                       "<A>no href anchor</A>"
+                       "<A HREF=\"/Keep\">Keep Text</A>"
+                       "<STYLE>style words should disappear</STYLE>"
+                       "<SVG>svg words should disappear</SVG>"
+                       "<SCRIPT>script words should disappear</SCRIPT>"
+                       "body words"
+                       "</BODY></HTML>";
 
   avengine::HtmlParser parser2(html2, strlen(html2));
 
