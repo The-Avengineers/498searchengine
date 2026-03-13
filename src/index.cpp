@@ -118,7 +118,9 @@ Index::Index() : buckets(HASHMAP_SIZE)
 // Encodes a single posting list into `out` (cleared on entry):
 //   [doc_freq u64][collection_freq u64][skip_count u64]
 //   [skip stream varint*][position delta stream varint*]
-static void encodePostingList(const PostingList& pl, avengine::vector<uint8_t>& out)
+static void encodePostingList(const PostingList& pl,
+                              const avengine::vector<DocumentMetadata>& docMetadata,
+                              avengine::vector<uint8_t>& out)
 {
   avengine::vector<uint8_t> deltaBuffer;
   avengine::vector<SkipPointer> skipPointers;
@@ -150,6 +152,23 @@ static void encodePostingList(const PostingList& pl, avengine::vector<uint8_t>& 
     append_var_uint32(skipBuffer, skip.byteOffset);
   }
 
+  // For DOCUMENT_END, serialize document metadata inline in posting order.
+  avengine::vector<uint8_t> metadataBuffer;
+  if (!strcmp(pl.word, DOCEND_TOKEN))
+  {
+    // DOCUMENT_END stores one entry per doc. Its position deltas encode term counts,
+    // and document metadata is serialized inline in posting order.
+    for (const Posting& posting : pl.postings)
+    {
+      assert(posting.docId < docMetadata.size());
+      const DocumentMetadata& doc = docMetadata[posting.docId];
+
+      append_string(metadataBuffer, doc.url);
+      append_string(metadataBuffer, doc.title);
+      append_bytes(metadataBuffer, doc.scores, sizeof(doc.scores));
+    }
+  }
+
   // Header: [doc_frequency u64][collection_frequency u64][skip_count u64].
   out.clear();
   append_uint64(out, pl.postings.size());
@@ -157,6 +176,7 @@ static void encodePostingList(const PostingList& pl, avengine::vector<uint8_t>& 
   append_uint64(out, skipPointers.size());
   append_bytes(out, skipBuffer.begin(), skipBuffer.size());
   append_bytes(out, deltaBuffer.begin(), deltaBuffer.size());
+  append_bytes(out, metadataBuffer.begin(), metadataBuffer.size());
 }
 
 void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer)
@@ -220,7 +240,7 @@ bool Index::serialize(int fd)
     {
       dictionaryBuffer[2 + bucket->hash * 2 + 1] = postingsOffset;
 
-      encodePostingList(*bucket, postingBuffer);
+      encodePostingList(*bucket, documentMetadata, postingBuffer);
 
       if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
         return true;
