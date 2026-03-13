@@ -115,25 +115,52 @@ Index::Index() : buckets(HASHMAP_SIZE)
   }
 }
 
-void Index::serialize(int fd)
+// Encodes a single posting list into `out` (cleared on entry):
+//   [doc_freq u64][collection_freq u64][skip_count u64]
+//   [skip stream varint*][position delta stream varint*]
+static void encodePostingList(const PostingList& pl, avengine::vector<uint8_t>& out)
 {
-  size_t needed = 2;
+  avengine::vector<uint8_t> deltaBuffer;
+  avengine::vector<SkipPointer> skipPointers;
+  avengine::vector<uint8_t> skipBuffer;
 
-  needed += (totalUniqWords + 1) * 2 * 2;
+  const uint64_t collectionFrequency = pl.positions.size();
+  const uint32_t skipStride =
+      collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
 
-  uint64_t* dictionaryBuffer = new uint64_t[needed]();
-  // TODO: We currently use an offset of zero as a sentinel is indicate an unused offset, however
-  // this perfecty valid. We either need to use another sentinel value or make an offset of zero
-  // impossible.
+  // Encode position list as varint deltas, sampling skip pointers every sqrt(N).
+  uint32_t lastPosition = 0;
+  for (uint32_t i = 0; i < collectionFrequency; i++)
+  {
+    uint32_t position = pl.positions[i];
+    if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
+    {
+      skipPointers.pushBack({.positionIndex = i,
+                             .positionValue = position,
+                             .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
+    }
+    append_var_uint32(deltaBuffer, position - lastPosition);
+    lastPosition = position;
+  }
 
-  // std::fill(dictionary_buffer, dictionary_buffer + needed, UINT64_MAX);
+  for (const SkipPointer& skip : skipPointers)
+  {
+    append_var_uint32(skipBuffer, skip.positionIndex);
+    append_var_uint32(skipBuffer, skip.positionValue);
+    append_var_uint32(skipBuffer, skip.byteOffset);
+  }
 
-  // TODO: Write magic bytes to identity file format and version. Maybe an emoji?
-  dictionaryBuffer[0] = documentNames.size();
-  dictionaryBuffer[1] = totalUniqWords + 1;
+  // Header: [doc_frequency u64][collection_frequency u64][skip_count u64].
+  out.clear();
+  append_uint64(out, pl.postings.size());
+  append_uint64(out, collectionFrequency);
+  append_uint64(out, skipPointers.size());
+  append_bytes(out, skipBuffer.begin(), skipBuffer.size());
+  append_bytes(out, deltaBuffer.begin(), deltaBuffer.size());
+}
 
-  avengine::vector<char> stringBuffer;
-
+void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer)
+{
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
     PostingList* bucket = buckets[i];
@@ -142,104 +169,72 @@ void Index::serialize(int fd)
     {
       size_t hash = djb2Hash(bucket->word) % (totalUniqWords * 2);
 
-      // Find an empty bucket
-      while (dictionaryBuffer[2 + hash * 2] > 0)
+      // Linear probe for an empty slot.
+      // TODO: Benchmark alternative probing strategies when querying the index.
+      while (dict[2 + hash * 2] > 0)
       {
-        // TODO: We should benchmark (when quering the index) on what kind of probing method
-        // performs the best.
         hash += 1;
         hash %= (totalUniqWords * 2);
       }
 
-      dictionaryBuffer[2 + hash * 2] = stringBuffer.size();
+      dict[2 + hash * 2] = stringBuffer.size();
 
-      // Add the term to the string buffer
       for (char const* str = bucket->word; *str; str++)
         stringBuffer.pushBack(*str);
-
       stringBuffer.pushBack('\0');
 
       bucket->hash = hash;
       bucket = bucket->nextBucket;
     }
   }
+}
+
+bool Index::serialize(int fd)
+{
+  // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
+  // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
+  const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
+  uint64_t* dictionaryBuffer = new uint64_t[needed]();
+
+  // TODO: Write magic bytes to identify file format and version.
+  dictionaryBuffer[0] = documentNames.size();
+  dictionaryBuffer[1] = totalUniqWords + 1;
+
+  avengine::vector<char> stringBuffer;
+  buildStringTable(dictionaryBuffer, stringBuffer);
 
   // TODO: maybe fallocate?
-  lseek(fd, needed * sizeof(uint64_t), SEEK_SET);
-
-  write(fd, stringBuffer.begin(), stringBuffer.size());
+  if (lseek(fd, needed * sizeof(uint64_t), SEEK_SET) == (off_t)-1)
+    return true;
+  if (write(fd, stringBuffer.begin(), stringBuffer.size()) < 0)
+    return true;
 
   size_t postingsOffset = 0;
   avengine::vector<uint8_t> postingBuffer;
-  avengine::vector<uint8_t> deltaBuffer;
-  avengine::vector<SkipPointer> skipPointers;
-  avengine::vector<uint8_t> skipBuffer;
 
-  // Now we write out the posting list
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
     PostingList* bucket = buckets[i];
 
     while (bucket)
     {
-      size_t hash = bucket->hash;
+      dictionaryBuffer[2 + bucket->hash * 2 + 1] = postingsOffset;
 
-      dictionaryBuffer[2 + hash * 2 + 1] = postingsOffset;
+      encodePostingList(*bucket, postingBuffer);
 
-      const uint64_t documentFrequency = bucket->postings.size();
-      const uint64_t collectionFrequency = bucket->positions.size();
-
-      deltaBuffer.clear();
-      skipPointers.clear();
-      skipBuffer.clear();
-
-      // TODO: Write index synchronization points and skip pointers.
-      // Encode position list as varint deltas.
-      uint32_t lastPosition = 0;
-      const uint32_t skipStride =
-          collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
-
-      // Skip pointers are sampled every sqrt(N) positions. Each skip entry stores:
-      // [position_index varint][absolute_position varint][delta_stream_byte_offset varint].
-      for (uint32_t i = 0; i < collectionFrequency; i++)
-      {
-        uint32_t position = bucket->positions[i];
-        if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
-        {
-          skipPointers.pushBack({.positionIndex = i,
-                                 .positionValue = position,
-                                 .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
-        }
-
-        append_var_uint32(deltaBuffer, position - lastPosition);
-        lastPosition = position;
-      }
-
-      for (const SkipPointer& skip : skipPointers)
-      {
-        append_var_uint32(skipBuffer, skip.positionIndex);
-        append_var_uint32(skipBuffer, skip.positionValue);
-        append_var_uint32(skipBuffer, skip.byteOffset);
-      }
-
-      // Per-term posting-list header:
-      // [doc_frequency u64][collection_frequency u64][skip_count u64].
-      postingBuffer.clear();
-      append_uint64(postingBuffer, documentFrequency);
-      append_uint64(postingBuffer, collectionFrequency);
-      append_uint64(postingBuffer, skipPointers.size());
-      append_bytes(postingBuffer, skipBuffer.begin(), skipBuffer.size());
-      append_bytes(postingBuffer, deltaBuffer.begin(), deltaBuffer.size());
-
-      write(fd, postingBuffer.begin(), postingBuffer.size());
+      if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
+        return true;
       postingsOffset += postingBuffer.size();
 
       bucket = bucket->nextBucket;
     }
   }
 
-  lseek(fd, 0, SEEK_SET);
-  write(fd, dictionaryBuffer, needed * sizeof(uint64_t));
+  if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
+    return true;
+  if (write(fd, dictionaryBuffer, needed * sizeof(uint64_t)) < 0)
+    return true;
+  return false;
 }
 
 uint32_t Index::beginDocument(const char* url)

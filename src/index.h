@@ -47,9 +47,13 @@ struct Index
   uint32_t currentDocId = UINT32_MAX;
 
   PostingList* getBucket(char const* word);
+  // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
+  // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
+  void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
 
   Index();
-  void serialize(int fd);
+  // Returns true on I/O error.
+  bool serialize(int fd);
   // Starts a new active document and returns its assigned id.
   uint32_t beginDocument(const char* url);
   // Adds a token to the currently active document set by beginDocument().
