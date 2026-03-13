@@ -69,8 +69,8 @@ vector<string> splitPhraseTerms(const string& phrase)
 
 bool isStandaloneExclusion(const QueryNode* node)
 {
-  return node != nullptr && node->Kind == QueryNodeKind::Conjunction && node->RequiredChildren.empty() &&
-         !node->ExcludedChildren.empty();
+  return node != nullptr && node->Kind == QueryNodeKind::Conjunction &&
+         node->RequiredChildren.empty() && !node->ExcludedChildren.empty();
 }
 } // namespace
 
@@ -78,7 +78,6 @@ QueryParser::QueryParser(const string& input) : Lexer(input)
 {
   Current = Lexer.Next();
 }
-
 
 // Parse() processes operators in order from highest to lowest: Primary, Unary, Conjunction, Or
 

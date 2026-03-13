@@ -38,8 +38,8 @@ struct LexStep
   size_t NextOffset{0};
 };
 
-LexStep lexFrom(const string& input, size_t offset) 
-// looks at the input at one offset 
+LexStep lexFrom(const string& input, size_t offset)
+// looks at the input at one offset
 // and returns the next token plus the next offset to continue from.
 {
   offset = skipWhitespace(input, offset);
