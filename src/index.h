@@ -23,7 +23,7 @@ struct Posting
 constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
 
 // The raw data needed as input to calculate the static rank (distance from seed list, length of
-// document, etc).
+// document, etc). It MUST be plain old data, no pointers.
 using RankingInput = uint64_t;
 
 struct PostingList
