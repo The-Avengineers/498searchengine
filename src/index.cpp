@@ -259,33 +259,40 @@ void Index::ingest(char const* word)
 
 Index globalIndex;
 
-// TODO: When string slice is merged we should use that everywhere instead of cstrings.
-size_t indexDocument(char const* url, char* pharses)
+// Walks `text`, lowercases and null-terminates each alpha run in-place, and
+// ingests each resulting token into `idx`. Returns the number of tokens found.
+static size_t tokenizeInto(char* text, Index& idx)
 {
-  globalIndex.beginDocument(url);
   size_t words = 0;
 
-  while (*pharses && !isalpha(*pharses))
-    pharses++;
+  while (*text && !isalpha(*text))
+    text++;
 
-  while (*pharses)
+  while (*text)
   {
-    char const* word = pharses;
+    char const* word = text;
 
-    while (*pharses && isalpha(*pharses))
+    while (*text && isalpha(*text))
     {
-      *pharses = *pharses | 32;
-      pharses++;
+      *text = *text | 32;
+      text++;
     }
 
-    *(pharses++) = '\0';
+    *(text++) = '\0';
 
-    globalIndex.ingest(word);
+    idx.ingest(word);
     words++;
 
-    while (*pharses && !isalpha(*pharses))
-      pharses++;
+    while (*text && !isalpha(*text))
+      text++;
   }
 
   return words;
+}
+
+// TODO: When string slice is merged we should use that everywhere instead of cstrings.
+size_t indexDocument(char const* url, char* phrases)
+{
+  globalIndex.beginDocument(url);
+  return tokenizeInto(phrases, globalIndex);
 }
