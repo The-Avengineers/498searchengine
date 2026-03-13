@@ -34,8 +34,8 @@ struct PostingList
 // TODO: Determine the best expected hashmap size given a read-world dataset.
 #define HASHMAP_SIZE 262144
 
-uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
-uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
+void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
+void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
 struct Index
 {
