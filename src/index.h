@@ -15,7 +15,16 @@ struct Posting
   size_t positions;
 };
 
+// TODO: Determine the best expected hashmap size given a read-world dataset.
+#define HASHMAP_SIZE 262144
 #define STARTING_CAPACITY 64
+// A special token used to signify the end of a document. This should NEVER be parsed as a regular
+// token.
+constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
+
+// The raw data needed as input to calculate the static rank (distance from seed list, length of
+// document, etc).
+using RankingInput = uint64_t;
 
 struct PostingList
 {
@@ -37,13 +46,20 @@ struct PostingList
 void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
 void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
+struct DocumentMetadata
+{
+  const char* url;
+  const char* title;
+  // NOTE: If we choose to add a description for pages it will be passed here.
+  RankingInput input;
+};
 struct Index
 {
   avengine::vector<PostingList*> buckets;
   size_t offset = 0;
   size_t totalUniqWords = 0;
-  avengine::vector<const char*> documentNames;
-  // Updated by beginDocument(). ingest(word) always indexes into this doc.
+  avengine::vector<DocumentMetadata> documentMetadata;
+  // Updated by `beginDocument()`. ingest(word) always indexes into this doc.
   uint32_t currentDocId = UINT32_MAX;
 
   PostingList* getBucket(char const* word);
@@ -55,7 +71,9 @@ struct Index
   // Returns true on I/O error.
   bool serialize(int fd);
   // Starts a new active document and returns its assigned id.
-  uint32_t beginDocument(const char* url);
+  uint32_t beginDocument(DocumentMetadata metadata);
+  // Records the term count for the current document and marks it as closed.
+  void endDocument();
   // Adds a token to the currently active document set by beginDocument().
   void ingest(char const* word);
 };
