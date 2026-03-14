@@ -21,6 +21,12 @@ namespace avengine
 class Ranker
 {
 public:
+  struct RankSignals
+  {
+    size_t outlink_count{0};
+    const vector<vector<size_t>>* title_term_positions{nullptr};
+  };
+
   /**
    * Strategy interface for scoring a single URL with query term positions.
    *
@@ -45,7 +51,8 @@ public:
   public:
     virtual ~Strategy() = default;
     virtual double Score(const urlEntry& entry,
-                         const vector<vector<size_t>>& term_positions) const = 0;
+                         const vector<vector<size_t>>& term_positions,
+                         const RankSignals& signals) const = 0;
   };
 
   /**
@@ -61,7 +68,9 @@ public:
   /**
    * Score a single URL using all strategies.
    */
-  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions) const;
+  double Score(const urlEntry& entry,
+               const vector<vector<size_t>>& term_positions,
+               const RankSignals& signals) const;
 
   struct RankedResult
   {
@@ -72,7 +81,9 @@ public:
   /**
    * Consider a URL and update the top results using insertion sort.
    */
-  void Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions);
+  void Consider(const urlEntry& entry,
+                const vector<vector<size_t>>& term_positions,
+                const RankSignals& signals);
 
   /**
    * Return the current top results (highest score first).
