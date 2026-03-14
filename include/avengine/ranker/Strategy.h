@@ -14,8 +14,7 @@ using namespace avengine;
 class DomainStrat : public Ranker::Strategy
 {
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
@@ -40,8 +39,7 @@ class ShortURLStrat : public Ranker::Strategy
 {
   // naïve implementation: take the reciprocal of the length of url
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
@@ -53,8 +51,7 @@ public:
 class ShortTitleStrat : public Ranker::Strategy
 {
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
@@ -131,8 +128,7 @@ class ExactPhraseMatch : public Ranker::Strategy
   // checks if current indices form phrase
   // runs in O(sum_of_term_appearances)
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
@@ -197,8 +193,7 @@ class CorrectOrdering : public Ranker::Strategy
   // reward longer in-order runs of query terms and favor tighter spans.
   // Score scales up with ordered run length and down with extra gap between terms.
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
@@ -316,8 +311,7 @@ class OutlinkCount : public Ranker::Strategy
 {
   // scores pages based on outgoing-link count using a capped log scale.
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
@@ -327,7 +321,9 @@ public:
       return 0.0;
     }
 
-    const double score = log2(1.0 + static_cast<double>(signals.outlink_count)) / log2(33.0); // some math trick: pages w/ more than 32 outlinks all have score 1.0
+    const double score =
+        log2(1.0 + static_cast<double>(signals.outlink_count)) /
+        log2(33.0); // some math trick: pages w/ more than 32 outlinks all have score 1.0
     return score >= 1.0 ? 1.0 : score;
   }
 };
@@ -336,8 +332,7 @@ class UrlDepth : public Ranker::Strategy
 {
   // scores pages by reciprocal crawl depth from urlEntry.
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
@@ -366,8 +361,7 @@ class QueryOccurrence : public Ranker::Strategy
 public:
   explicit QueryOccurrence(const vector<avengine::string>& query_terms) : QueryTerms(query_terms) {}
 
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
@@ -452,8 +446,7 @@ class EarlyQueryTermMatch : public Ranker::Strategy
   // Scores how early each term appears in document on log scale
   // TODO: add bonus if terms are in title, need that parameter from crawler/index
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)entry;

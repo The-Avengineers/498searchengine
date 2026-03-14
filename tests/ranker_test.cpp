@@ -47,8 +47,7 @@ class ConstantStrategy : public Ranker::Strategy
 public:
   explicit ConstantStrategy(double value) : Value(value) {}
 
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const override
   {
     (void)entry;
@@ -64,8 +63,7 @@ private:
 class UrlLengthStrategy : public Ranker::Strategy
 {
 public:
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const override
   {
     (void)term_positions;
@@ -138,12 +136,10 @@ void testDomainStrat()
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("https://university.edu/page", "university.edu"), positions, signals),
       1.0));
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions, signals),
-                  1.0));
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("https://example.com", "example.com"), positions, signals),
-                  0.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions, signals), 1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.0));
 }
 
 void testShortURLStrat()
@@ -169,7 +165,8 @@ void testShortTitleStrat()
   EXPECT(nearlyEqual(strat.Score(makeEntry(shortTitle.cstr()), positions, signals), 1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry(longTitle.cstr()), positions, signals), 0.0));
   EXPECT(nearlyEqual(
-      strat.Score(makeEntry("/tmp/path/does/not/exist/ranker_test.html"), positions, signals), 0.0));
+      strat.Score(makeEntry("/tmp/path/does/not/exist/ranker_test.html"), positions, signals),
+      0.0));
 
   EXPECT(unlink(shortTitle.cstr()) == 0);
   EXPECT(unlink(longTitle.cstr()) == 0);
@@ -181,10 +178,10 @@ void testExactPhraseMatch()
   Ranker::RankSignals signals;
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, signals), 1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{2}}, signals), 1.0));
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {11}}, signals), 1.0));
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {11}}, signals),
+                     1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals),
+                     0.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {}}, signals),
                      0.0));
 }
@@ -197,9 +194,8 @@ void testCorrectOrdering()
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{4}}, signals), 1.0));
 
   // Perfect 3-term ordered run with no slack.
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {2}, {3}}, signals),
-                  1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {2}, {3}}, signals), 1.0));
 
   // Only a 2-term ordered run exists.
   const double partial =
@@ -207,9 +203,8 @@ void testCorrectOrdering()
   EXPECT(partial > 0.0 && partial < 1.0);
 
   // No forward ordering among any adjacent terms.
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {2}, {1}}, signals),
-                  0.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {2}, {1}}, signals), 0.0));
 }
 
 void testUrlDepth()
@@ -250,7 +245,8 @@ void testQueryOccurrence()
   vector<vector<size_t>> positions;
   Ranker::RankSignals signals;
 
-  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/foobar"), positions, signals), 1.0));
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("https://example.com/foobar"), positions, signals), 1.0));
   const double separated =
       strat.Score(makeEntry("https://example.com/foo___bar"), positions, signals);
   EXPECT(separated > 0.0 && separated < 1.0);
@@ -264,8 +260,8 @@ void testEarlyQueryTermMatch()
   const double body_score =
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, no_title_signals);
   EXPECT(nearlyEqual(body_score, 0.75));
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, no_title_signals), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, no_title_signals),
+                     0.0));
 
   vector<vector<size_t>> partial_title_positions = {{1}, {}};
   Ranker::RankSignals partial_title_signals;

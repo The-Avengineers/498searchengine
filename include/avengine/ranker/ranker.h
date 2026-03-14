@@ -50,8 +50,7 @@ public:
   {
   public:
     virtual ~Strategy() = default;
-    virtual double Score(const urlEntry& entry,
-                         const vector<vector<size_t>>& term_positions,
+    virtual double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                          const RankSignals& signals) const = 0;
   };
 
@@ -68,8 +67,7 @@ public:
   /**
    * Score a single URL using all strategies.
    */
-  double Score(const urlEntry& entry,
-               const vector<vector<size_t>>& term_positions,
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const RankSignals& signals) const;
 
   struct RankedResult
@@ -81,8 +79,7 @@ public:
   /**
    * Consider a URL and update the top results using insertion sort.
    */
-  void Consider(const urlEntry& entry,
-                const vector<vector<size_t>>& term_positions,
+  void Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                 const RankSignals& signals);
 
   /**
