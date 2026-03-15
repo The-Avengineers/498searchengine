@@ -1,0 +1,35 @@
+#pragma once
+
+#include "../avengine_lib/HashTable.h"
+#include "../avengine_lib/string.h"
+#include "../avengine_lib/vector.h"
+
+namespace avengine
+{
+namespace crawler
+{
+
+class domainFilter
+{
+public:
+  domainFilter();
+  ~domainFilter();
+
+  // Requires: a URL string
+  // Modifies: nothing
+  // Returns: true if the URL's domain is blocked
+  bool isBlocked(const string& url) const;
+
+private:
+  // Domain -> blocked flag.
+  // The table is queried by exact host match after lowercasing.
+  hashTable<string, bool> blockSet;
+
+  // Requires: a URL string
+  // Modifies: nothing
+  // Returns: the domain portion of the URL
+  string extractDomain(const string& url) const;
+};
+
+} // namespace crawler
+} // namespace avengine
