@@ -1,9 +1,11 @@
 #pragma once
+#include <avengine/avengine_lib/string.h>
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
 
 size_t djb2Hash(char const* str);
+size_t djb2Hash(const avengine::string& str);
 
 // Consider switching from AoS to SoA.
 struct Posting

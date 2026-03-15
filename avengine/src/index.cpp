@@ -25,6 +25,18 @@ size_t djb2Hash(char const* str)
   return hash;
 }
 
+size_t djb2Hash(const avengine::string& str)
+{
+  size_t hash = 5381;
+
+  for (size_t i = 0; i < str.size(); ++i)
+  {
+    hash = ((hash << 5) + hash) + static_cast<unsigned char>(str[i]);
+  }
+
+  return hash;
+}
+
 PostingList::PostingList(char const* word, PostingList* nextBucket) : nextBucket(nextBucket)
 
 {
