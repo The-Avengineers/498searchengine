@@ -11,7 +11,7 @@ namespace avengine
 namespace constraint_solver
 {
 
-// Kinds of syntax tree nodes produced by the query parser.
+// Kinds of nodes the parser can build.
 enum class QueryNodeKind
 {
   Invalid,
@@ -21,8 +21,8 @@ enum class QueryNodeKind
   Or,
 };
 
-// Generic syntax tree node for the query language.
-// Different fields are used depending on Kind.
+// One AST node for the query tree.
+// Only some fields matter depending on Kind.
 struct QueryNode
 {
   QueryNodeKind Kind{QueryNodeKind::Invalid};
@@ -33,22 +33,21 @@ struct QueryNode
   vector<QueryNode*> Children;
 };
 
-// Parser error with source offset and human-readable message.
+// Basic parse error with source offset.
 struct ParseError
 {
   size_t Offset{0};
   string Message;
 };
 
-// Result of parsing a query into a syntax tree.
+// What comes back from parsing.
 struct ParseResult
 {
   QueryNode* Root{nullptr};
   vector<ParseError> Errors;
 };
 
-// TODO: Implement recursive cleanup of the entire syntax tree.
-// This should delete all children owned by root and safely accept nullptr.
+// Deletes the whole tree rooted at root.
 void DestroyQueryTree(QueryNode* root);
 
 } // namespace constraint_solver
