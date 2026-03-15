@@ -186,7 +186,7 @@ int main(int argc, char** argv)
   start = clock();
 
   int fd = open("index.sfi", O_WRONLY | O_CREAT, 0644);
-  globalIndex.serialize(fd);
+  globalIndex.index->serialize(fd);
   close(fd);
 
   diff = clock() - start;
