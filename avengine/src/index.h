@@ -1,6 +1,6 @@
 #pragma once
-#include <avengine/avengine_lib/string.h>
 #include "avengine/vector.h"
+#include <avengine/avengine_lib/string.h>
 #include <cstddef>
 #include <cstdint>
 
