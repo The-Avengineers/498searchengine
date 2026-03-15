@@ -62,7 +62,6 @@ struct Index
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<DocumentMetadata> documentMetadata;
-  pthread_mutex_t writeMutex;
   uint32_t currentDocId = 0;
 
   PostingList* getBucket(avengine::string_slice word);
@@ -84,7 +83,13 @@ struct Index
   void ingest(avengine::string_slice word);
 };
 
-extern Index globalIndex;
+struct IndexSlot
+{
+  Index* index;
+  pthread_mutex_t mutex;
+};
+
+extern IndexSlot globalIndex;
 
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.

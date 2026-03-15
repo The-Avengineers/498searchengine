@@ -157,11 +157,11 @@ void testIndexDocumentTokenization()
   const size_t words = indexDocument(meta, phrases);
 
   EXPECT(words == 4u);
-  EXPECT(globalIndex.documentMetadata.size() == 1);
+  EXPECT(globalIndex.index->documentMetadata.size() == 1);
 
-  PostingList* alpha = globalIndex.getBucket("alpha");
-  PostingList* beta = globalIndex.getBucket("beta");
-  PostingList* gamma = globalIndex.getBucket("gamma");
+  PostingList* alpha = globalIndex.index->getBucket("alpha");
+  PostingList* beta = globalIndex.index->getBucket("beta");
+  PostingList* gamma = globalIndex.index->getBucket("gamma");
 
   EXPECT(alpha->postings.size() == 1);
   EXPECT(alpha->postings[0].termFreq == 2u);
@@ -273,7 +273,7 @@ void testSerializationHeaderAndSkipPointers()
 
 struct ConcurrentThreadArgs
 {
-  Index* index;
+  IndexSlot* slot;
   int wordCount;
   uint32_t docId;
 };
@@ -281,10 +281,13 @@ struct ConcurrentThreadArgs
 static void* concurrentIngestThread(void* arg)
 {
   ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
-  a->docId = a->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
+  pthread_mutex_lock(&a->slot->mutex);
+  a->docId =
+      a->slot->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
   for (int i = 0; i < a->wordCount; ++i)
-    a->index->ingest("token");
-  a->index->endDocument();
+    a->slot->index->ingest("token");
+  a->slot->index->endDocument();
+  pthread_mutex_unlock(&a->slot->mutex);
   return nullptr;
 }
 
@@ -295,23 +298,23 @@ void testConcurrentIngest()
   constexpr int kThreads = 8;
   constexpr int kWordsPerDoc = 100;
 
-  Index index;
+  IndexSlot slot = {new Index(), PTHREAD_MUTEX_INITIALIZER};
   ConcurrentThreadArgs args[kThreads];
   pthread_t threads[kThreads];
 
   for (int i = 0; i < kThreads; ++i)
   {
-    args[i] = {&index, kWordsPerDoc, UINT32_MAX};
+    args[i] = {&slot, kWordsPerDoc, UINT32_MAX};
     pthread_create(&threads[i], nullptr, concurrentIngestThread, &args[i]);
   }
   for (int i = 0; i < kThreads; ++i)
     pthread_join(threads[i], nullptr);
 
   // No beginDocument() calls were lost.
-  EXPECT(index.documentMetadata.size() == static_cast<size_t>(kThreads));
+  EXPECT(slot.index->documentMetadata.size() == static_cast<size_t>(kThreads));
 
   // No ingest() offset increments were lost (kWordsPerDoc words + 1 DOCEND per thread).
-  EXPECT(index.offset == static_cast<size_t>(kThreads * (kWordsPerDoc + 1)));
+  EXPECT(slot.index->offset == static_cast<size_t>(kThreads * (kWordsPerDoc + 1)));
 
   // Every assigned docId is unique and in [0, kThreads).
   bool seen[kThreads] = {};
@@ -323,7 +326,7 @@ void testConcurrentIngest()
   }
 
   // All position records were written.
-  PostingList* token = index.getBucket("token");
+  PostingList* token = slot.index->getBucket("token");
   EXPECT(token != nullptr);
   EXPECT(token->positions.size() == static_cast<size_t>(kThreads * kWordsPerDoc));
 
@@ -332,6 +335,9 @@ void testConcurrentIngest()
   for (size_t i = 0; i < token->postings.size(); ++i)
     totalFreq += token->postings[i].termFreq;
   EXPECT(totalFreq == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  delete slot.index;
+  pthread_mutex_destroy(&slot.mutex);
 }
 
 } // namespace
