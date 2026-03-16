@@ -1,8 +1,8 @@
 #include "index.h"
-#include <cassert>
-#include <cctype>
-#include <cstdint>
-#include <cstring>
+
+#include <assert.h>
+#include <ctype.h>
+#include <string.h>
 #include <unistd.h>
 
 namespace
@@ -12,16 +12,6 @@ struct DictEntry
   uint64_t stringOffset;
   uint64_t postingOffset;
 };
-
-static void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
-{
-  while (value >= 0x80u)
-  {
-    out.pushBack(static_cast<uint8_t>((value & 0x7Fu) | 0x80u));
-    value >>= 7;
-  }
-  out.pushBack(static_cast<uint8_t>(value));
-}
 
 static bool seek_to(int fd, off_t offset)
 {
@@ -45,34 +35,43 @@ static bool write_all(int fd, const void* buffer, size_t bytes)
   return true;
 }
 
-// TODO: update instead of start of document to use offset from start of index
-static void encode_field(const avengine::vector<uint32_t>& positions,
-                         avengine::vector<uint8_t>& deltaBuffer,
-                         avengine::vector<uint8_t>& decoratorBuffer, uint64_t& decoratorCount)
+static void encode_positions(const avengine::vector<uint32_t>& positions,
+                             avengine::vector<uint8_t>& deltaBuffer)
 {
   deltaBuffer.clear();
-  decoratorBuffer.clear();
-  decoratorCount = 0;
 
   uint32_t lastPosition = 0;
-  const uint32_t collectionFrequency = static_cast<uint32_t>(positions.size());
-
-  for (uint32_t i = 0; i < collectionFrequency; i++)
+  for (size_t i = 0; i < positions.size(); i++)
   {
     const uint32_t position = positions[i];
     append_var_uint32(deltaBuffer, position - lastPosition);
     lastPosition = position;
   }
 }
+
+static avengine::string decorate_term(char const* word, PhraseKind kind)
+{
+  avengine::string decorated;
+
+  if (kind == PhraseKind::TITLE)
+    decorated.pushBack('#');
+  else if (kind == PhraseKind::URL)
+    decorated.pushBack('/');
+
+  for (const char* p = word; *p; ++p)
+    decorated.pushBack(*p);
+
+  return decorated;
+}
 } // namespace
 
 size_t djb2Hash(char const* str)
 {
   size_t hash = 5381;
-  int c;
+  int c = 0;
 
-  while ((c = *str++))
-    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+  while ((c = *str++) != 0)
+    hash = ((hash << 5) + hash) + static_cast<size_t>(c);
 
   return hash;
 }
@@ -94,31 +93,17 @@ Posting* PostingList::findPosting(uint32_t docId)
   return nullptr;
 }
 
-void PostingList::ingest(uint32_t docId, uint32_t offset, PhraseKind kind)
+void PostingList::ingest(uint32_t docId, uint32_t offset)
 {
   Posting* posting = findPosting(docId);
   if (!posting)
   {
-    postings.pushBack(
-        {.docId = docId, .normalTermFreq = 0, .titleTermFreq = 0, .anchorTermFreq = 0});
+    postings.pushBack({.docId = docId, .termFreq = 0});
     posting = &postings.back();
   }
 
-  switch (kind)
-  {
-  case PhraseKind::NORMAL:
-    posting->normalTermFreq++;
-    normalPositions.pushBack(offset);
-    break;
-  case PhraseKind::TITLE:
-    posting->titleTermFreq++;
-    titlePositions.pushBack(offset);
-    break;
-  case PhraseKind::ANCHOR:
-    posting->anchorTermFreq++;
-    anchorPositions.pushBack(offset);
-    break;
-  }
+  posting->termFreq++;
+  positions.pushBack(offset);
 }
 
 void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
@@ -135,9 +120,7 @@ static void append_bytes(avengine::vector<uint8_t>& out, const void* data, size_
 {
   const uint8_t* bytes = static_cast<const uint8_t*>(data);
   for (size_t i = 0; i < size; i++)
-  {
     out.pushBack(bytes[i]);
-  }
 }
 
 void append_uint64(avengine::vector<uint8_t>& out, uint64_t value)
@@ -145,34 +128,12 @@ void append_uint64(avengine::vector<uint8_t>& out, uint64_t value)
   append_bytes(out, &value, sizeof(uint64_t));
 }
 
-static void append_string(avengine::vector<uint8_t>& out, const char* str)
-{
-  if (!str)
-  {
-    append_var_uint32(out, 0);
-    return;
-  }
-
-  const size_t len = strlen(str);
-  append_var_uint32(out, static_cast<uint32_t>(len));
-  append_bytes(out, str, len);
-}
-
-struct SkipPointer
-{
-  uint32_t positionIndex;
-  uint32_t positionValue;
-  uint32_t byteOffset;
-};
-
 PostingList* Index::getBucket(char const* word)
 {
   PostingList** bucket = &buckets[djb2Hash(word) % HASHMAP_SIZE];
 
-  while (*bucket && strcmp((*bucket)->word, word))
-  {
+  while (*bucket && strcmp((*bucket)->word, word) != 0)
     bucket = &(*bucket)->nextBucket;
-  }
 
   if (!*bucket)
   {
@@ -185,165 +146,118 @@ PostingList* Index::getBucket(char const* word)
 
 Index::Index() : buckets(HASHMAP_SIZE)
 {
-  for (PostingList*& bucket : buckets)
-  {
-    bucket = nullptr;
-  }
+  for (size_t i = 0; i < buckets.size(); i++)
+    buckets[i] = nullptr;
 }
 
-// Encodes a single posting list into `out` (cleared on entry):
-//   [doc_freq u64][collection_freq u64][skip_count u64]
-//   [skip stream varint*][position delta stream varint*]
-static void encodePostingList(const PostingList& pl,
-                              const avengine::vector<DocumentMetadata>& docMetadata,
-                              avengine::vector<uint8_t>& out)
+bool Index::serialize(int fd)
 {
-  avengine::vector<uint8_t> deltaBuffer;
-  avengine::vector<SkipPointer> skipPointers;
-  avengine::vector<uint8_t> skipBuffer;
+  const uint64_t uniqueWordsPlusOne = totalUniqWords + 1;
+  const uint64_t tableSlots = uniqueWordsPlusOne * 2;
+  const size_t dictionaryBytes = static_cast<size_t>(tableSlots) * sizeof(DictEntry);
 
-  const uint64_t collectionFrequency = pl.positions.size();
-  const uint32_t skipStride =
-      collectionFrequency > 0 ? static_cast<uint32_t>(std::sqrt(collectionFrequency)) : 0;
-
-  // Encode position list as varint deltas, sampling skip pointers every sqrt(N).
-  uint32_t lastPosition = 0;
-  for (uint32_t i = 0; i < collectionFrequency; i++)
+  DictEntry* dictionary = new DictEntry[tableSlots];
+  for (uint64_t i = 0; i < tableSlots; i++)
   {
-    uint32_t position = pl.positions[i];
-    if (skipStride > 1 && i > 0 && (i % skipStride) == 0)
-    {
-      skipPointers.pushBack({.positionIndex = i,
-                             .positionValue = position,
-                             .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
-    }
-    append_var_uint32(deltaBuffer, position - lastPosition);
-    lastPosition = position;
+    dictionary[i].stringOffset = UINT64_MAX;
+    dictionary[i].postingOffset = UINT64_MAX;
   }
 
-  for (const SkipPointer& skip : skipPointers)
-  {
-    append_var_uint32(skipBuffer, skip.positionIndex);
-    append_var_uint32(skipBuffer, skip.positionValue);
-    append_var_uint32(skipBuffer, skip.byteOffset);
-  }
-
-  // For DOCUMENT_END, serialize document metadata inline in posting order.
-  avengine::vector<uint8_t> metadataBuffer;
-  if (!strcmp(pl.word, DOCEND_TOKEN))
-  {
-    // DOCUMENT_END stores one entry per doc. Its position deltas encode term counts,
-    // and document metadata is serialized inline in posting order.
-    for (const Posting& posting : pl.postings)
-    {
-      assert(posting.docId < docMetadata.size());
-      const DocumentMetadata& doc = docMetadata[posting.docId];
-
-      append_string(metadataBuffer, doc.url);
-      append_string(metadataBuffer, doc.title);
-      append_bytes(metadataBuffer, doc.scores, sizeof(doc.scores));
-    }
-  }
-
-  // Header: [doc_frequency u64][collection_frequency u64][skip_count u64].
-  out.clear();
-  append_uint64(out, pl.postings.size());
-  append_uint64(out, collectionFrequency);
-  append_uint64(out, skipPointers.size());
-  append_bytes(out, skipBuffer.begin(), skipBuffer.size());
-  append_bytes(out, deltaBuffer.begin(), deltaBuffer.size());
-  append_bytes(out, metadataBuffer.begin(), metadataBuffer.size());
-}
-
-void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer)
-{
+  avengine::vector<char> stringBuffer;
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
     PostingList* bucket = buckets[i];
-
     while (bucket)
     {
       uint64_t hash = djb2Hash(bucket->word) % tableSlots;
-
-      // Linear probe for an empty slot.
-      // TODO: Benchmark alternative probing strategies when querying the index.
-      while (dict[2 + hash * 2] > 0)
+      while (dictionary[hash].stringOffset != UINT64_MAX)
       {
         hash += 1;
         hash %= tableSlots;
       }
 
-      dict[2 + hash * 2] = stringBuffer.size();
-
-      for (char const* str = bucket->word; *str; str++)
+      dictionary[hash].stringOffset = static_cast<uint64_t>(stringBuffer.size());
+      for (const char* str = bucket->word; *str; ++str)
         stringBuffer.pushBack(*str);
       stringBuffer.pushBack('\0');
 
-      bucket->hash = hash;
+      bucket->hash = static_cast<size_t>(hash);
       bucket = bucket->nextBucket;
     }
   }
-}
 
-bool Index::serialize(int fd)
-{
-  // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
-  // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
-  const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
-  uint64_t* dictionaryBuffer = new uint64_t[needed]();
-
-  // TODO: Write magic bytes to identify file format and version.
-  dictionaryBuffer[0] = documentMetadata.size();
-  dictionaryBuffer[1] = totalUniqWords + 1;
-
-  avengine::vector<char> stringBuffer;
-  buildStringTable(dictionaryBuffer, stringBuffer);
-
-  // TODO: maybe fallocate?
-  if (lseek(fd, needed * sizeof(uint64_t), SEEK_SET) == (off_t)-1)
+  const size_t headerBytes = sizeof(uint64_t) * 4;
+  const size_t postingsStart = headerBytes + dictionaryBytes + stringBuffer.size();
+  if (!seek_to(fd, static_cast<off_t>(postingsStart)))
+  {
+    delete[] dictionary;
     return true;
-  if (write(fd, stringBuffer.begin(), stringBuffer.size()) < 0)
-    return true;
+  }
 
   size_t postingsOffset = 0;
-  avengine::vector<uint8_t> postingBuffer;
+  avengine::vector<uint8_t> deltaBuffer;
 
   for (size_t i = 0; i < HASHMAP_SIZE; i++)
   {
     PostingList* bucket = buckets[i];
-
     while (bucket)
     {
-      dictionaryBuffer[2 + bucket->hash * 2 + 1] = postingsOffset;
+      dictionary[bucket->hash].postingOffset = static_cast<uint64_t>(postingsOffset);
+      encode_positions(bucket->positions, deltaBuffer);
 
-      encodePostingList(*bucket, documentMetadata, postingBuffer);
+      const uint64_t postingHeader[] = {
+          static_cast<uint64_t>(bucket->postings.size()),
+          static_cast<uint64_t>(bucket->positions.size()),
+      };
 
-      if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
+      if (!write_all(fd, postingHeader, sizeof(postingHeader)))
+      {
+        delete[] dictionary;
         return true;
-      postingsOffset += postingBuffer.size();
+      }
 
+      if (!deltaBuffer.empty() && !write_all(fd, deltaBuffer.begin(), deltaBuffer.size()))
+      {
+        delete[] dictionary;
+        return true;
+      }
+
+      postingsOffset += sizeof(postingHeader) + deltaBuffer.size();
       bucket = bucket->nextBucket;
     }
   }
 
-  if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
+  if (!seek_to(fd, 0))
+  {
+    delete[] dictionary;
     return true;
-  if (write(fd, dictionaryBuffer, needed * sizeof(uint64_t)) < 0)
+  }
+
+  const uint64_t fileHeader[] = {INDEX_FILE_MAGIC, INDEX_FILE_VERSION,
+                                 static_cast<uint64_t>(documentNames.size()), uniqueWordsPlusOne};
+
+  if (!write_all(fd, fileHeader, sizeof(fileHeader)) ||
+      !write_all(fd, dictionary, dictionaryBytes) ||
+      (!stringBuffer.empty() && !write_all(fd, stringBuffer.begin(), stringBuffer.size())))
+  {
+    delete[] dictionary;
     return true;
+  }
+
+  delete[] dictionary;
   return false;
 }
 
-uint32_t Index::beginDocument(DocumentMetadata metadata)
+uint32_t Index::beginDocument(const char* url)
 {
-  documentMetadata.pushBack(metadata);
-  currentDocId = static_cast<uint32_t>(documentMetadata.size() - 1);
-  documentStartOffset = offset;
+  documentNames.pushBack(avengine::string(url));
+  currentDocId = static_cast<uint32_t>(documentNames.size() - 1);
   return currentDocId;
 }
 
 void Index::ingest(char const* word)
 {
-  ingest(word, PhraseKind::NORMAL);
+  ingest(word, PhraseKind::BODY);
 }
 
 void Index::ingest(char const* word, PhraseKind kind)
@@ -354,64 +268,39 @@ void Index::ingest(char const* word, PhraseKind kind)
 
 void Index::ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind)
 {
-  PostingList* bucket = getBucket(word);
-
-  switch (kind)
-  {
-  case PhraseKind::NORMAL:
-    bucket->ingest(docId, static_cast<uint32_t>(normalOffset++), kind);
-    break;
-  case PhraseKind::TITLE:
-    bucket->ingest(docId, static_cast<uint32_t>(titleOffset++), kind);
-    break;
-  case PhraseKind::ANCHOR:
-    bucket->ingest(docId, static_cast<uint32_t>(anchorOffset++), kind);
-    break;
-  }
-}
-
-void Index::endDocument()
-{
-  ingest(DOCEND_TOKEN);
+  const avengine::string decorated = decorate_term(word, kind);
+  PostingList* bucket = getBucket(decorated.cstr());
+  bucket->ingest(docId, static_cast<uint32_t>(offset++));
 }
 
 Index globalIndex;
 
-// Walks `text`, lowercases and null-terminates each alpha run in-place, and
-// ingests each resulting token into `idx`. Returns the number of tokens found.
-static size_t tokenizeInto(char* text, Index& idx)
-{
-  size_t words = 0;
-
-  while (*text && !isalpha(*text))
-    text++;
-
-  while (*text)
-  {
-    char const* word = text;
-
-    while (*text && isalpha(*text))
-    {
-      *text = *text | 32;
-      text++;
-    }
-
-    *(text++) = '\0';
-
-    idx.ingest(word);
-    words++;
-
-    while (*text && !isalpha(*text))
-      text++;
-  }
-
-  globalIndex.endDocument();
-  return words;
-}
-
-// TODO: When string slice is merged we should use that everywhere instead of cstrings.
 size_t indexDocument(char const* url, char* phrases)
 {
-  globalIndex.beginDocument({.url = url, .title = url, .scores = {0}});
-  return tokenizeInto(phrases, globalIndex);
+  globalIndex.beginDocument(url);
+  size_t words = 0;
+
+  while (*phrases && !isalpha(static_cast<unsigned char>(*phrases)))
+    phrases++;
+
+  while (*phrases)
+  {
+    char const* word = phrases;
+
+    while (*phrases && isalpha(static_cast<unsigned char>(*phrases)))
+    {
+      *phrases = static_cast<char>(tolower(static_cast<unsigned char>(*phrases)));
+      phrases++;
+    }
+
+    *(phrases++) = '\0';
+
+    globalIndex.ingest(word, PhraseKind::BODY);
+    words++;
+
+    while (*phrases && !isalpha(static_cast<unsigned char>(*phrases)))
+      phrases++;
+  }
+
+  return words;
 }

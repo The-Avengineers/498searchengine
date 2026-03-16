@@ -48,87 +48,79 @@ Posting* findPostingByDoc(PostingList* list, uint32_t docId)
   }
   return nullptr;
 }
+} // namespace
 
 TEST_CASE("Encoding helpers")
 {
   avengine::vector<uint8_t> buf;
 
   append_var_uint32(buf, 0u);
-  EXPECT(buf.size() == 1);
-  EXPECT(buf[0] == 0x00);
+  CHECK(buf.size() == 1);
+  CHECK(buf[0] == 0x00);
 
   buf.clear();
   append_var_uint32(buf, 127u);
-  EXPECT(buf.size() == 1);
-  EXPECT(buf[0] == 0x7F);
+  CHECK(buf.size() == 1);
+  CHECK(buf[0] == 0x7F);
 
   buf.clear();
   append_var_uint32(buf, 128u);
-  EXPECT(buf.size() == 2);
-  EXPECT(buf[0] == 0x80);
-  EXPECT(buf[1] == 0x01);
+  CHECK(buf.size() == 2);
+  CHECK(buf[0] == 0x80);
+  CHECK(buf[1] == 0x01);
 
   buf.clear();
   append_var_uint32(buf, 300u);
-  EXPECT(buf.size() == 2);
-  EXPECT(buf[0] == 0xAC);
-  EXPECT(buf[1] == 0x02);
+  CHECK(buf.size() == 2);
+  CHECK(buf[0] == 0xAC);
+  CHECK(buf[1] == 0x02);
 
   buf.clear();
   const uint64_t expected = 0x0123456789ABCDEFULL;
   append_uint64(buf, expected);
-  EXPECT(buf.size() == 8);
-  EXPECT(readU64LE(buf.begin()) == expected);
+  CHECK(buf.size() == 8);
+  CHECK(readU64LE(buf.begin()) == expected);
 }
 
-TEST_CASE("PostingList ingest tracks fields")
+TEST_CASE("PostingList ingest tracks one position stream")
 {
   PostingList list("alpha", nullptr);
 
-  list.ingest(2u, 10u, PhraseKind::NORMAL);
-  list.ingest(2u, 42u, PhraseKind::TITLE);
-  list.ingest(9u, 100u, PhraseKind::ANCHOR);
+  list.ingest(2u, 10u);
+  list.ingest(2u, 42u);
+  list.ingest(9u, 100u);
 
   CHECK(std::strcmp(list.word, "alpha") == 0);
   CHECK(list.nextBucket == nullptr);
 
   REQUIRE(list.postings.size() == 2);
   CHECK(list.postings[0].docId == 2u);
-  CHECK(list.postings[0].normalTermFreq == 1u);
-  CHECK(list.postings[0].titleTermFreq == 1u);
-  CHECK(list.postings[0].anchorTermFreq == 0u);
-
+  CHECK(list.postings[0].termFreq == 2u);
   CHECK(list.postings[1].docId == 9u);
-  CHECK(list.postings[1].normalTermFreq == 0u);
-  CHECK(list.postings[1].titleTermFreq == 0u);
-  CHECK(list.postings[1].anchorTermFreq == 1u);
+  CHECK(list.postings[1].termFreq == 1u);
 
-  CHECK(list.normalPositions.size() == 1);
-  CHECK(list.normalPositions[0] == 10u);
-  CHECK(list.titlePositions.size() == 1);
-  CHECK(list.titlePositions[0] == 42u);
-  CHECK(list.anchorPositions.size() == 1);
-  CHECK(list.anchorPositions[0] == 100u);
+  REQUIRE(list.positions.size() == 3u);
+  CHECK(list.positions[0] == 10u);
+  CHECK(list.positions[1] == 42u);
+  CHECK(list.positions[2] == 100u);
 }
 
 TEST_CASE("Index ingest across documents")
 {
   Index index;
 
-  EXPECT(index.beginDocument({.url = "doc://0", .title = "Doc 0", .scores = {1, 2, 3, 4, 5}}) ==
-         0u);
+  CHECK(index.beginDocument("doc://0") == 0u);
   index.ingest("apple");
   index.ingest("banana");
   index.ingest("apple");
 
-  EXPECT(index.beginDocument({.url = "doc://1", .title = "Doc 1", .scores = {5, 4, 3, 2, 1}}) ==
-         1u);
+  CHECK(index.beginDocument("doc://1") == 1u);
   index.ingest("apple");
 
-  EXPECT(index.documentMetadata.size() == 2);
-  EXPECT(index.currentDocId == 1u);
-  EXPECT(index.totalUniqWords == 2u);
-  EXPECT(index.offset == 4u);
+  CHECK(index.documentNames.size() == 2u);
+  CHECK(index.currentDocId == 1u);
+  CHECK(index.totalUniqWords == 2u);
+  CHECK(index.offset == 4u);
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
@@ -137,111 +129,101 @@ TEST_CASE("Index ingest across documents")
   Posting* appleDoc1 = findPostingByDoc(apple, 1u);
   REQUIRE(appleDoc0 != nullptr);
   REQUIRE(appleDoc1 != nullptr);
-  CHECK(appleDoc0->normalTermFreq == 2u);
-  CHECK(appleDoc1->normalTermFreq == 1u);
-  CHECK(appleDoc0->titleTermFreq == 0u);
-  CHECK(appleDoc1->anchorTermFreq == 0u);
+  CHECK(appleDoc0->termFreq == 2u);
+  CHECK(appleDoc1->termFreq == 1u);
 
-  CHECK(apple->normalPositions.size() == 3);
-  CHECK(apple->normalPositions[0] == 0u);
-  CHECK(apple->normalPositions[1] == 2u);
-  CHECK(apple->normalPositions[2] == 3u);
+  REQUIRE(apple->positions.size() == 3u);
+  CHECK(apple->positions[0] == 0u);
+  CHECK(apple->positions[1] == 2u);
+  CHECK(apple->positions[2] == 3u);
 
   Posting* bananaDoc0 = findPostingByDoc(banana, 0u);
   REQUIRE(bananaDoc0 != nullptr);
-  CHECK(bananaDoc0->normalTermFreq == 1u);
-  CHECK(banana->normalPositions.size() == 1);
-  CHECK(banana->normalPositions[0] == 1u);
+  CHECK(bananaDoc0->termFreq == 1u);
+  REQUIRE(banana->positions.size() == 1u);
+  CHECK(banana->positions[0] == 1u);
 }
 
-TEST_CASE("Anchor target assignment and field isolation")
+TEST_CASE("Decorated terms isolate body title and url")
 {
   Index index;
 
   const uint32_t docA = index.beginDocument("http://a.test/");
   const uint32_t docB = index.beginDocument("http://b.test/");
 
-  index.ingestIntoDocument(docA, "search", PhraseKind::NORMAL);
+  index.ingestIntoDocument(docA, "search", PhraseKind::BODY);
   index.ingestIntoDocument(docA, "search", PhraseKind::TITLE);
-  index.ingestIntoDocument(docB, "search", PhraseKind::ANCHOR);
-  index.ingestIntoDocument(docB, "search", PhraseKind::ANCHOR);
+  index.ingestIntoDocument(docB, "search", PhraseKind::URL);
+  index.ingestIntoDocument(docB, "search", PhraseKind::URL);
 
-  PostingList* search = index.getBucket("search");
-  Posting* postingA = findPostingByDoc(search, docA);
-  Posting* postingB = findPostingByDoc(search, docB);
+  PostingList* body = index.getBucket("search");
+  PostingList* title = index.getBucket("#search");
+  PostingList* url = index.getBucket("/search");
 
-  REQUIRE(postingA != nullptr);
-  REQUIRE(postingB != nullptr);
+  Posting* bodyPosting = findPostingByDoc(body, docA);
+  Posting* titlePosting = findPostingByDoc(title, docA);
+  Posting* urlPosting = findPostingByDoc(url, docB);
 
-  CHECK(postingA->normalTermFreq == 1u);
-  CHECK(postingA->titleTermFreq == 1u);
-  CHECK(postingA->anchorTermFreq == 0u);
+  REQUIRE(bodyPosting != nullptr);
+  REQUIRE(titlePosting != nullptr);
+  REQUIRE(urlPosting != nullptr);
 
-  CHECK(postingB->normalTermFreq == 0u);
-  CHECK(postingB->titleTermFreq == 0u);
-  CHECK(postingB->anchorTermFreq == 2u);
+  CHECK(bodyPosting->termFreq == 1u);
+  CHECK(titlePosting->termFreq == 1u);
+  CHECK(urlPosting->termFreq == 2u);
 
-  CHECK(search->normalPositions.size() == 1u);
-  CHECK(search->titlePositions.size() == 1u);
-  CHECK(search->anchorPositions.size() == 2u);
+  CHECK(findPostingByDoc(body, docB) == nullptr);
+  CHECK(findPostingByDoc(title, docB) == nullptr);
+  CHECK(findPostingByDoc(url, docA) == nullptr);
 
-  CHECK(index.normalOffset == 1u);
-  CHECK(index.titleOffset == 1u);
-  CHECK(index.anchorOffset == 2u);
+  CHECK(body->positions.size() == 1u);
+  CHECK(title->positions.size() == 1u);
+  CHECK(url->positions.size() == 2u);
+  CHECK(index.offset == 4u);
 }
 
-TEST_CASE("indexDocument tokenization")
+TEST_CASE("indexDocument tokenization indexes body terms")
 {
+  const uint32_t docId = static_cast<uint32_t>(globalIndex.documentNames.size());
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
   const size_t words = indexDocument("doc://tokenized", text);
 
-  EXPECT(words == 4u);
-  EXPECT(globalIndex.documentMetadata.size() == 1);
+  CHECK(words == 4u);
+  CHECK(globalIndex.documentNames.size() >= static_cast<size_t>(docId + 1u));
 
   PostingList* alpha = globalIndex.getBucket("alpha");
   PostingList* beta = globalIndex.getBucket("beta");
   PostingList* gamma = globalIndex.getBucket("gamma");
 
-  Posting* alphaPosting = findPostingByDoc(alpha, 0u);
-  Posting* betaPosting = findPostingByDoc(beta, 0u);
-  Posting* gammaPosting = findPostingByDoc(gamma, 0u);
+  Posting* alphaPosting = findPostingByDoc(alpha, docId);
+  Posting* betaPosting = findPostingByDoc(beta, docId);
+  Posting* gammaPosting = findPostingByDoc(gamma, docId);
 
   REQUIRE(alphaPosting != nullptr);
   REQUIRE(betaPosting != nullptr);
   REQUIRE(gammaPosting != nullptr);
 
-  CHECK(alphaPosting->normalTermFreq == 2u);
-  CHECK(betaPosting->normalTermFreq == 1u);
-  CHECK(gammaPosting->normalTermFreq == 1u);
-
-  CHECK(alpha->normalPositions.size() >= 2);
-  CHECK(alpha->normalPositions[0] == 0u);
-  CHECK(alpha->normalPositions[1] == 2u);
-  CHECK(beta->normalPositions.size() >= 1);
-  CHECK(beta->normalPositions[0] == 1u);
-  CHECK(gamma->normalPositions.size() >= 1);
-  CHECK(gamma->normalPositions[0] == 3u);
+  CHECK(alphaPosting->termFreq == 2u);
+  CHECK(betaPosting->termFreq == 1u);
+  CHECK(gammaPosting->termFreq == 1u);
 }
 
-TEST_CASE("v3 serialization header and field sections")
+TEST_CASE("v4 serialization stays compact")
 {
   Index index;
-  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .scores = {0}});
+  index.beginDocument("doc://serialize");
+
   for (uint32_t i = 0; i < 10u; ++i)
-    index.ingest("alpha", PhraseKind::NORMAL);
-  for (uint32_t i = 0; i < 2u; ++i)
-    index.ingest("alpha", PhraseKind::TITLE);
-  for (uint32_t i = 0; i < 3u; ++i)
-    index.ingest("alpha", PhraseKind::ANCHOR);
+    index.ingest("alpha", PhraseKind::BODY);
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
   REQUIRE(fd >= 0);
 
-  index.serialize(fd);
+  CHECK(index.serialize(fd) == false);
   CHECK(close(fd) == 0);
 
-  struct stat st;
+  struct stat st = {};
   REQUIRE(stat(pathTemplate, &st) == 0);
   REQUIRE(st.st_size > 0);
 
@@ -267,43 +249,28 @@ TEST_CASE("v3 serialization header and field sections")
   CHECK(unlink(pathTemplate) == 0);
 
   CHECK(readU64LE(bytes) == INDEX_FILE_MAGIC);
-  CHECK(readU64LE(bytes + 8) == INDEX_FILE_VERSION_V3);
+  CHECK(readU64LE(bytes + 8) == INDEX_FILE_VERSION);
   CHECK(readU64LE(bytes + 16) == 1u);
   const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
   CHECK(uniqueWordsPlusOne == 2u);
-  CHECK(readU64LE(bytes + 32) == INDEX_FILE_FIELD_COUNT);
 
-  const size_t dictionaryBytes = static_cast<size_t>(40u + (uniqueWordsPlusOne * 2u * 16u));
+  const size_t dictionaryBytes = static_cast<size_t>(32u + (uniqueWordsPlusOne * 2u * 16u));
   const size_t stringBytes = std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  REQUIRE(fileSize >= postingsStart + 56u);
+  REQUIRE(fileSize >= postingsStart + 16u);
 
   const uint8_t* posting = bytes + postingsStart;
   CHECK(readU64LE(posting) == 1u);
   CHECK(readU64LE(posting + 8) == 10u);
-  CHECK(readU64LE(posting + 16) == 2u);
-  CHECK(readU64LE(posting + 24) == 3u);
-  CHECK(readU64LE(posting + 32) == 0u);
-  CHECK(readU64LE(posting + 40) == 0u);
-  CHECK(readU64LE(posting + 48) == 0u);
 
-  const uint8_t* cursor = posting + 56u;
+  const uint8_t* cursor = posting + 16u;
   const uint8_t* end = bytes + fileSize;
 
   CHECK(readVarU32(cursor, end) == 0u);
   for (int i = 0; i < 9; ++i)
     CHECK(readVarU32(cursor, end) == 1u);
 
-  CHECK(readVarU32(cursor, end) == 0u);
-  CHECK(readVarU32(cursor, end) == 1u);
-
-  CHECK(readVarU32(cursor, end) == 0u);
-  CHECK(readVarU32(cursor, end) == 1u);
-  CHECK(readVarU32(cursor, end) == 1u);
-
   CHECK(cursor == end);
   std::free(bytes);
 }
-
-} // namespace

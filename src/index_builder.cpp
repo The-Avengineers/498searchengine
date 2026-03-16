@@ -1,53 +1,52 @@
 #include "index.h"
+
 #include <avengine/crawler/url_normalizer.h>
 #include <avengine/html_parser/HtmlParser.h>
 
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace
 {
-struct AvStringHash
+struct IndexedDocument
 {
-  size_t operator()(const avengine::string& value) const
+  avengine::string url;
+  avengine::string content;
+};
+
+struct TokenCounts
+{
+  size_t body = 0;
+  size_t title = 0;
+  size_t url = 0;
+
+  void add(const TokenCounts& other)
   {
-    return djb2Hash(value.cstr());
+    body += other.body;
+    title += other.title;
+    url += other.url;
   }
 };
 
-using StringToDocIdMap = std::unordered_map<avengine::string, uint32_t, AvStringHash>;
-using StringSet = std::unordered_set<avengine::string, AvStringHash>;
-
-struct PendingLink
-{
-  uint32_t sourceDocId;
-  avengine::string sourceUrl;
-  avengine::string baseUrl;
-  avengine::string href;
-  avengine::vector<avengine::string> anchorText;
-};
-
-static size_t tokenize_and_ingest_current(const avengine::string& input, PhraseKind kind)
+static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind)
 {
   size_t ingested = 0;
   avengine::string token;
 
-  for (char c : input)
+  for (size_t i = 0; i < input.size(); i++)
   {
-    if (std::isalpha(static_cast<unsigned char>(c)))
+    const unsigned char c = static_cast<unsigned char>(input[i]);
+    if (isalpha(c))
     {
-      token.pushBack(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      token.pushBack(static_cast<char>(tolower(c)));
       continue;
     }
 
@@ -68,47 +67,7 @@ static size_t tokenize_and_ingest_current(const avengine::string& input, PhraseK
   return ingested;
 }
 
-static size_t
-tokenize_and_ingest_into_document(uint32_t docId, const avengine::string& input, PhraseKind kind,
-                                  StringSet* dedupTokens = nullptr)
-{
-  size_t ingested = 0;
-  avengine::string token;
-
-  auto flush_token = [&]()
-  {
-    if (token.size() == 0)
-      return;
-
-    if (dedupTokens && !dedupTokens->insert(token).second)
-    {
-      token = avengine::string();
-      return;
-    }
-
-    globalIndex.ingestIntoDocument(docId, token.cstr(), kind);
-    ingested++;
-    token = avengine::string();
-  };
-
-  for (char c : input)
-  {
-    if (std::isalpha(static_cast<unsigned char>(c)))
-    {
-      token.pushBack(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    }
-    else
-    {
-      flush_token();
-    }
-  }
-  flush_token();
-
-  return ingested;
-}
-
-static void parseTabFile(char* content, size_t length,
-                         std::vector<std::pair<avengine::string, avengine::string>>& documents)
+static void parse_tab_file(char* content, size_t length, avengine::vector<IndexedDocument>& documents)
 {
   char* lineStart = content;
   for (size_t i = 0; i <= length; i++)
@@ -117,13 +76,14 @@ static void parseTabFile(char* content, size_t length,
       continue;
 
     content[i] = '\0';
-    if (*lineStart)
+    if (*lineStart != '\0')
     {
-      char* tab = std::strchr(lineStart, '\t');
+      char* tab = strchr(lineStart, '\t');
       if (tab)
       {
         *tab = '\0';
-        documents.emplace_back(avengine::string(lineStart), avengine::string(tab + 1));
+        documents.pushBack({.url = avengine::string(lineStart),
+                            .content = avengine::string(tab + 1)});
       }
     }
 
@@ -131,7 +91,7 @@ static void parseTabFile(char* content, size_t length,
   }
 }
 
-static char* memoryMapFile(char const* filename, size_t& length)
+static char* read_file(char const* filename, size_t& length)
 {
   int fd = open(filename, O_RDONLY);
   if (fd == -1)
@@ -145,8 +105,7 @@ static char* memoryMapFile(char const* filename, size_t& length)
   }
 
   length = static_cast<size_t>(sb.st_size);
-
-  char* data = static_cast<char*>(std::malloc(length + 1));
+  char* data = static_cast<char*>(malloc(length + 1));
   if (!data)
   {
     close(fd);
@@ -156,10 +115,10 @@ static char* memoryMapFile(char const* filename, size_t& length)
   size_t totalRead = 0;
   while (totalRead < length)
   {
-    ssize_t n = read(fd, data + totalRead, length - totalRead);
+    const ssize_t n = read(fd, data + totalRead, length - totalRead);
     if (n <= 0)
     {
-      std::free(data);
+      free(data);
       close(fd);
       return nullptr;
     }
@@ -171,7 +130,7 @@ static char* memoryMapFile(char const* filename, size_t& length)
   return data;
 }
 
-static bool isDirectory(char const* path)
+static bool is_directory(char const* path)
 {
   if (!path)
     return false;
@@ -183,106 +142,50 @@ static bool isDirectory(char const* path)
   return S_ISDIR(s.st_mode);
 }
 
-static void listFiles(const char* dir, std::vector<avengine::string>& files)
+static void list_files(const char* dir, avengine::vector<avengine::string>& files)
 {
-  DIR* dr;
-  struct dirent* en;
-  dr = opendir(dir);
-  if (dr)
+  DIR* dr = opendir(dir);
+  if (!dr)
+    return;
+
+  struct dirent* en = nullptr;
+  while ((en = readdir(dr)) != nullptr)
   {
-    while ((en = readdir(dr)) != nullptr)
-    {
-      if (en->d_name[0] != '.')
-        files.emplace_back(en->d_name);
-    }
-    closedir(dr);
+    if (en->d_name[0] != '.')
+      files.pushBack(avengine::string(en->d_name));
   }
+
+  closedir(dr);
 }
 
-static size_t
-indexDocumentWithHtmlAndCollectAnchors(avengine::crawler::URLNormalizer& normalizer,
+static TokenCounts index_html_document(avengine::crawler::URLNormalizer& normalizer,
                                        const avengine::string& url, const char* content,
-                                       size_t length, StringToDocIdMap& urlToDocId,
-                                       std::vector<PendingLink>& pendingLinks)
+                                       size_t length)
 {
-  const uint32_t docId = globalIndex.beginDocument(url.cstr());
-
   avengine::string canonicalUrl = normalizer.normalizeIndividual(url);
   if (canonicalUrl.size() == 0)
     canonicalUrl = url;
 
-  urlToDocId[canonicalUrl] = docId;
-  urlToDocId[url] = docId;
+  globalIndex.beginDocument(canonicalUrl.cstr());
 
   avengine::HtmlParser parser(content, length);
 
-  size_t tokens = 0;
-  for (const avengine::string& word : parser.words)
-    tokens += tokenize_and_ingest_current(word, PhraseKind::NORMAL);
+  TokenCounts counts = {};
+  for (size_t i = 0; i < parser.words.size(); i++)
+    counts.body += tokenize_and_ingest(parser.words[i], PhraseKind::BODY);
 
-  for (const avengine::string& word : parser.titleWords)
-    tokens += tokenize_and_ingest_current(word, PhraseKind::TITLE);
+  for (size_t i = 0; i < parser.titleWords.size(); i++)
+    counts.title += tokenize_and_ingest(parser.titleWords[i], PhraseKind::TITLE);
 
-  avengine::string baseForResolve = canonicalUrl;
-  if (parser.base.size() != 0)
-  {
-    baseForResolve = normalizer.normalize(canonicalUrl, parser.base);
-    if (baseForResolve.size() == 0)
-      baseForResolve = canonicalUrl;
-  }
-
-  for (const avengine::Link& link : parser.links)
-  {
-    PendingLink pending;
-    pending.sourceDocId = docId;
-    pending.sourceUrl = canonicalUrl;
-    pending.baseUrl = baseForResolve;
-    pending.href = link.URL;
-    for (const avengine::string& word : link.anchorText)
-      pending.anchorText.pushBack(word);
-    pendingLinks.push_back(std::move(pending));
-  }
-
-  return tokens;
-}
-
-static size_t indexAnchorTextToTargets(avengine::crawler::URLNormalizer& normalizer,
-                                       const StringToDocIdMap& urlToDocId,
-                                       const std::vector<PendingLink>& pendingLinks)
-{
-  size_t anchorTokens = 0;
-
-  for (const PendingLink& pending : pendingLinks)
-  {
-    avengine::string targetUrl = normalizer.normalize(pending.baseUrl, pending.href);
-    if (targetUrl.size() == 0)
-      continue;
-
-    auto targetIt = urlToDocId.find(targetUrl);
-    if (targetIt == urlToDocId.end())
-    {
-      avengine::string canonicalTarget = normalizer.normalizeIndividual(targetUrl);
-      targetIt = urlToDocId.find(canonicalTarget);
-      if (targetIt == urlToDocId.end())
-        continue;
-    }
-
-    StringSet dedupTokens;
-    for (const avengine::string& word : pending.anchorText)
-    {
-      anchorTokens += tokenize_and_ingest_into_document(targetIt->second, word, PhraseKind::ANCHOR,
-                                                        &dedupTokens);
-    }
-  }
-
-  return anchorTokens;
+  counts.url += tokenize_and_ingest(canonicalUrl, PhraseKind::URL);
+  return counts;
 }
 
 static void usage(const char* program)
 {
-  std::fprintf(stderr, "Usage:\n");
-  std::fprintf(stderr, "  %s <directory>\n", program);
-  std::fprintf(stderr, "  %s <verses.txt>\n", program);
+  fprintf(stderr, "Usage:\n");
+  fprintf(stderr, "  %s <directory>\n", program);
+  fprintf(stderr, "  %s <verses.txt>\n", program);
 }
 } // namespace
 
@@ -295,80 +198,78 @@ int main(int argc, char** argv)
   }
 
   avengine::crawler::URLNormalizer normalizer;
-  StringToDocIdMap urlToDocId;
-  std::vector<PendingLink> pendingLinks;
+  TokenCounts total = {};
 
-  clock_t start = clock();
-  size_t bodyAndTitleTokens = 0;
-
-  const bool inputIsDirectory = isDirectory(argv[1]);
+  const clock_t start = clock();
+  const bool inputIsDirectory = is_directory(argv[1]);
 
   if (inputIsDirectory)
   {
-    std::vector<avengine::string> files;
-    listFiles(argv[1], files);
+    avengine::vector<avengine::string> files;
+    list_files(argv[1], files);
 
-    for (const avengine::string& file : files)
+    for (size_t i = 0; i < files.size(); i++)
     {
       char filepath[256];
-      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file.cstr());
+      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], files[i].cstr());
 
       size_t length = 0;
-      char* content = memoryMapFile(filepath, length);
+      char* content = read_file(filepath, length);
       if (!content)
       {
-        std::fprintf(stderr, "Failed to load file: %s\n", filepath);
+        fprintf(stderr, "Failed to load file: %s\n", filepath);
         return 1;
       }
 
-      bodyAndTitleTokens +=
-          indexDocumentWithHtmlAndCollectAnchors(normalizer, file, content, length, urlToDocId,
-                                                 pendingLinks);
-
-      std::free(content);
+      total.add(index_html_document(normalizer, files[i], content, length));
+      free(content);
     }
   }
   else
   {
     size_t length = 0;
-    char* content = memoryMapFile(argv[1], length);
+    char* content = read_file(argv[1], length);
     if (!content)
     {
-      std::fprintf(stderr, "Failed to load file: %s\n", argv[1]);
+      fprintf(stderr, "Failed to load file: %s\n", argv[1]);
       return 1;
     }
 
-    std::vector<std::pair<avengine::string, avengine::string>> documents;
-    parseTabFile(content, length, documents);
+    avengine::vector<IndexedDocument> documents;
+    parse_tab_file(content, length, documents);
 
-    for (const auto& doc : documents)
+    for (size_t i = 0; i < documents.size(); i++)
     {
-      bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(
-          normalizer, doc.first, doc.second.cstr(), doc.second.size(), urlToDocId, pendingLinks);
+      total.add(index_html_document(normalizer, documents[i].url, documents[i].content.cstr(),
+                                    documents[i].content.size()));
     }
 
-    std::free(content);
+    free(content);
   }
-
-  size_t anchorTokens = indexAnchorTextToTargets(normalizer, urlToDocId, pendingLinks);
 
   clock_t diff = clock() - start;
   int msec = static_cast<int>(diff * 1000 / CLOCKS_PER_SEC);
   printf("Done building index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
-  printf("Indexed %zu body/title tokens and %zu anchor tokens\n", bodyAndTitleTokens, anchorTokens);
+  printf("Indexed %zu body tokens, %zu title tokens, %zu url tokens\n", total.body, total.title,
+         total.url);
 
-  start = clock();
-
+  const clock_t writeStart = clock();
   int fd = open("index.sfi", O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0)
   {
-    std::perror("open");
+    perror("open");
     return 1;
   }
-  globalIndex.serialize(fd);
+
+  if (globalIndex.serialize(fd))
+  {
+    close(fd);
+    fprintf(stderr, "Failed to write index.sfi\n");
+    return 1;
+  }
   close(fd);
 
-  diff = clock() - start;
+  diff = clock() - writeStart;
   msec = static_cast<int>(diff * 1000 / CLOCKS_PER_SEC);
   printf("Done writing index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
 
