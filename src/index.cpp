@@ -14,22 +14,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-size_t djb2Hash(char const* str)
+size_t djb2Hash(avengine::string_slice str)
 {
   size_t hash = 5381;
-  int c;
 
-  while ((c = *str++))
-    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+  for (size_t i = 0; i < str.size(); i++)
+    hash = ((hash << 5) + hash) + static_cast<unsigned char>(str[i]); /* hash * 33 + c */
 
   return hash;
 }
 
-PostingList::PostingList(char const* word, PostingList* nextBucket) : nextBucket(nextBucket)
-
+PostingList::PostingList(avengine::string_slice word, PostingList* nextBucket)
+    : nextBucket(nextBucket)
 {
-  this->word = new char[strlen(word) + 1]();
-  strcpy(this->word, word);
+  this->word = word.toString();
 }
 
 void PostingList::ingest(uint32_t docId, size_t offset)
@@ -69,17 +67,11 @@ void append_uint64(avengine::vector<uint8_t>& out, uint64_t value)
   append_bytes(out, &value, sizeof(uint64_t));
 }
 
-static void append_string(avengine::vector<uint8_t>& out, const char* str)
+static void append_string(avengine::vector<uint8_t>& out, const avengine::string& str)
 {
-  if (!str)
-  {
-    append_var_uint32(out, 0);
-    return;
-  }
-
-  const size_t len = strlen(str);
+  const size_t len = str.size();
   append_var_uint32(out, static_cast<uint32_t>(len));
-  append_bytes(out, str, len);
+  append_bytes(out, str.begin(), len);
 }
 
 struct SkipPointer
@@ -89,11 +81,11 @@ struct SkipPointer
   uint32_t byteOffset;
 };
 
-PostingList* Index::getBucket(char const* word)
+PostingList* Index::getBucket(avengine::string_slice word)
 {
   PostingList** bucket = &buckets[djb2Hash(word) % HASHMAP_SIZE];
 
-  while (*bucket && strcmp((*bucket)->word, word))
+  while (*bucket && avengine::string_slice((*bucket)->word) != word)
   {
     bucket = &(*bucket)->nextBucket;
   }
@@ -154,7 +146,7 @@ static void encodePostingList(const PostingList& pl,
 
   // For DOCUMENT_END, serialize document metadata inline in posting order.
   avengine::vector<uint8_t> metadataBuffer;
-  if (!strcmp(pl.word, DOCEND_TOKEN))
+  if (pl.word == avengine::string(DOCEND_TOKEN))
   {
     // DOCUMENT_END stores one entry per doc. Its position deltas encode term counts,
     // and document metadata is serialized inline in posting order.
@@ -187,7 +179,8 @@ void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffe
 
     while (bucket)
     {
-      size_t hash = djb2Hash(bucket->word) % (totalUniqWords * 2);
+      avengine::string_slice wordSlice(bucket->word);
+      size_t hash = djb2Hash(wordSlice) % (totalUniqWords * 2);
 
       // Linear probe for an empty slot.
       // TODO: Benchmark alternative probing strategies when querying the index.
@@ -199,8 +192,8 @@ void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffe
 
       dict[2 + hash * 2] = stringBuffer.size();
 
-      for (char const* str = bucket->word; *str; str++)
-        stringBuffer.pushBack(*str);
+      for (size_t i = 0; i < bucket->word.size(); i++)
+        stringBuffer.pushBack(bucket->word[i]);
       stringBuffer.pushBack('\0');
 
       bucket->hash = hash;
@@ -264,7 +257,7 @@ uint32_t Index::beginDocument(DocumentMetadata metadata)
   return currentDocId;
 }
 
-void Index::ingest(char const* word)
+void Index::ingest(avengine::string_slice word)
 {
   assert(currentDocId != UINT32_MAX);
   PostingList* bucket = getBucket(word);
@@ -279,41 +272,39 @@ void Index::endDocument()
 
 Index globalIndex;
 
-// Walks `text`, lowercases and null-terminates each alpha run in-place, and
+// Walks `text`, lowercases each alpha run in-place via the mutable slice, and
 // ingests each resulting token into `idx`. Returns the number of tokens found.
-static size_t tokenizeInto(char* text, Index& idx)
+static size_t tokenizeInto(avengine::string_slice text, Index& idx)
 {
   size_t words = 0;
+  size_t i = 0;
 
-  while (*text && !isalpha(*text))
-    text++;
+  while (i < text.size() && !isalpha(text[i]))
+    i++;
 
-  while (*text)
+  while (i < text.size())
   {
-    char const* word = text;
+    size_t wordStart = i;
 
-    while (*text && isalpha(*text))
+    while (i < text.size() && isalpha(text[i]))
     {
-      *text = *text | 32;
-      text++;
+      text[i] = text[i] | 32;
+      i++;
     }
 
-    *(text++) = '\0';
-
-    idx.ingest(word);
+    idx.ingest(text.substr(wordStart, i - wordStart));
     words++;
 
-    while (*text && !isalpha(*text))
-      text++;
+    while (i < text.size() && !isalpha(text[i]))
+      i++;
   }
 
   idx.endDocument();
   return words;
 }
 
-// TODO: When string slice is merged we should use that everywhere instead of cstrings.
-size_t indexDocument(char const* url, char* phrases)
+size_t indexDocument(avengine::string_slice url, avengine::string_slice phrases)
 {
-  globalIndex.beginDocument({.url = url, .title = url, .input = 0});
+  globalIndex.beginDocument({.url = url.toString(), .title = url.toString(), .input = 0});
   return tokenizeInto(phrases, globalIndex);
 }

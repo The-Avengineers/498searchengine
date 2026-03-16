@@ -92,7 +92,7 @@ void testPostingListIngest()
   list.ingest(2u, 42u);
   list.ingest(9u, 100u);
 
-  EXPECT(std::strcmp(list.word, "alpha") == 0);
+  EXPECT(list.word == avengine::string("alpha"));
   EXPECT(list.nextBucket == nullptr);
 
   EXPECT(list.postings.size() == 2);
