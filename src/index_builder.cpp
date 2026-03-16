@@ -67,7 +67,8 @@ static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind
   return ingested;
 }
 
-static void parse_tab_file(char* content, size_t length, avengine::vector<IndexedDocument>& documents)
+static void parse_tab_file(char* content, size_t length,
+                           avengine::vector<IndexedDocument>& documents)
 {
   char* lineStart = content;
   for (size_t i = 0; i <= length; i++)
@@ -82,8 +83,8 @@ static void parse_tab_file(char* content, size_t length, avengine::vector<Indexe
       if (tab)
       {
         *tab = '\0';
-        documents.pushBack({.url = avengine::string(lineStart),
-                            .content = avengine::string(tab + 1)});
+        documents.pushBack(
+            {.url = avengine::string(lineStart), .content = avengine::string(tab + 1)});
       }
     }
 
