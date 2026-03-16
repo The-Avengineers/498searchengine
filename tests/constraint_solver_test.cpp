@@ -6,13 +6,13 @@
 namespace
 {
 using avengine::Dictionary;
+using avengine::ISREndDoc;
+using avengine::ISRWord;
 using avengine::string;
 using avengine::vector;
 using avengine::constraint_solver::ConstraintSolver;
 using avengine::constraint_solver::DocumentMatch;
 using avengine::constraint_solver::IsrSource;
-using avengine::ISRWord;
-using avengine::ISREndDoc;
 
 void fail(const char* expr, int line)
 {
