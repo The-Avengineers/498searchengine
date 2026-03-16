@@ -1,10 +1,10 @@
 #pragma once
 
+#include "avengine/HashTable.h"
+#include "avengine/string.h"
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 
 namespace avengine
 {
@@ -167,90 +167,11 @@ public:
   Location GetDocumentStart() const;
 };
 
-class ISROr : public ISR
-{
-public:
-  ISROr() = default;
-  explicit ISROr(const vector<ISR*>& terms);
-
-  Post* Seek(Location target) override;
-  Post* Next() override;
-  Post* NextDocument();
-  unsigned GetNumberOfOccurrences() const override;
-
-  vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
-
-private:
-  Post* RefreshCurrentFromChildren();
-
-  unsigned nearestTerm_ = 0;
-  Location nearestStartLocation_ = 0;
-  Location nearestEndLocation_ = 0;
-};
-
-class ISRAnd : public ISR
-{
-public:
-  ISRAnd() = default;
-  ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd);
-
-  Post* Seek(Location target) override;
-  Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
-
-  vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
-  ISREndDoc* DocumentEnd = nullptr;
-
-private:
-  unsigned nearestTerm_ = 0;
-  unsigned farthestTerm_ = 0;
-  Location nearestStartLocation_ = 0;
-  Location nearestEndLocation_ = 0;
-};
-
-class ISRPhrase : public ISR
-{
-public:
-  ISRPhrase() = default;
-  explicit ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd = nullptr);
-
-  Post* Seek(Location target) override;
-  Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
-
-  vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
-  ISREndDoc* DocumentEnd = nullptr;
-};
-
-class ISRContainer : public ISR
-{
-public:
-  ISRContainer() = default;
-  ISRContainer(const vector<ISR*>& contained, const vector<ISR*>& excluded, ISREndDoc* endDoc);
-
-  Post* Seek(Location target) override;
-  Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
-
-  vector<ISR*> Contained;
-  vector<ISR*> Excluded;
-  ISREndDoc* EndDoc = nullptr;
-  unsigned CountContained = 0;
-  unsigned CountExcluded = 0;
-
-private:
-  unsigned nearestContained_ = 0;
-  unsigned farthestContained_ = 0;
-  Location nearestStartLocation_ = 0;
-  Location nearestEndLocation_ = 0;
-};
-
 class Dictionary
 {
 public:
+  Dictionary();
+
   void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
   void AddOccurrence(const char* token, Location location);
 
@@ -262,8 +183,9 @@ public:
 
 private:
   vector<DocumentInfo> documents_;
-  std::unordered_map<std::string, vector<Location>> termLocations_;
+  HashTable<string, vector<Location>> termLocations_;
   size_t totalWords_ = 0;
+  size_t uniqueWords_ = 0;
 };
 
 // Incremental reader for one posting field stream. This is the low-level

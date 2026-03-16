@@ -79,8 +79,6 @@ QueryParser::QueryParser(const string& input) : Lexer(input)
   Current = Lexer.Next();
 }
 
-// Parse() processes operators in order from highest to lowest: Primary, Unary, Conjunction, Or
-
 ParseResult QueryParser::Parse()
 {
   Result.Root = nullptr;

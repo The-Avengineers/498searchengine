@@ -15,7 +15,7 @@ void destroyNodeList(vector<QueryNode*>& nodes)
 }
 } // namespace
 
-void DestroyQueryTree(QueryNode* root) // post-order traversal
+void DestroyQueryTree(QueryNode* root)
 {
   if (root == nullptr)
   {

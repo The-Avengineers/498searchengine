@@ -10,7 +10,6 @@ namespace avengine
 namespace constraint_solver
 {
 
-// Token kinds the lexer knows about.
 enum class QueryTokenKind
 {
   Invalid,
@@ -23,7 +22,6 @@ enum class QueryTokenKind
   RightParen,
 };
 
-// One token from the query text.
 struct QueryToken
 {
   QueryTokenKind Kind{QueryTokenKind::Invalid};
@@ -31,17 +29,13 @@ struct QueryToken
   size_t Offset{0};
 };
 
-// Small lexer for words, phrases, and query operators.
 class QueryLexer
 {
 public:
   explicit QueryLexer(const string& input);
 
-  // Look at the next token without moving forward.
   QueryToken Peek() const;
-  // Consume and return the next token.
   QueryToken Next();
-  // True when there is nothing left except whitespace.
   bool AllConsumed() const;
 
 private:

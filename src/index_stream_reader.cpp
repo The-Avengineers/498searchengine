@@ -1,12 +1,24 @@
 #include "avengine/index_stream_reader.h"
 
-#include <algorithm>
-#include <limits>
-
 namespace avengine
 {
 namespace
 {
+static bool strings_equal(const string a, const string b)
+{
+  return a == b;
+}
+
+static uint64_t hash_string(const string value)
+{
+  uint64_t hash = 5381;
+  for (size_t i = 0; i < value.size(); ++i)
+  {
+    hash = ((hash << 5) + hash) + static_cast<unsigned char>(value[i]);
+  }
+  return hash;
+}
+
 static uint64_t read_u64_le(const uint8_t* ptr)
 {
   uint64_t value = 0;
@@ -91,16 +103,21 @@ static Attributes make_word_attributes(const vector<DocumentInfo>& documents, Lo
   return attributes;
 }
 
-static Attributes make_document_attributes(const DocumentInfo& document)
+static size_t lower_bound_index(const vector<Location>& values, Location target)
 {
-  Attributes attributes = {};
-  attributes.kind = Attributes::Kind::DOCUMENT;
-  attributes.Document.documentId = document.documentId;
-  attributes.Document.documentLength =
-      document.end >= document.start ? static_cast<uint32_t>(document.end - document.start + 1) : 0;
-  attributes.Document.titleLength = document.titleLength;
-  attributes.Document.urlLength = document.urlLength;
-  return attributes;
+  size_t left = 0;
+  size_t right = values.size();
+
+  while (left < right)
+  {
+    const size_t mid = left + ((right - left) / 2);
+    if (values[mid] < target)
+      left = mid + 1;
+    else
+      right = mid;
+  }
+
+  return left;
 }
 } // namespace
 
@@ -187,8 +204,8 @@ Post* ISRWord::Seek(Location target)
   if (target == 0)
     target = 1;
 
-  const Location* found = std::lower_bound(occurrences_.begin(), occurrences_.end(), target);
-  if (found == occurrences_.end())
+  const size_t foundIndex = lower_bound_index(occurrences_, target);
+  if (foundIndex >= occurrences_.size())
   {
     currentIndex_ = occurrences_.size();
     exhausted_ = true;
@@ -196,7 +213,7 @@ Post* ISRWord::Seek(Location target)
     return nullptr;
   }
 
-  return SetCurrentFromIndex(static_cast<size_t>(found - occurrences_.begin()));
+  return SetCurrentFromIndex(foundIndex);
 }
 
 Location ISRWord::GetStartLocation() const
@@ -280,418 +297,7 @@ Location ISREndDoc::GetDocumentStart() const
   return doc.start;
 }
 
-ISROr::ISROr(const vector<ISR*>& terms)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
-{
-  RefreshCurrentFromChildren();
-}
-
-Post* ISROr::RefreshCurrentFromChildren()
-{
-  size_t bestIndex = Terms.size();
-  Location bestStart = 0;
-  Location bestEnd = 0;
-  Attributes bestAttributes = {};
-
-  for (size_t i = 0; i < Terms.size(); i++)
-  {
-    ISR* term = Terms[i];
-    if (!term)
-      continue;
-
-    Post* current = term->GetCurrentPost();
-    if (!current)
-      continue;
-
-    const Location start = current->GetStartLocation();
-    const Location end = current->GetEndLocation();
-    if (bestIndex == Terms.size() || start < bestStart || (start == bestStart && end < bestEnd))
-    {
-      bestIndex = i;
-      bestStart = start;
-      bestEnd = end;
-      bestAttributes = current->GetAttributes();
-    }
-  }
-
-  if (bestIndex == Terms.size())
-  {
-    ClearCurrent();
-    nearestTerm_ = 0;
-    nearestStartLocation_ = 0;
-    nearestEndLocation_ = 0;
-    return nullptr;
-  }
-
-  nearestTerm_ = static_cast<unsigned>(bestIndex);
-  nearestStartLocation_ = bestStart;
-  nearestEndLocation_ = bestEnd;
-  return SetCurrent(bestStart, bestEnd, bestAttributes);
-}
-
-Post* ISROr::Seek(Location target)
-{
-  for (ISR* term : Terms)
-  {
-    if (term)
-      term->Seek(target);
-  }
-
-  return RefreshCurrentFromChildren();
-}
-
-Post* ISROr::Next()
-{
-  if (!hasCurrentPost_ || nearestTerm_ >= Terms.size())
-    return nullptr;
-
-  if (Terms[nearestTerm_])
-    Terms[nearestTerm_]->Next();
-
-  return RefreshCurrentFromChildren();
-}
-
-Post* ISROr::NextDocument()
-{
-  if (!hasCurrentPost_)
-    return nullptr;
-
-  return Seek(GetEndLocation() + 1);
-}
-
-unsigned ISROr::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
-}
-
-ISRAnd::ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
-{
-}
-
-Post* ISRAnd::Seek(Location target)
-{
-  if (!DocumentEnd || Terms.empty())
-  {
-    ClearCurrent();
-    return nullptr;
-  }
-
-  if (target == 0)
-    target = 1;
-
-  for (;;)
-  {
-    for (ISR* term : Terms)
-    {
-      if (!term || !term->Seek(target))
-      {
-        ClearCurrent();
-        return nullptr;
-      }
-    }
-
-    for (;;)
-    {
-      Location farthestLocation = 0;
-      farthestTerm_ = 0;
-      for (size_t i = 0; i < Terms.size(); i++)
-      {
-        if (Terms[i]->GetEndLocation() > farthestLocation)
-        {
-          farthestLocation = Terms[i]->GetEndLocation();
-          farthestTerm_ = static_cast<unsigned>(i);
-        }
-      }
-
-      if (!DocumentEnd->Seek(farthestLocation))
-      {
-        ClearCurrent();
-        return nullptr;
-      }
-
-      const Location documentStart = DocumentEnd->GetDocumentStart();
-      const Location documentEnd = DocumentEnd->GetEndLocation();
-      bool retryNextDocument = false;
-      Location nearestLocation = 0;
-      Location farthestMatch = 0;
-      Attributes nearestAttributes = {};
-
-      for (size_t i = 0; i < Terms.size(); i++)
-      {
-        ISR* term = Terms[i];
-        if (!term->Seek(documentStart))
-        {
-          ClearCurrent();
-          return nullptr;
-        }
-
-        if (term->GetStartLocation() > documentEnd)
-        {
-          target = documentEnd + 1;
-          retryNextDocument = true;
-          break;
-        }
-
-        if (nearestLocation == 0 || term->GetStartLocation() < nearestLocation)
-        {
-          nearestLocation = term->GetStartLocation();
-          nearestTerm_ = static_cast<unsigned>(i);
-          nearestAttributes = term->GetCurrentPost()->GetAttributes();
-        }
-
-        if (term->GetEndLocation() > farthestMatch)
-        {
-          farthestMatch = term->GetEndLocation();
-          nearestEndLocation_ = farthestMatch;
-        }
-      }
-
-      if (retryNextDocument)
-        break;
-
-      nearestStartLocation_ = nearestLocation;
-      nearestEndLocation_ = farthestMatch;
-      return SetCurrent(nearestStartLocation_, nearestEndLocation_, nearestAttributes);
-    }
-  }
-}
-
-Post* ISRAnd::Next()
-{
-  if (!hasCurrentPost_)
-    return nullptr;
-
-  return Seek(nearestStartLocation_ + 1);
-}
-
-unsigned ISRAnd::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
-}
-
-ISRPhrase::ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
-{
-}
-
-Post* ISRPhrase::Seek(Location target)
-{
-  if (Terms.empty())
-  {
-    ClearCurrent();
-    return nullptr;
-  }
-
-  if (target == 0)
-    target = 1;
-
-  for (size_t i = 0; i < Terms.size(); i++)
-  {
-    if (!Terms[i] || !Terms[i]->Seek(target + i))
-    {
-      ClearCurrent();
-      return nullptr;
-    }
-  }
-
-  for (;;)
-  {
-    Location minBase = std::numeric_limits<Location>::max();
-    Location maxBase = 0;
-
-    for (size_t i = 0; i < Terms.size(); i++)
-    {
-      const Location start = Terms[i]->GetStartLocation();
-      const Location base = start >= i ? (start - i) : 0;
-      if (base < minBase)
-        minBase = base;
-      if (base > maxBase)
-        maxBase = base;
-    }
-
-    if (minBase == maxBase)
-    {
-      const Location phraseStart = maxBase;
-      const Location phraseEnd = phraseStart + Terms.size() - 1;
-
-      if (DocumentEnd)
-      {
-        if (!DocumentEnd->Seek(phraseEnd))
-        {
-          ClearCurrent();
-          return nullptr;
-        }
-
-        if (phraseStart < DocumentEnd->GetDocumentStart())
-        {
-          target = DocumentEnd->GetDocumentStart();
-          for (size_t i = 0; i < Terms.size(); i++)
-          {
-            if (!Terms[i]->Seek(target + i))
-            {
-              ClearCurrent();
-              return nullptr;
-            }
-          }
-          continue;
-        }
-      }
-
-      return SetCurrent(phraseStart, phraseEnd, Terms[0]->GetCurrentPost()->GetAttributes());
-    }
-
-    for (size_t i = 0; i < Terms.size(); i++)
-    {
-      const Location start = Terms[i]->GetStartLocation();
-      const Location base = start >= i ? (start - i) : 0;
-      if (base < maxBase && !Terms[i]->Seek(maxBase + i))
-      {
-        ClearCurrent();
-        return nullptr;
-      }
-    }
-  }
-}
-
-Post* ISRPhrase::Next()
-{
-  if (!hasCurrentPost_)
-    return nullptr;
-
-  return Seek(GetStartLocation() + 1);
-}
-
-unsigned ISRPhrase::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
-}
-
-ISRContainer::ISRContainer(const vector<ISR*>& contained, const vector<ISR*>& excluded,
-                           ISREndDoc* endDoc)
-    : Contained(contained), Excluded(excluded), EndDoc(endDoc),
-      CountContained(static_cast<unsigned>(contained.size())),
-      CountExcluded(static_cast<unsigned>(excluded.size()))
-{
-}
-
-Post* ISRContainer::Seek(Location target)
-{
-  if (!EndDoc || Contained.empty())
-  {
-    ClearCurrent();
-    return nullptr;
-  }
-
-  if (target == 0)
-    target = 1;
-
-  for (;;)
-  {
-    Location candidateTarget = target;
-
-    for (;;)
-    {
-      for (ISR* term : Contained)
-      {
-        if (!term || !term->Seek(candidateTarget))
-        {
-          ClearCurrent();
-          return nullptr;
-        }
-      }
-
-      Location farthestLocation = 0;
-      farthestContained_ = 0;
-      for (size_t i = 0; i < Contained.size(); i++)
-      {
-        if (Contained[i]->GetEndLocation() > farthestLocation)
-        {
-          farthestLocation = Contained[i]->GetEndLocation();
-          farthestContained_ = static_cast<unsigned>(i);
-        }
-      }
-
-      if (!EndDoc->Seek(farthestLocation))
-      {
-        ClearCurrent();
-        return nullptr;
-      }
-
-      const Location documentStart = EndDoc->GetDocumentStart();
-      const Location documentEnd = EndDoc->GetEndLocation();
-      bool retry = false;
-      Location nearestLocation = 0;
-      Location farthestMatch = 0;
-      Attributes nearestAttributes = {};
-
-      for (size_t i = 0; i < Contained.size(); i++)
-      {
-        ISR* term = Contained[i];
-        if (!term->Seek(documentStart))
-        {
-          ClearCurrent();
-          return nullptr;
-        }
-
-        if (term->GetStartLocation() > documentEnd)
-        {
-          candidateTarget = documentEnd + 1;
-          retry = true;
-          break;
-        }
-
-        if (nearestLocation == 0 || term->GetStartLocation() < nearestLocation)
-        {
-          nearestLocation = term->GetStartLocation();
-          nearestContained_ = static_cast<unsigned>(i);
-          nearestAttributes = term->GetCurrentPost()->GetAttributes();
-        }
-
-        if (term->GetEndLocation() > farthestMatch)
-          farthestMatch = term->GetEndLocation();
-      }
-
-      if (retry)
-        continue;
-
-      bool excludedHit = false;
-      for (ISR* term : Excluded)
-      {
-        if (!term)
-          continue;
-
-        Post* excluded = term->Seek(documentStart);
-        if (excluded && term->GetStartLocation() <= documentEnd)
-        {
-          target = documentEnd + 1;
-          excludedHit = true;
-          break;
-        }
-      }
-
-      if (excludedHit)
-        break;
-
-      nearestStartLocation_ = nearestLocation;
-      nearestEndLocation_ = farthestMatch;
-      return SetCurrent(nearestStartLocation_, nearestEndLocation_, nearestAttributes);
-    }
-  }
-}
-
-Post* ISRContainer::Next()
-{
-  if (!hasCurrentPost_)
-    return nullptr;
-
-  return Seek(GetStartLocation() + 1);
-}
-
-unsigned ISRContainer::GetNumberOfOccurrences() const
-{
-  return CountContained;
-}
+Dictionary::Dictionary() : termLocations_(strings_equal, hash_string, 256) {}
 
 void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_t urlLength)
 {
@@ -708,7 +314,15 @@ void Dictionary::AddOccurrence(const char* token, Location location)
   if (!token || location == 0)
     return;
 
-  termLocations_[token].pushBack(location);
+  const string key(token);
+  Tuple<string, vector<Location>>* found = termLocations_.Find(key);
+  if (!found)
+  {
+    found = termLocations_.Find(key, vector<Location>());
+    uniqueWords_++;
+  }
+
+  found->value.pushBack(location);
   totalWords_++;
 }
 
@@ -717,13 +331,13 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
   if (!token)
     return nullptr;
 
-  auto found = termLocations_.find(token);
-  if (found == termLocations_.end())
+  Tuple<string, vector<Location>>* found = termLocations_.Find(string(token));
+  if (!found)
     return nullptr;
 
   uint32_t documentCount = 0;
-  uint32_t lastDocumentId = std::numeric_limits<uint32_t>::max();
-  for (Location location : found->second)
+  uint32_t lastDocumentId = static_cast<uint32_t>(-1);
+  for (Location location : found->value)
   {
     DocumentInfo document = {};
     if (find_document_for_location(documents_, location, &document))
@@ -736,10 +350,10 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
     }
   }
 
-  if (documentCount == 0 && !found->second.empty())
+  if (documentCount == 0 && !found->value.empty())
     documentCount = 1;
 
-  return new ISRWord(found->second, documents_, documentCount);
+  return new ISRWord(found->value, documents_, documentCount);
 }
 
 ISREndDoc* Dictionary::OpenEndDocIsr() const
@@ -757,7 +371,7 @@ size_t Dictionary::GetNumberOfWords() const
 
 size_t Dictionary::GetNumberOfUniqueWords() const
 {
-  return termLocations_.size();
+  return uniqueWords_;
 }
 
 size_t Dictionary::GetNumberOfDocuments() const
