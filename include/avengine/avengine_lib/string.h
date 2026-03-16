@@ -165,6 +165,20 @@ public:
     return fullSmallBuffer;
   }
 
+  // Data (mutable)
+  // REQUIRES: Nothing
+  // MODIFIES: Nothing
+  // EFFECTS: Returns a mutable pointer to the first character in the string's
+  //          storage.  The caller is responsible for not writing past size()
+  //          bytes and for keeping this string alive for the lifetime of any
+  //          pointer derived from this accessor.  In particular, a string_slice
+  //          built from data() becomes dangling if the string is moved or
+  //          destroyed, because the SSO buffer lives inside *this.
+  char* data()
+  {
+    return isSmall() ? Data.Small.Buffer : Data.Heap.Ptr;
+  }
+
   // Iterator Begin
   // REQUIRES: Nothing
   // MODIFIES: Nothing
