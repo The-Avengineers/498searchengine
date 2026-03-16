@@ -1,5 +1,6 @@
 #include "index.h"
-#include <avengine/HtmlParser.h>
+#include <avengine/crawler/url_normalizer.h>
+#include <avengine/html_parser/HtmlParser.h>
 
 #include <cctype>
 #include <cstdio>
@@ -8,7 +9,6 @@
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
-#include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -18,208 +18,48 @@
 
 namespace
 {
+struct AvStringHash
+{
+  size_t operator()(const avengine::string& value) const
+  {
+    return djb2Hash(value.cstr());
+  }
+};
+
+using StringToDocIdMap = std::unordered_map<avengine::string, uint32_t, AvStringHash>;
+using StringSet = std::unordered_set<avengine::string, AvStringHash>;
+
 struct PendingLink
 {
   uint32_t sourceDocId;
-  std::string sourceUrl;
-  std::string baseUrl;
-  std::string href;
-  std::vector<std::string> anchorText;
+  avengine::string sourceUrl;
+  avengine::string baseUrl;
+  avengine::string href;
+  avengine::vector<avengine::string> anchorText;
 };
 
-struct NormalizedUrl
-{
-  std::string protocol;
-  std::string host;
-  std::string port;
-  std::string path;
-};
-
-static std::string lower_ascii(std::string value)
-{
-  for (char& c : value)
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return value;
-}
-
-static std::string resolve_dot_segments(const std::string& path)
-{
-  if (path.empty())
-    return "/";
-
-  const bool absolute = path[0] == '/';
-  std::vector<std::string> segments;
-  std::string current;
-
-  for (size_t i = 0; i <= path.size(); i++)
-  {
-    if (i < path.size() && path[i] != '/')
-    {
-      current.push_back(path[i]);
-      continue;
-    }
-
-    segments.push_back(current);
-    current.clear();
-  }
-
-  std::vector<std::string> resolved;
-  for (const std::string& seg : segments)
-  {
-    if (seg.empty() || seg == ".")
-      continue;
-    if (seg == "..")
-    {
-      if (!resolved.empty())
-        resolved.pop_back();
-      continue;
-    }
-    resolved.push_back(seg);
-  }
-
-  std::string output = absolute ? "/" : "";
-  for (size_t i = 0; i < resolved.size(); i++)
-  {
-    if (i > 0)
-      output.push_back('/');
-    output += resolved[i];
-  }
-
-  if (output.empty())
-    return absolute ? "/" : "";
-
-  if (absolute && output[0] != '/')
-    output.insert(output.begin(), '/');
-
-  return output;
-}
-
-static std::string build_url(const NormalizedUrl& url)
-{
-  std::string out = url.protocol + "://" + url.host;
-  if (!url.port.empty())
-    out += ":" + url.port;
-  out += url.path;
-  return out;
-}
-
-static NormalizedUrl parse_normalized_url(const std::string& rawUrl)
-{
-  std::string input = rawUrl;
-  const size_t hashPos = input.find('#');
-  if (hashPos != std::string::npos)
-    input.resize(hashPos);
-
-  NormalizedUrl url = {};
-
-  size_t hostStart = 0;
-  const size_t protoPos = input.find("://");
-  if (protoPos != std::string::npos)
-  {
-    url.protocol = lower_ascii(input.substr(0, protoPos));
-    hostStart = protoPos + 3;
-  }
-  else
-  {
-    url.protocol = "http";
-  }
-
-  const size_t pathPos = input.find('/', hostStart);
-  const std::string hostPort = lower_ascii(input.substr(hostStart, pathPos - hostStart));
-
-  const size_t portPos = hostPort.find(':');
-  if (portPos == std::string::npos)
-  {
-    url.host = hostPort;
-    url.port.clear();
-  }
-  else
-  {
-    url.host = hostPort.substr(0, portPos);
-    url.port = hostPort.substr(portPos + 1);
-    if ((url.protocol == "http" && url.port == "80") ||
-        (url.protocol == "https" && url.port == "443"))
-      url.port.clear();
-  }
-
-  if (pathPos == std::string::npos)
-    url.path = "/";
-  else
-    url.path = input.substr(pathPos);
-
-  url.path = resolve_dot_segments(url.path);
-  if (url.path.empty())
-    url.path = "/";
-
-  if (url.path.size() > 1 && url.path.back() == '/')
-    url.path.pop_back();
-
-  return url;
-}
-
-static std::string normalize_individual_url(const std::string& url)
-{
-  if (url.empty())
-    return "";
-  return build_url(parse_normalized_url(url));
-}
-
-static std::string normalize_with_base_url(const std::string& base, const std::string& extension)
-{
-  if (extension.empty())
-    return normalize_individual_url(base);
-
-  if (extension.find("://") != std::string::npos)
-    return normalize_individual_url(extension);
-
-  NormalizedUrl baseUrl = parse_normalized_url(base);
-
-  if (extension.size() >= 2 && extension[0] == '/' && extension[1] == '/')
-  {
-    return normalize_individual_url(baseUrl.protocol + ":" + extension);
-  }
-
-  if (!extension.empty() && extension[0] == '/')
-  {
-    baseUrl.path = resolve_dot_segments(extension);
-    return build_url(baseUrl);
-  }
-
-  std::string basePath = baseUrl.path;
-  const size_t lastSlash = basePath.rfind('/');
-  if (lastSlash == std::string::npos)
-    basePath = "/";
-  else
-    basePath = basePath.substr(0, lastSlash + 1);
-
-  baseUrl.path = resolve_dot_segments(basePath + extension);
-  if (baseUrl.path.empty())
-    baseUrl.path = "/";
-  return build_url(baseUrl);
-}
-
-static size_t tokenize_and_ingest_current(const std::string& input, PhraseKind kind)
+static size_t tokenize_and_ingest_current(const avengine::string& input, PhraseKind kind)
 {
   size_t ingested = 0;
-  std::string token;
+  avengine::string token;
 
   for (char c : input)
   {
     if (std::isalpha(static_cast<unsigned char>(c)))
     {
-      token.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      token.pushBack(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
       continue;
     }
 
-    if (!token.empty())
+    if (token.size() != 0)
     {
       globalIndex.ingest(token.c_str(), kind);
       ingested++;
-      token.clear();
+      token = avengine::string();
     }
   }
 
-  if (!token.empty())
+  if (token.size() != 0)
   {
     globalIndex.ingest(token.c_str(), kind);
     ingested++;
@@ -229,33 +69,33 @@ static size_t tokenize_and_ingest_current(const std::string& input, PhraseKind k
 }
 
 static size_t
-tokenize_and_ingest_into_document(uint32_t docId, const std::string& input, PhraseKind kind,
-                                  std::unordered_set<std::string>* dedupTokens = nullptr)
+tokenize_and_ingest_into_document(uint32_t docId, const avengine::string& input, PhraseKind kind,
+                                  StringSet* dedupTokens = nullptr)
 {
   size_t ingested = 0;
-  std::string token;
+  avengine::string token;
 
   auto flush_token = [&]()
   {
-    if (token.empty())
+    if (token.size() == 0)
       return;
 
     if (dedupTokens && !dedupTokens->insert(token).second)
     {
-      token.clear();
+      token = avengine::string();
       return;
     }
 
     globalIndex.ingestIntoDocument(docId, token.c_str(), kind);
     ingested++;
-    token.clear();
+    token = avengine::string();
   };
 
   for (char c : input)
   {
     if (std::isalpha(static_cast<unsigned char>(c)))
     {
-      token.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      token.pushBack(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
     else
     {
@@ -268,7 +108,7 @@ tokenize_and_ingest_into_document(uint32_t docId, const std::string& input, Phra
 }
 
 static void parseTabFile(char* content, size_t length,
-                         std::vector<std::pair<std::string, std::string>>& documents)
+                         std::vector<std::pair<avengine::string, avengine::string>>& documents)
 {
   char* lineStart = content;
   for (size_t i = 0; i <= length; i++)
@@ -283,7 +123,7 @@ static void parseTabFile(char* content, size_t length,
       if (tab)
       {
         *tab = '\0';
-        documents.emplace_back(std::string(lineStart), std::string(tab + 1));
+        documents.emplace_back(avengine::string(lineStart), avengine::string(tab + 1));
       }
     }
 
@@ -343,7 +183,7 @@ static bool isDirectory(char const* path)
   return S_ISDIR(s.st_mode);
 }
 
-static void listFiles(const char* dir, std::vector<std::string>& files)
+static void listFiles(const char* dir, std::vector<avengine::string>& files)
 {
   DIR* dr;
   struct dirent* en;
@@ -360,14 +200,15 @@ static void listFiles(const char* dir, std::vector<std::string>& files)
 }
 
 static size_t
-indexDocumentWithHtmlAndCollectAnchors(const std::string& url, const char* content, size_t length,
-                                       std::unordered_map<std::string, uint32_t>& urlToDocId,
+indexDocumentWithHtmlAndCollectAnchors(avengine::crawler::URLNormalizer& normalizer,
+                                       const avengine::string& url, const char* content,
+                                       size_t length, StringToDocIdMap& urlToDocId,
                                        std::vector<PendingLink>& pendingLinks)
 {
   const uint32_t docId = globalIndex.beginDocument(url.c_str());
 
-  std::string canonicalUrl = normalize_individual_url(url);
-  if (canonicalUrl.empty())
+  avengine::string canonicalUrl = normalizer.normalizeIndividual(url);
+  if (canonicalUrl.size() == 0)
     canonicalUrl = url;
 
   urlToDocId[canonicalUrl] = docId;
@@ -376,15 +217,19 @@ indexDocumentWithHtmlAndCollectAnchors(const std::string& url, const char* conte
   avengine::HtmlParser parser(content, length);
 
   size_t tokens = 0;
-  for (const std::string& word : parser.words)
+  for (const avengine::string& word : parser.words)
     tokens += tokenize_and_ingest_current(word, PhraseKind::NORMAL);
 
-  for (const std::string& word : parser.titleWords)
+  for (const avengine::string& word : parser.titleWords)
     tokens += tokenize_and_ingest_current(word, PhraseKind::TITLE);
 
-  std::string baseForResolve = canonicalUrl;
-  if (!parser.base.empty())
-    baseForResolve = normalize_with_base_url(canonicalUrl, parser.base);
+  avengine::string baseForResolve = canonicalUrl;
+  if (parser.base.size() != 0)
+  {
+    baseForResolve = normalizer.normalize(canonicalUrl, parser.base);
+    if (baseForResolve.size() == 0)
+      baseForResolve = canonicalUrl;
+  }
 
   for (const avengine::Link& link : parser.links)
   {
@@ -393,35 +238,37 @@ indexDocumentWithHtmlAndCollectAnchors(const std::string& url, const char* conte
     pending.sourceUrl = canonicalUrl;
     pending.baseUrl = baseForResolve;
     pending.href = link.URL;
-    pending.anchorText.assign(link.anchorText.begin(), link.anchorText.end());
+    for (const avengine::string& word : link.anchorText)
+      pending.anchorText.pushBack(word);
     pendingLinks.push_back(std::move(pending));
   }
 
   return tokens;
 }
 
-static size_t indexAnchorTextToTargets(const std::unordered_map<std::string, uint32_t>& urlToDocId,
+static size_t indexAnchorTextToTargets(avengine::crawler::URLNormalizer& normalizer,
+                                       const StringToDocIdMap& urlToDocId,
                                        const std::vector<PendingLink>& pendingLinks)
 {
   size_t anchorTokens = 0;
 
   for (const PendingLink& pending : pendingLinks)
   {
-    std::string targetUrl = normalize_with_base_url(pending.baseUrl, pending.href);
-    if (targetUrl.empty())
+    avengine::string targetUrl = normalizer.normalize(pending.baseUrl, pending.href);
+    if (targetUrl.size() == 0)
       continue;
 
     auto targetIt = urlToDocId.find(targetUrl);
     if (targetIt == urlToDocId.end())
     {
-      std::string canonicalTarget = normalize_individual_url(targetUrl);
+      avengine::string canonicalTarget = normalizer.normalizeIndividual(targetUrl);
       targetIt = urlToDocId.find(canonicalTarget);
       if (targetIt == urlToDocId.end())
         continue;
     }
 
-    std::unordered_set<std::string> dedupTokens;
-    for (const std::string& word : pending.anchorText)
+    StringSet dedupTokens;
+    for (const avengine::string& word : pending.anchorText)
     {
       anchorTokens += tokenize_and_ingest_into_document(targetIt->second, word, PhraseKind::ANCHOR,
                                                         &dedupTokens);
@@ -447,7 +294,8 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::unordered_map<std::string, uint32_t> urlToDocId;
+  avengine::crawler::URLNormalizer normalizer;
+  StringToDocIdMap urlToDocId;
   std::vector<PendingLink> pendingLinks;
 
   clock_t start = clock();
@@ -457,10 +305,10 @@ int main(int argc, char** argv)
 
   if (inputIsDirectory)
   {
-    std::vector<std::string> files;
+    std::vector<avengine::string> files;
     listFiles(argv[1], files);
 
-    for (const std::string& file : files)
+    for (const avengine::string& file : files)
     {
       char filepath[256];
       snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file.c_str());
@@ -474,7 +322,8 @@ int main(int argc, char** argv)
       }
 
       bodyAndTitleTokens +=
-          indexDocumentWithHtmlAndCollectAnchors(file, content, length, urlToDocId, pendingLinks);
+          indexDocumentWithHtmlAndCollectAnchors(normalizer, file, content, length, urlToDocId,
+                                                 pendingLinks);
 
       std::free(content);
     }
@@ -489,19 +338,19 @@ int main(int argc, char** argv)
       return 1;
     }
 
-    std::vector<std::pair<std::string, std::string>> documents;
+    std::vector<std::pair<avengine::string, avengine::string>> documents;
     parseTabFile(content, length, documents);
 
     for (const auto& doc : documents)
     {
       bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(
-          doc.first, doc.second.c_str(), doc.second.size(), urlToDocId, pendingLinks);
+          normalizer, doc.first, doc.second.c_str(), doc.second.size(), urlToDocId, pendingLinks);
     }
 
     std::free(content);
   }
 
-  size_t anchorTokens = indexAnchorTextToTargets(urlToDocId, pendingLinks);
+  size_t anchorTokens = indexAnchorTextToTargets(normalizer, urlToDocId, pendingLinks);
 
   clock_t diff = clock() - start;
   int msec = static_cast<int>(diff * 1000 / CLOCKS_PER_SEC);
