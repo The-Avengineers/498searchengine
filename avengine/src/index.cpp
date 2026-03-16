@@ -48,7 +48,8 @@ static bool write_all(int fd, const void* buffer, size_t bytes)
 // TODO: update instead of start of document to use offset from start of index
 static void encode_field(const avengine::vector<uint32_t>& positions,
                          avengine::vector<uint8_t>& deltaBuffer,
-                         avengine::vector<uint8_t>& decoratorBuffer, uint64_t& decoratorCount)
+                         avengine::vector<uint8_t>& decoratorBuffer,
+                         uint64_t& decoratorCount)
 {
   deltaBuffer.clear();
   decoratorBuffer.clear();

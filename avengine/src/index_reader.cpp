@@ -492,9 +492,11 @@ int main(int argc, char** argv)
 
     const uint8_t* cursor = posting + 56;
 
-    DecodedField normalField =
-        isV3 ? decode_field_v3(cursor, postingEnd, normalSectionCount, normalCollectionFrequency)
-             : decode_field_v2(cursor, postingEnd, normalSectionCount, normalCollectionFrequency);
+    DecodedField normalField = isV3
+                                   ? decode_field_v3(cursor, postingEnd, normalSectionCount,
+                                                     normalCollectionFrequency)
+                                   : decode_field_v2(cursor, postingEnd, normalSectionCount,
+                                                     normalCollectionFrequency);
     if (!normalField.ok)
     {
       std::fprintf(stderr, "Corrupt %s normal field encoding.\n", isV3 ? "v3" : "v2");
@@ -503,10 +505,11 @@ int main(int argc, char** argv)
       return 1;
     }
 
-    DecodedField titleField = isV3 ? decode_field_v3(normalField.next, postingEnd,
-                                                     titleSectionCount, titleCollectionFrequency)
-                                   : decode_field_v2(normalField.next, postingEnd,
-                                                     titleSectionCount, titleCollectionFrequency);
+    DecodedField titleField = isV3
+                                  ? decode_field_v3(normalField.next, postingEnd, titleSectionCount,
+                                                    titleCollectionFrequency)
+                                  : decode_field_v2(normalField.next, postingEnd, titleSectionCount,
+                                                    titleCollectionFrequency);
     if (!titleField.ok)
     {
       std::fprintf(stderr, "Corrupt %s title field encoding.\n", isV3 ? "v3" : "v2");
@@ -516,10 +519,10 @@ int main(int argc, char** argv)
     }
 
     DecodedField anchorField = isV3
-                                   ? decode_field_v3(titleField.next, postingEnd,
-                                                     anchorSectionCount, anchorCollectionFrequency)
-                                   : decode_field_v2(titleField.next, postingEnd,
-                                                     anchorSectionCount, anchorCollectionFrequency);
+                                   ? decode_field_v3(titleField.next, postingEnd, anchorSectionCount,
+                                                     anchorCollectionFrequency)
+                                   : decode_field_v2(titleField.next, postingEnd, anchorSectionCount,
+                                                     anchorCollectionFrequency);
     if (!anchorField.ok)
     {
       std::fprintf(stderr, "Corrupt %s anchor field encoding.\n", isV3 ? "v3" : "v2");
