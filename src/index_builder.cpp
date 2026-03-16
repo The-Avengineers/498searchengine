@@ -38,7 +38,8 @@ char* memoryMapFile(char const* filename, size_t& length)
   if (fd == -1)
     return nullptr;
 
-  assert(fstat(fd, &sb) != -1);
+  if (fstat(fd, &sb) == -1)
+    return nullptr;
 
   char* data =
       static_cast<char*>(mmap(nullptr, sb.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0));
@@ -55,7 +56,10 @@ char* memoryMapFile(char const* filename, size_t& length)
 bool isDirectory(char const* path)
 {
   struct stat s;
-  assert(!stat(path, &s));
+
+  if (stat(path, &s))
+    return false;
+
   return s.st_mode & S_IFDIR;
 }
 
@@ -131,7 +135,7 @@ int main(int argc, char** argv)
 
     printf("Done parsing verses file, %ld documents!\n", documents.size());
 
-    clock_t start = clock(), diff;
+    start = clock();
     for (size_t i = 0; i < documents.size(); i++)
     {
       indexDocument(documentNames[i], documents[i]);
