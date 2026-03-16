@@ -1,9 +1,11 @@
 #pragma once
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
 
-size_t djb2Hash(char const* str);
+size_t djb2Hash(avengine::string_slice str);
 
 // Consider switching from AoS to SoA.
 struct Posting
@@ -28,10 +30,10 @@ using RankingInput = uint64_t;
 
 struct PostingList
 {
-  PostingList(char const* word, PostingList* nextBucket);
+  PostingList(avengine::string_slice word, PostingList* nextBucket);
   void ingest(uint32_t docId, size_t offset);
 
-  char* word;
+  avengine::string word;
   size_t hash;
   PostingList* nextBucket;
   // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
@@ -48,8 +50,8 @@ void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
 struct DocumentMetadata
 {
-  const char* url;
-  const char* title;
+  avengine::string url;
+  avengine::string title;
   // NOTE: If we choose to add a description for pages it will be passed here.
   RankingInput input;
 };
@@ -62,7 +64,7 @@ struct Index
   // Updated by `beginDocument()`. ingest(word) always indexes into this doc.
   uint32_t currentDocId = UINT32_MAX;
 
-  PostingList* getBucket(char const* word);
+  PostingList* getBucket(avengine::string_slice word);
   // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
   // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
   void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
@@ -75,7 +77,7 @@ struct Index
   // Records the term count for the current document and marks it as closed.
   void endDocument();
   // Adds a token to the currently active document set by beginDocument().
-  void ingest(char const* word);
+  void ingest(avengine::string_slice word);
 };
 
 extern Index globalIndex;
@@ -83,7 +85,7 @@ extern Index globalIndex;
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.
 // Returns the number of tokens ingested.
-size_t indexDocument(char const* url, char* phrases);
+size_t indexDocument(avengine::string_slice url, avengine::string_slice phrases);
 
 // TODO: Use support phrases of different kinds and decorate or index titles differently.
 enum class PhraseKind
@@ -94,6 +96,6 @@ enum class PhraseKind
 
 struct Phrase
 {
-  char* text;
+  avengine::string_slice text;
   PhraseKind kind;
 };
