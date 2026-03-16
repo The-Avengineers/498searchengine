@@ -53,7 +53,7 @@ static size_t tokenize_and_ingest_current(const avengine::string& input, PhraseK
 
     if (token.size() != 0)
     {
-      globalIndex.ingest(token.c_str(), kind);
+      globalIndex.ingest(token.cstr(), kind);
       ingested++;
       token = avengine::string();
     }
@@ -61,7 +61,7 @@ static size_t tokenize_and_ingest_current(const avengine::string& input, PhraseK
 
   if (token.size() != 0)
   {
-    globalIndex.ingest(token.c_str(), kind);
+    globalIndex.ingest(token.cstr(), kind);
     ingested++;
   }
 
@@ -86,7 +86,7 @@ tokenize_and_ingest_into_document(uint32_t docId, const avengine::string& input,
       return;
     }
 
-    globalIndex.ingestIntoDocument(docId, token.c_str(), kind);
+    globalIndex.ingestIntoDocument(docId, token.cstr(), kind);
     ingested++;
     token = avengine::string();
   };
@@ -205,7 +205,7 @@ indexDocumentWithHtmlAndCollectAnchors(avengine::crawler::URLNormalizer& normali
                                        size_t length, StringToDocIdMap& urlToDocId,
                                        std::vector<PendingLink>& pendingLinks)
 {
-  const uint32_t docId = globalIndex.beginDocument(url.c_str());
+  const uint32_t docId = globalIndex.beginDocument(url.cstr());
 
   avengine::string canonicalUrl = normalizer.normalizeIndividual(url);
   if (canonicalUrl.size() == 0)
@@ -311,7 +311,7 @@ int main(int argc, char** argv)
     for (const avengine::string& file : files)
     {
       char filepath[256];
-      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file.c_str());
+      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file.cstr());
 
       size_t length = 0;
       char* content = memoryMapFile(filepath, length);
@@ -344,7 +344,7 @@ int main(int argc, char** argv)
     for (const auto& doc : documents)
     {
       bodyAndTitleTokens += indexDocumentWithHtmlAndCollectAnchors(
-          normalizer, doc.first, doc.second.c_str(), doc.second.size(), urlToDocId, pendingLinks);
+          normalizer, doc.first, doc.second.cstr(), doc.second.size(), urlToDocId, pendingLinks);
     }
 
     std::free(content);
