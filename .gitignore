@@ -21,6 +21,7 @@ data
 /build/
 .cache/
 build/
+build-*/
 **/build/
 cmake-build-*/
 CMakeFiles/
@@ -33,6 +34,3 @@ vgcore*
 
 # Large files
 data/
-
-# CMake build dir
-avengine/build/

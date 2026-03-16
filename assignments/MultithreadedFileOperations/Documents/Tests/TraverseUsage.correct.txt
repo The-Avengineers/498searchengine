@@ -1,3 +1,0 @@
-Usage: Traverse <number of workers> <list of pathnames>
-Number of workers must be greater than 0.
-Invalid paths are ignored.

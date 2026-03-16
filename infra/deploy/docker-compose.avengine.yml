@@ -2,7 +2,7 @@ services:
   avengine:
     build:
       context: ../..
-      dockerfile: avengine/deploy/Dockerfile
+      dockerfile: deploy/Dockerfile
     image: avengine-runtime:latest
     container_name: avengine-runtime
     restart: unless-stopped

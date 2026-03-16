@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Search Results - Avengine</title>
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body>
+    <header class="results-header">
+      <div class="results-header-inner">
+        <a class="home-link" href="./index.html" aria-label="Back to search home">
+          <img class="logo-image logo-image-small" src="./media/logo.png" alt="Avengine logo" />
+        </a>
+        <form class="search-form results-search-form" action="./results.html" method="get">
+          <label class="sr-only" for="results-query">Search query</label>
+          <input
+            id="results-query"
+            class="search-input"
+            type="text"
+            name="q"
+            placeholder="Search..."
+            autocomplete="off"
+            required
+          />
+        </form>
+      </div>
+    </header>
+
+    <main class="results-shell">
+      <section class="results-block">
+        <p class="results-count">About 42,000 results (0.31 seconds)</p>
+        <ol class="results-list">
+          <li class="result-card">
+            <a class="result-url" href="#">docs.avengine.dev/start</a>
+            <h2 class="result-title"><a href="#">Getting Started with Avengine Search</a></h2>
+            <p class="result-snippet">
+              Learn how indexing, ranking, and distributed query fanout work in the Avengine stack.
+            </p>
+          </li>
+          <li class="result-card">
+            <a class="result-url" href="#">status.avengine.dev/cluster</a>
+            <h2 class="result-title"><a href="#">Cluster Health and Node Latency Dashboard</a></h2>
+            <p class="result-snippet">
+              Live node heartbeat and response-time metrics for local and sibling machines.
+            </p>
+          </li>
+          <li class="result-card">
+            <a class="result-url" href="#">blog.avengine.dev/crawler-tuning</a>
+            <h2 class="result-title"><a href="#">Crawler Frontier Tuning Guide</a></h2>
+            <p class="result-snippet">
+              Best practices for selecting seeds, handling URL normalization, and improving crawl quality.
+            </p>
+          </li>
+          <li class="result-card">
+            <a class="result-url" href="#">api.avengine.dev/reference/search</a>
+            <h2 class="result-title"><a href="#">Search API Reference</a></h2>
+            <p class="result-snippet">
+              `GET`, `POST`, and `DELETE` endpoints, request schemas, and example JSON payloads.
+            </p>
+          </li>
+          <li class="result-card">
+            <a class="result-url" href="#">research.avengine.dev/distributed-merge</a>
+            <h2 class="result-title"><a href="#">Merging Results from Distributed Nodes</a></h2>
+            <p class="result-snippet">
+              Strategies for score normalization, deduplication, and top-k merging across sibling hosts.
+            </p>
+          </li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>
