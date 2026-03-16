@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -46,6 +47,37 @@ Posting* findPostingByDoc(PostingList* list, uint32_t docId)
     if (list->postings[i].docId == docId)
       return &list->postings[i];
   }
+  return nullptr;
+}
+
+struct ConcurrentWorkerArgs
+{
+  Index* index;
+  pthread_mutex_t* startMutex;
+  pthread_cond_t* startCond;
+  int* readyCount;
+  bool* start;
+  uint32_t* docId;
+  const char* url;
+  const char* term;
+  PhraseKind kind;
+};
+
+void* ingestDocumentConcurrently(void* rawArgs)
+{
+  ConcurrentWorkerArgs* args = static_cast<ConcurrentWorkerArgs*>(rawArgs);
+  *args->docId = args->index->beginDocument(args->url);
+
+  pthread_mutex_lock(args->startMutex);
+  *args->readyCount += 1;
+  pthread_cond_signal(args->startCond);
+  while (!*args->start)
+    pthread_cond_wait(args->startCond, args->startMutex);
+  pthread_mutex_unlock(args->startMutex);
+
+  for (uint32_t i = 0; i < 1000u; ++i)
+    args->index->ingestIntoDocument(*args->docId, args->term, args->kind);
+
   return nullptr;
 }
 } // namespace
@@ -109,16 +141,17 @@ TEST_CASE("Index ingest across documents")
 {
   Index index;
 
-  CHECK(index.beginDocument("doc://0") == 0u);
-  index.ingest("apple");
-  index.ingest("banana");
-  index.ingest("apple");
+  const uint32_t doc0 = index.beginDocument("doc://0");
+  CHECK(doc0 == 0u);
+  index.ingestIntoDocument(doc0, "apple", PhraseKind::BODY);
+  index.ingestIntoDocument(doc0, "banana", PhraseKind::BODY);
+  index.ingestIntoDocument(doc0, "apple", PhraseKind::BODY);
 
-  CHECK(index.beginDocument("doc://1") == 1u);
-  index.ingest("apple");
+  const uint32_t doc1 = index.beginDocument("doc://1");
+  CHECK(doc1 == 1u);
+  index.ingestIntoDocument(doc1, "apple", PhraseKind::BODY);
 
   CHECK(index.documentNames.size() == 2u);
-  CHECK(index.currentDocId == 1u);
   CHECK(index.totalUniqWords == 2u);
   CHECK(index.offset == 4u);
 
@@ -182,6 +215,59 @@ TEST_CASE("Decorated terms isolate body title and url")
   CHECK(index.offset == 4u);
 }
 
+TEST_CASE("Concurrent ingestion keeps postings attached to the correct document")
+{
+  Index index;
+  pthread_mutex_t startMutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_cond_t startCond = PTHREAD_COND_INITIALIZER;
+  int readyCount = 0;
+  bool start = false;
+  uint32_t docA = UINT32_MAX;
+  uint32_t docB = UINT32_MAX;
+
+  ConcurrentWorkerArgs argsA = {&index, &startMutex, &startCond, &readyCount,
+                                &start, &docA, "doc://alpha", "alpha", PhraseKind::BODY};
+  ConcurrentWorkerArgs argsB = {&index, &startMutex, &startCond, &readyCount,
+                                &start, &docB, "doc://beta", "beta", PhraseKind::TITLE};
+  pthread_t threadA = {};
+  pthread_t threadB = {};
+
+  REQUIRE(pthread_create(&threadA, nullptr, ingestDocumentConcurrently, &argsA) == 0);
+  REQUIRE(pthread_create(&threadB, nullptr, ingestDocumentConcurrently, &argsB) == 0);
+
+  REQUIRE(pthread_mutex_lock(&startMutex) == 0);
+  while (readyCount != 2)
+    REQUIRE(pthread_cond_wait(&startCond, &startMutex) == 0);
+  start = true;
+  REQUIRE(pthread_cond_broadcast(&startCond) == 0);
+  REQUIRE(pthread_mutex_unlock(&startMutex) == 0);
+
+  REQUIRE(pthread_join(threadA, nullptr) == 0);
+  REQUIRE(pthread_join(threadB, nullptr) == 0);
+  REQUIRE(pthread_cond_destroy(&startCond) == 0);
+  REQUIRE(pthread_mutex_destroy(&startMutex) == 0);
+
+  REQUIRE(docA != UINT32_MAX);
+  REQUIRE(docB != UINT32_MAX);
+  CHECK(docA != docB);
+
+  PostingList* alpha = index.getBucket("alpha");
+  PostingList* beta = index.getBucket("#beta");
+
+  Posting* alphaDocA = findPostingByDoc(alpha, docA);
+  Posting* alphaDocB = findPostingByDoc(alpha, docB);
+  Posting* betaDocA = findPostingByDoc(beta, docA);
+  Posting* betaDocB = findPostingByDoc(beta, docB);
+
+  REQUIRE(alphaDocA != nullptr);
+  REQUIRE(betaDocB != nullptr);
+  CHECK(alphaDocA->termFreq == 1000u);
+  CHECK(betaDocB->termFreq == 1000u);
+  CHECK(alphaDocB == nullptr);
+  CHECK(betaDocA == nullptr);
+  CHECK(index.offset == 2000u);
+}
+
 TEST_CASE("indexDocument tokenization indexes body terms")
 {
   const uint32_t docId = static_cast<uint32_t>(globalIndex.documentNames.size());
@@ -211,10 +297,10 @@ TEST_CASE("indexDocument tokenization indexes body terms")
 TEST_CASE("v4 serialization stays compact")
 {
   Index index;
-  index.beginDocument("doc://serialize");
+  const uint32_t docId = index.beginDocument("doc://serialize");
 
   for (uint32_t i = 0; i < 10u; ++i)
-    index.ingest("alpha", PhraseKind::BODY);
+    index.ingestIntoDocument(docId, "alpha", PhraseKind::BODY);
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);

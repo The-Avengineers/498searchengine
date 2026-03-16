@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(avengine LANGUAGES CXX)
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 include(CTest)
@@ -38,7 +39,7 @@ add_library(
 
 target_include_directories(avengine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
 
 # Simple tool for building index from text files.
 add_executable(index_builder src/index_builder.cpp)

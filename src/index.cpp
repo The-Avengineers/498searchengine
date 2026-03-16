@@ -1,6 +1,5 @@
 #include "index.h"
 
-#include <assert.h>
 #include <ctype.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,6 +10,21 @@ struct DictEntry
 {
   uint64_t stringOffset;
   uint64_t postingOffset;
+};
+
+struct ScopedWriteLock
+{
+  explicit ScopedWriteLock(pthread_mutex_t* mutex) : mutex(mutex)
+  {
+    pthread_mutex_lock(this->mutex);
+  }
+
+  ~ScopedWriteLock()
+  {
+    pthread_mutex_unlock(mutex);
+  }
+
+  pthread_mutex_t* mutex;
 };
 
 static bool seek_to(int fd, off_t offset)
@@ -62,6 +76,14 @@ static avengine::string decorate_term(char const* word, PhraseKind kind)
     decorated.pushBack(*p);
 
   return decorated;
+}
+
+static void ingest_into_document_locked(Index* index, uint32_t docId, char const* word,
+                                        PhraseKind kind)
+{
+  const avengine::string decorated = decorate_term(word, kind);
+  PostingList* bucket = index->getBucket(decorated.cstr());
+  bucket->ingest(docId, static_cast<uint32_t>(index->offset++));
 }
 } // namespace
 
@@ -146,12 +168,20 @@ PostingList* Index::getBucket(char const* word)
 
 Index::Index() : buckets(HASHMAP_SIZE)
 {
+  pthread_mutex_init(&writeMutex, nullptr);
   for (size_t i = 0; i < buckets.size(); i++)
     buckets[i] = nullptr;
 }
 
+Index::~Index()
+{
+  pthread_mutex_destroy(&writeMutex);
+}
+
 bool Index::serialize(int fd)
 {
+  ScopedWriteLock lock(&writeMutex);
+
   const uint64_t uniqueWordsPlusOne = totalUniqWords + 1;
   const uint64_t tableSlots = uniqueWordsPlusOne * 2;
   const size_t dictionaryBytes = static_cast<size_t>(tableSlots) * sizeof(DictEntry);
@@ -250,34 +280,22 @@ bool Index::serialize(int fd)
 
 uint32_t Index::beginDocument(const char* url)
 {
+  ScopedWriteLock lock(&writeMutex);
   documentNames.pushBack(avengine::string(url));
-  currentDocId = static_cast<uint32_t>(documentNames.size() - 1);
-  return currentDocId;
-}
-
-void Index::ingest(char const* word)
-{
-  ingest(word, PhraseKind::BODY);
-}
-
-void Index::ingest(char const* word, PhraseKind kind)
-{
-  assert(currentDocId != UINT32_MAX);
-  ingestIntoDocument(currentDocId, word, kind);
+  return static_cast<uint32_t>(documentNames.size() - 1);
 }
 
 void Index::ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind)
 {
-  const avengine::string decorated = decorate_term(word, kind);
-  PostingList* bucket = getBucket(decorated.cstr());
-  bucket->ingest(docId, static_cast<uint32_t>(offset++));
+  ScopedWriteLock lock(&writeMutex);
+  ingest_into_document_locked(this, docId, word, kind);
 }
 
 Index globalIndex;
 
 size_t indexDocument(char const* url, char* phrases)
 {
-  globalIndex.beginDocument(url);
+  const uint32_t docId = globalIndex.beginDocument(url);
   size_t words = 0;
 
   while (*phrases && !isalpha(static_cast<unsigned char>(*phrases)))
@@ -295,7 +313,7 @@ size_t indexDocument(char const* url, char* phrases)
 
     *(phrases++) = '\0';
 
-    globalIndex.ingest(word, PhraseKind::BODY);
+    globalIndex.ingestIntoDocument(docId, word, PhraseKind::BODY);
     words++;
 
     while (*phrases && !isalpha(static_cast<unsigned char>(*phrases)))

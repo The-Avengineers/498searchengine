@@ -36,7 +36,7 @@ struct TokenCounts
   }
 };
 
-static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind)
+static size_t tokenize_and_ingest(uint32_t docId, const avengine::string& input, PhraseKind kind)
 {
   size_t ingested = 0;
   avengine::string token;
@@ -52,7 +52,7 @@ static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind
 
     if (token.size() != 0)
     {
-      globalIndex.ingest(token.cstr(), kind);
+      globalIndex.ingestIntoDocument(docId, token.cstr(), kind);
       ingested++;
       token = avengine::string();
     }
@@ -60,7 +60,7 @@ static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind
 
   if (token.size() != 0)
   {
-    globalIndex.ingest(token.cstr(), kind);
+    globalIndex.ingestIntoDocument(docId, token.cstr(), kind);
     ingested++;
   }
 
@@ -167,18 +167,18 @@ static TokenCounts index_html_document(avengine::crawler::URLNormalizer& normali
   if (canonicalUrl.size() == 0)
     canonicalUrl = url;
 
-  globalIndex.beginDocument(canonicalUrl.cstr());
+  const uint32_t docId = globalIndex.beginDocument(canonicalUrl.cstr());
 
   avengine::HtmlParser parser(content, length);
 
   TokenCounts counts = {};
   for (size_t i = 0; i < parser.words.size(); i++)
-    counts.body += tokenize_and_ingest(parser.words[i], PhraseKind::BODY);
+    counts.body += tokenize_and_ingest(docId, parser.words[i], PhraseKind::BODY);
 
   for (size_t i = 0; i < parser.titleWords.size(); i++)
-    counts.title += tokenize_and_ingest(parser.titleWords[i], PhraseKind::TITLE);
+    counts.title += tokenize_and_ingest(docId, parser.titleWords[i], PhraseKind::TITLE);
 
-  counts.url += tokenize_and_ingest(canonicalUrl, PhraseKind::URL);
+  counts.url += tokenize_and_ingest(docId, canonicalUrl, PhraseKind::URL);
   return counts;
 }
 
