@@ -51,31 +51,34 @@ Posting* findPostingByDoc(PostingList* list, uint32_t docId)
 
 TEST_CASE("Encoding helpers")
 {
-  uint8_t varBuf[8] = {};
+  avengine::vector<uint8_t> buf;
 
-  uint8_t* varEnd = write_var_uint32(varBuf, 0u);
-  CHECK((varEnd - varBuf) == 1);
-  CHECK(varBuf[0] == 0x00);
+  append_var_uint32(buf, 0u);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x00);
 
-  varEnd = write_var_uint32(varBuf, 127u);
-  CHECK((varEnd - varBuf) == 1);
-  CHECK(varBuf[0] == 0x7F);
+  buf.clear();
+  append_var_uint32(buf, 127u);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x7F);
 
-  varEnd = write_var_uint32(varBuf, 128u);
-  CHECK((varEnd - varBuf) == 2);
-  CHECK(varBuf[0] == 0x80);
-  CHECK(varBuf[1] == 0x01);
+  buf.clear();
+  append_var_uint32(buf, 128u);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0x80);
+  EXPECT(buf[1] == 0x01);
 
-  varEnd = write_var_uint32(varBuf, 300u);
-  CHECK((varEnd - varBuf) == 2);
-  CHECK(varBuf[0] == 0xAC);
-  CHECK(varBuf[1] == 0x02);
+  buf.clear();
+  append_var_uint32(buf, 300u);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0xAC);
+  EXPECT(buf[1] == 0x02);
 
-  uint8_t u64Buf[8] = {};
+  buf.clear();
   const uint64_t expected = 0x0123456789ABCDEFULL;
-  uint8_t* u64End = write_uint64(u64Buf, expected);
-  CHECK((u64End - u64Buf) == 8);
-  CHECK(readU64LE(u64Buf) == expected);
+  append_uint64(buf, expected);
+  EXPECT(buf.size() == 8);
+  EXPECT(readU64LE(buf.begin()) == expected);
 }
 
 TEST_CASE("PostingList ingest tracks fields")

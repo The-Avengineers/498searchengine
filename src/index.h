@@ -48,8 +48,8 @@ struct PostingList
 // TODO: Determine the best expected hashmap size given a read-world dataset.
 #define HASHMAP_SIZE 262144
 
-uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
-uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
+void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
+void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
 struct Index
 {
@@ -63,9 +63,13 @@ struct Index
   uint32_t currentDocId = UINT32_MAX;
 
   PostingList* getBucket(char const* word);
+  // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
+  // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
+  void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
 
   Index();
-  void serialize(int fd);
+  // Returns true on I/O error.
+  bool serialize(int fd);
   // Starts a new active document and returns its assigned id.
   uint32_t beginDocument(const char* url);
   // Adds a token to the currently active document set by beginDocument().
@@ -76,11 +80,10 @@ struct Index
 
 extern Index globalIndex;
 
-// Puts the list of words into the currently active index. url must in it's
-// canonical form. Words is a list of pointers to cstrings in a single
-// continuous block of memory. The text in pharses must be writable and
-// monotonically increasing, i.e phrases[i].text < phrases.text[i + 1].
-size_t indexDocument(char const* url, char* pharses);
+// Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
+// each token into the active document. `phrases` must be a writable buffer.
+// Returns the number of tokens ingested.
+size_t indexDocument(char const* url, char* phrases);
 
 struct Phrase
 {
