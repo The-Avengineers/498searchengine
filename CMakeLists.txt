@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(avengine LANGUAGES CXX)
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 include(CTest)
@@ -26,6 +27,7 @@ add_library(avengine
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/index.cpp
+  src/index_stream_reader.cpp
   src/parser.cpp
   src/ranker/ranker.cpp
   src/tokenstream.cpp
@@ -40,7 +42,7 @@ target_include_directories(avengine
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
 
 # Example for usage
 # NOTE: not filled yet unsure end compilation
