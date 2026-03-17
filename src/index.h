@@ -3,6 +3,7 @@
 #include "avengine/string.h"
 #include "avengine/vector.h"
 
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -49,15 +50,14 @@ struct Index
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<avengine::string> documentNames;
-  uint32_t currentDocId = UINT32_MAX;
+  pthread_mutex_t writeMutex;
 
   PostingList* getBucket(char const* word);
 
   Index();
+  ~Index();
   bool serialize(int fd);
   uint32_t beginDocument(const char* url);
-  void ingest(char const* word);
-  void ingest(char const* word, PhraseKind kind);
   void ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind);
 };
 

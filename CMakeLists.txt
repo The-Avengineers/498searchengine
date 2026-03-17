@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(avengine LANGUAGES CXX)
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 include(CTest)
@@ -38,7 +39,7 @@ add_library(
 
 target_include_directories(avengine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
 
 # Simple tool for building index from text files.
 add_executable(index_builder src/index_builder.cpp)
@@ -84,9 +85,12 @@ if(BUILD_TESTING)
   foreach(test_src IN LISTS TEST_SOURCES)
     get_filename_component(test_name "${test_src}" NAME_WE)
 
-    if(test_name MATCHES "doctest|smoke|index_test" AND NOT doctest_FOUND)
-      message(STATUS "Skipping ${test_name}: doctest not found")
-      continue()
+    if(NOT doctest_FOUND)
+      file(READ "${test_src}" test_src_contents)
+      if(test_src_contents MATCHES "#include <doctest/doctest.h>")
+        message(STATUS "Skipping ${test_name}: doctest not found")
+        continue()
+      endif()
     endif()
 
     add_executable(${test_name} ${test_src})
