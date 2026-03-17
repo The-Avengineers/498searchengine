@@ -14,10 +14,10 @@ configure:
 		echo "Removing stale $(BUILD_DIR)/ configured for a different source root"; \
 		rm -rf $(BUILD_DIR); \
 	fi
-	cmake -S $(AVENGINE_SRC) -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
+	cmake -S $(AVENGINE_SRC) -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
 
 build: configure
-	cmake --build $(BUILD_DIR) --config Release -j
+	cmake --build $(BUILD_DIR) --config Debug -j
 
 clean:
 	rm -rf $(BUILD_DIR)
