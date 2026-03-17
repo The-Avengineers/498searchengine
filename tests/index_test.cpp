@@ -225,10 +225,10 @@ TEST_CASE("Concurrent ingestion keeps postings attached to the correct document"
   uint32_t docA = UINT32_MAX;
   uint32_t docB = UINT32_MAX;
 
-  ConcurrentWorkerArgs argsA = {&index, &startMutex, &startCond, &readyCount,
-                                &start, &docA, "doc://alpha", "alpha", PhraseKind::BODY};
-  ConcurrentWorkerArgs argsB = {&index, &startMutex, &startCond, &readyCount,
-                                &start, &docB, "doc://beta", "beta", PhraseKind::TITLE};
+  ConcurrentWorkerArgs argsA = {&index, &startMutex,   &startCond, &readyCount,     &start,
+                                &docA,  "doc://alpha", "alpha",    PhraseKind::BODY};
+  ConcurrentWorkerArgs argsB = {&index, &startMutex,  &startCond, &readyCount,      &start,
+                                &docB,  "doc://beta", "beta",     PhraseKind::TITLE};
   pthread_t threadA = {};
   pthread_t threadB = {};
 
