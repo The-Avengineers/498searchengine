@@ -246,7 +246,7 @@ string fetcher::decodeChunked(const string& body)
     }
 
     if (lineEnd + 1 >= body.size())
-      break;
+      break; 
 
     size_t chunkSize = 0;
     for (size_t j = i; j < lineEnd; ++j)
@@ -332,7 +332,7 @@ expected<fetchResponse, error> fetcher::fetch(const string& url)
   {
     URL parsed = normalizer.parseURL(currentUrl);
 
-    // upgrade to https
+    // upgrade to https 
     if (parsed.protocol != "https")
     {
       parsed.protocol = "https";
@@ -344,6 +344,7 @@ expected<fetchResponse, error> fetcher::fetch(const string& url)
     }
 
     currentUrl = normalizer.URLtoString(parsed);
+
 
     string port = parsed.port;
     if (port == "")

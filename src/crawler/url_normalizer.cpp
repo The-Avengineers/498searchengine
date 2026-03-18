@@ -65,8 +65,7 @@ URL URLNormalizer::parseURL(const string& url)
     result.path = substr(localUrl, pos, urlSize);
     if (result.path.size() > 1 && result.path[result.path.size() - 1] == '/')
     {
-      result.path =
-          substr(result.path, 0, result.path.size() - 1); // remove trailing slash from urls
+      result.path = substr(result.path, 0, result.path.size() - 1); // remove trailing slash from urls
     }
     result.path = resolveDotSegments(result.path);
   }

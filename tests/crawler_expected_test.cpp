@@ -23,7 +23,7 @@ bool strEq(const avengine::string& lhs, const char* rhs)
 {
   return strcmp(lhs.cstr(), rhs) == 0;
 }
-} // namespace
+}
 
 int main()
 {
@@ -61,7 +61,7 @@ int main()
   EXPECT(assigned.hasValue());
   EXPECT(assigned.value() == 42);
 
-  // copy void
+  //copy void 
   avengine::expected<void, avengine::error> copiedVoid(badVoid);
   EXPECT(!copiedVoid.hasValue());
   EXPECT(strEq(copiedVoid.error().msg, "bruh"));

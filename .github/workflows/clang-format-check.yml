@@ -19,7 +19,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          files=$(find src include tests -type f \( \
+          files=$(find src include tests examples -type f \( \
             -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' \
             -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' \
           \))

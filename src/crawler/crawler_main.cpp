@@ -169,6 +169,7 @@ int main()
           theFrontier.add(normalized, entry.depth + 1);
         }
       }
+
     }
 
     // checkpoint

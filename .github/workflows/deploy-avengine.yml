@@ -8,6 +8,7 @@ on:
       - "CMakeLists.txt"
       - "src/**"
       - "include/**"
+      - "examples/**"
       - "tests/**"
       - "deploy/**"
       - "infra/deploy/**"
