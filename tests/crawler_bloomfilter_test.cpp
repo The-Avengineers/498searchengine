@@ -17,7 +17,7 @@ void fail(const char* expr, int line)
     if (!(expr))                                                                                   \
       fail(#expr, __LINE__);                                                                       \
   } while (false)
-}
+} // namespace
 
 int main()
 {

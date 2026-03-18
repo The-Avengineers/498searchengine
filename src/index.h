@@ -1,75 +1,70 @@
 #pragma once
+
+#include "avengine/string.h"
 #include "avengine/vector.h"
-#include <cstddef>
-#include <cstdint>
+
+#include <stddef.h>
+#include <stdint.h>
 
 size_t djb2Hash(char const* str);
+size_t djb2Hash(const avengine::string& str);
 
-// Consider switching from AoS to SoA.
-struct Posting
+constexpr uint64_t INDEX_FILE_MAGIC = 0x3256465345584449ULL;
+constexpr uint64_t INDEX_FILE_VERSION = 4;
+
+enum class PhraseKind
 {
-  uint32_t docId;
-  uint32_t termFreq;
-  // It might make sense to make the just an index if resizing is often changing
-  // the base pointer location.
-  size_t positions;
+  BODY,
+  TITLE,
+  URL,
 };
 
+struct Posting
+{
+  uint32_t docId = 0;
+  uint32_t termFreq = 0;
+};
+
+#define HASHMAP_SIZE 262144
 #define STARTING_CAPACITY 64
 
 struct PostingList
 {
   PostingList(char const* word, PostingList* nextBucket);
-  void ingest(uint32_t docId, size_t offset);
+  Posting* findPosting(uint32_t docId);
+  void ingest(uint32_t docId, uint32_t offset);
 
-  char* word;
-  size_t hash;
-  PostingList* nextBucket;
-  // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
-  // points in the on-disk-format we should update this to match.
+  char* word = nullptr;
+  size_t hash = 0;
+  PostingList* nextBucket = nullptr;
   avengine::vector<Posting> postings;
   avengine::vector<uint32_t> positions;
 };
 
-// TODO: Determine the best expected hashmap size given a read-world dataset.
-#define HASHMAP_SIZE 262144
-
-uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
-uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
+void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
+void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
 struct Index
 {
   avengine::vector<PostingList*> buckets;
   size_t offset = 0;
   size_t totalUniqWords = 0;
-  avengine::vector<const char*> documentNames;
-  // Updated by beginDocument(). ingest(word) always indexes into this doc.
+  avengine::vector<avengine::string> documentNames;
   uint32_t currentDocId = UINT32_MAX;
 
   PostingList* getBucket(char const* word);
 
   Index();
-  void serialize(int fd);
-  // Starts a new active document and returns its assigned id.
+  bool serialize(int fd);
   uint32_t beginDocument(const char* url);
-  // Adds a token to the currently active document set by beginDocument().
   void ingest(char const* word);
+  void ingest(char const* word, PhraseKind kind);
+  void ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind);
 };
 
 extern Index globalIndex;
 
-// Puts the list of words into the currently active index. url must in it's
-// canonical form. Words is a list of pointers to cstrings in a single
-// continuous block of memory. The text in pharses must be writable and
-// monotonically increasing, i.e phrases[i].text < phrases.text[i + 1].
-size_t indexDocument(char const* url, char* pharses);
-
-// TODO: Use support phrases of different kinds and decorate or index titles differently.
-enum class PhraseKind
-{
-  TITLE,
-  NORMAL,
-};
+size_t indexDocument(char const* url, char* phrases);
 
 struct Phrase
 {
