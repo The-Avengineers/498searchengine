@@ -1,10 +1,9 @@
 #include "avengine/string.h"
-#include "index.h"
-
-#include <ctype.h>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -15,12 +14,11 @@ struct DictEntry
   uint64_t postingOffset;
 };
 
-struct DecodedPosting
+struct ParsedSkipPointer
 {
-  avengine::vector<uint32_t> previewPositions;
-  size_t decodedCount = 0;
-  const uint8_t* next = nullptr;
-  bool ok = false;
+  uint32_t positionIndex;
+  uint32_t positionValue;
+  uint32_t byteOffset;
 };
 
 static uint64_t read_u64_le(const uint8_t* ptr)
@@ -38,7 +36,7 @@ static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uin
 
   while (begin < end && shift < 35)
   {
-    const uint8_t byte = *begin++;
+    uint8_t byte = *begin++;
     result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
     if ((byte & 0x80u) == 0u)
     {
@@ -90,57 +88,17 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
   size_t i = 0;
   while (src[i] && i + 1 < dstCap)
   {
-    const unsigned char c = static_cast<unsigned char>(src[i]);
-    dst[i] = static_cast<char>(isalpha(c) ? tolower(c) : c);
+    dst[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(src[i])));
     i++;
   }
   dst[i] = '\0';
 }
 
-static DecodedPosting decode_posting(const uint8_t* cursor, const uint8_t* postingEnd,
-                                     uint64_t collectionFrequency)
-{
-  DecodedPosting out;
-  uint32_t pos = 0;
-
-  for (uint64_t i = 0; i < collectionFrequency; i++)
-  {
-    const uint8_t* next = nullptr;
-    const uint32_t delta = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      return out;
-
-    cursor = next;
-    pos += delta;
-    if (out.previewPositions.size() < 25)
-      out.previewPositions.pushBack(pos);
-    out.decodedCount++;
-  }
-
-  out.next = cursor;
-  out.ok = true;
-  return out;
-}
-
-static void print_position_preview(const avengine::vector<uint32_t>& preview)
-{
-  printf("  Positions preview:");
-  if (preview.empty())
-  {
-    printf(" (none)\n");
-    return;
-  }
-
-  for (size_t i = 0; i < preview.size(); i++)
-    printf(" %u", preview[i]);
-  printf("\n");
-}
-
 static void usage(const char* program)
 {
-  fprintf(stderr, "Usage:\n");
-  fprintf(stderr, "  %s <index.sfi> --list\n", program);
-  fprintf(stderr, "  %s <index.sfi> <term>\n", program);
+  std::fprintf(stderr, "Usage:\n");
+  std::fprintf(stderr, "  %s <index.sfi> --list\n", program);
+  std::fprintf(stderr, "  %s <index.sfi> <term>\n", program);
 }
 
 int main(int argc, char** argv)
@@ -157,21 +115,21 @@ int main(int argc, char** argv)
   int fd = open(filename, O_RDONLY);
   if (fd < 0)
   {
-    perror("open");
+    std::perror("open");
     return 1;
   }
 
-  struct stat sb = {};
+  struct stat sb;
   if (fstat(fd, &sb) != 0)
   {
-    perror("fstat");
+    std::perror("fstat");
     close(fd);
     return 1;
   }
 
-  if (sb.st_size < 32)
+  if (sb.st_size < 16)
   {
-    fprintf(stderr, "Index too small.\n");
+    std::fprintf(stderr, "Index too small.\n");
     close(fd);
     return 1;
   }
@@ -180,36 +138,30 @@ int main(int argc, char** argv)
   close(fd);
   if (data == MAP_FAILED)
   {
-    perror("mmap");
+    std::perror("mmap");
     return 1;
   }
 
-  const uint64_t magic = read_u64_le(data);
-  const uint64_t version = read_u64_le(data + 8);
-  if (magic != INDEX_FILE_MAGIC || version != INDEX_FILE_VERSION)
-  {
-    fprintf(stderr, "Unsupported index format.\n");
-    munmap(data, sb.st_size);
-    return 1;
-  }
-
-  const uint64_t documentCount = read_u64_le(data + 16);
-  const uint64_t uniqueWordsPlusOne = read_u64_le(data + 24);
+  // Layout starts with two u64 values:
+  // [document count][unique words + 1]
+  const uint64_t documentCount = read_u64_le(data);
+  const uint64_t uniqueWordsPlusOne = read_u64_le(data + 8);
   const uint64_t tableSlots = uniqueWordsPlusOne * 2;
-  const size_t headerBytes = 32;
-  const uint64_t dictionaryBytes = headerBytes + tableSlots * 16;
+  const uint64_t dictionaryBytes = 16 + tableSlots * 16;
 
   if (dictionaryBytes > static_cast<uint64_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt index: dictionary exceeds file size.\n");
+    std::fprintf(stderr, "Corrupt index: dictionary exceeds file size.\n");
     munmap(data, sb.st_size);
     return 1;
   }
 
+  // Dictionary is a flat hash table where each slot is:
+  // [string offset u64][posting offset u64]
   avengine::vector<DictEntry> entries;
   for (uint64_t i = 0; i < tableSlots; i++)
   {
-    const size_t offset = headerBytes + static_cast<size_t>(i * 16);
+    size_t offset = static_cast<size_t>(16 + i * 16);
     entries.pushBack({read_u64_le(data + offset), read_u64_le(data + offset + 8)});
   }
 
@@ -217,56 +169,59 @@ int main(int argc, char** argv)
   const uint8_t* fileEnd = data + sb.st_size;
 
   size_t inferredStringBytes = 0;
+  size_t parsedTerms = 0;
   avengine::vector<DictEntry> usedEntries;
   avengine::vector<avengine::string> terms;
 
-  for (size_t i = 0; i < entries.size(); i++)
+  // Scan all non-empty dictionary slots, recover C strings from string buffer,
+  // and infer where postings begin by taking max(term_end_offset).
+  for (const DictEntry& e : entries)
   {
-    const DictEntry& entry = entries[i];
-    if (entry.stringOffset == UINT64_MAX && entry.postingOffset == UINT64_MAX)
+    if (e.stringOffset == 0 && e.postingOffset == 0)
       continue;
-    if (dictionaryBytes + entry.stringOffset >= static_cast<uint64_t>(sb.st_size))
+    if (dictionaryBytes + e.stringOffset >= static_cast<uint64_t>(sb.st_size))
       continue;
 
-    const uint8_t* termPtr = stringStart + entry.stringOffset;
-    const size_t len = cstr_len_safe(termPtr, fileEnd);
+    const uint8_t* termPtr = stringStart + e.stringOffset;
+    size_t len = cstr_len_safe(termPtr, fileEnd);
     if (len == static_cast<size_t>(-1))
       continue;
 
-    const size_t endOff = static_cast<size_t>(entry.stringOffset + len + 1);
+    size_t endOff = static_cast<size_t>(e.stringOffset + len + 1);
     if (endOff > inferredStringBytes)
       inferredStringBytes = endOff;
 
-    usedEntries.pushBack(entry);
+    usedEntries.pushBack(e);
     terms.pushBack(avengine::string(reinterpret_cast<const char*>(termPtr)));
+    parsedTerms++;
   }
 
   const size_t postingsStart = static_cast<size_t>(dictionaryBytes) + inferredStringBytes;
   if (postingsStart > static_cast<size_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt index: postings start exceeds file size.\n");
+    std::fprintf(stderr, "Corrupt index: postings start exceeds file size.\n");
     munmap(data, sb.st_size);
     return 1;
   }
 
-  printf("Format: v4\n");
-  printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
-  printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
-  printf("Parsed terms (best effort): %zu\n", terms.size());
+  std::printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
+  std::printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
+  std::printf("Parsed terms (best effort): %zu\n", parsedTerms);
 
   if (listMode)
   {
-    for (size_t i = 0; i < terms.size(); i++)
-      printf("%s\n", terms[i].cstr());
+    for (const avengine::string& term : terms)
+      std::printf("%s\n", term.cstr());
+
     munmap(data, sb.st_size);
     return 0;
   }
 
-  const size_t rawLen = cstr_len(argv[2]);
-  char* queryLower = static_cast<char*>(malloc(rawLen + 1));
+  size_t rawLen = cstr_len(argv[2]);
+  char* queryLower = static_cast<char*>(std::malloc(rawLen + 1));
   if (!queryLower)
   {
-    fprintf(stderr, "Out of memory.\n");
+    std::fprintf(stderr, "Out of memory.\n");
     munmap(data, sb.st_size);
     return 1;
   }
@@ -284,57 +239,101 @@ int main(int argc, char** argv)
 
   if (foundIndex < 0)
   {
-    printf("Term '%s' not found.\n", queryLower);
-    free(queryLower);
+    std::printf("Term '%s' not found.\n", queryLower);
+    std::free(queryLower);
     munmap(data, sb.st_size);
     return 0;
   }
 
   const DictEntry found = usedEntries[static_cast<size_t>(foundIndex)];
 
+  // Posting lists are concatenated. To get this term's end offset,
+  // find the next-greater posting offset from other terms.
   uint64_t nextPosting = static_cast<uint64_t>(sb.st_size - postingsStart);
-  for (size_t i = 0; i < usedEntries.size(); i++)
+  for (const DictEntry& e : usedEntries)
   {
-    const DictEntry& entry = usedEntries[i];
-    if (entry.postingOffset > found.postingOffset && entry.postingOffset < nextPosting)
-      nextPosting = entry.postingOffset;
+    if (e.postingOffset > found.postingOffset && e.postingOffset < nextPosting)
+      nextPosting = e.postingOffset;
   }
 
-  const size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
-  const size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
-  if (startOff + 16 > endOff || endOff > static_cast<size_t>(sb.st_size))
+  size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
+  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
+  if (startOff + 24 > endOff || endOff > static_cast<size_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt v4 posting list boundaries.\n");
-    free(queryLower);
+    std::fprintf(stderr, "Corrupt posting list boundaries.\n");
+    std::free(queryLower);
     munmap(data, sb.st_size);
     return 1;
   }
 
+  // Per posting-list header:
+  // [document frequency u64][collection frequency u64][skip count u64].
   const uint8_t* posting = data + startOff;
+  uint64_t documentFrequency = read_u64_le(posting);
+  uint64_t collectionFrequency = read_u64_le(posting + 8);
+  uint64_t skipCount = read_u64_le(posting + 16);
+  const uint8_t* cursor = posting + 24;
   const uint8_t* postingEnd = data + endOff;
-  const uint64_t documentFrequency = read_u64_le(posting);
-  const uint64_t collectionFrequency = read_u64_le(posting + 8);
 
-  const DecodedPosting decoded = decode_posting(posting + 16, postingEnd, collectionFrequency);
-  if (!decoded.ok)
+  avengine::vector<ParsedSkipPointer> parsedSkips;
+  for (uint64_t i = 0; i < skipCount; i++)
   {
-    fprintf(stderr, "Corrupt v4 field encoding.\n");
-    free(queryLower);
-    munmap(data, sb.st_size);
-    return 1;
+    const uint8_t* next = nullptr;
+    uint32_t positionIndex = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t positionValue = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t byteOffset = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
   }
 
-  printf("Term: %s\n", queryLower);
-  printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
-  printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
-  print_position_preview(decoded.previewPositions);
-  printf("Decoded positions: %zu\n", decoded.decodedCount);
+  // Remaining bytes are varint-encoded deltas for token positions.
+  uint32_t pos = 0;
+  size_t decoded = 0;
 
-  if (decoded.next != postingEnd)
-    printf("Note: %zu trailing posting bytes were not consumed.\n",
-           static_cast<size_t>(postingEnd - decoded.next));
+  std::printf("Term: %s\n", queryLower);
+  std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
+  std::printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
+  std::printf("Skip pointers: %zu\n", parsedSkips.size());
+  if (!parsedSkips.empty())
+  {
+    std::printf("Skip preview:");
+    for (size_t i = 0; i < parsedSkips.size() && i < 8; i++)
+    {
+      const ParsedSkipPointer& sp = parsedSkips[i];
+      std::printf(" [idx=%u pos=%u off=%u]", sp.positionIndex, sp.positionValue, sp.byteOffset);
+    }
+    std::printf("\n");
+  }
+  std::printf("Positions preview:");
 
-  free(queryLower);
+  while (cursor < postingEnd)
+  {
+    const uint8_t* next = nullptr;
+    uint32_t delta = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+    pos += delta;
+    if (decoded < 25)
+      std::printf(" %u", pos);
+    decoded++;
+  }
+
+  std::printf("\n");
+  std::printf("Decoded positions: %zu\n", decoded);
+
+  std::free(queryLower);
   munmap(data, sb.st_size);
   return 0;
 }
