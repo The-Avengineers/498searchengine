@@ -2,92 +2,94 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-void parseTabFile(char* content, avengine::vector<char*>& documents,
-                  avengine::vector<char*>& documentNames)
+// Parses a tab-delimited file where each line has the form:
+//   <name>\t<document text>
+// Appends non-owning slices into the same underlying buffer to `documents`
+// and `documentNames`.  The buffer must remain alive for the lifetime of
+// every slice stored in the output vectors.
+void parseTabFile(avengine::string_slice content,
+                  avengine::vector<avengine::string_slice>& documents,
+                  avengine::vector<avengine::string_slice>& documentNames)
 {
-  char* verse = strtok(content, "\n");
+  avengine::vector<avengine::string_slice> lines = content.split('\n');
 
-  while (verse)
+  for (size_t i = 0; i < lines.size(); ++i)
   {
-    documentNames.pushBack(verse);
+    avengine::string_slice line = lines[i];
+    if (line.empty())
+      continue;
 
-    while (*verse != '\t')
-      verse++;
+    size_t tabPos = line.find("\t");
+    if (tabPos == avengine::string_slice::npos)
+      continue;
 
-    *(verse++) = '\0';
-
-    documents.pushBack(verse);
-
-    verse = strtok(nullptr, "\n");
+    documentNames.pushBack(line.substr(0, tabPos));
+    documents.pushBack(line.substr(tabPos + 1, line.size() - tabPos - 1));
   }
 }
 
-char* memoryMapFile(char const* filename, size_t& length)
+// Memory-maps `filename` for reading (copy-on-write) and returns a
+// string_slice covering the mapped region.  Returns an empty slice on error.
+// The caller must munmap(slice.begin(), slice.size()) when done.
+avengine::string_slice memoryMapFile(avengine::string_slice filename)
 {
-  int fd = open(filename, O_RDONLY);
-  struct stat sb;
+  avengine::string filenameStr = filename.toString();
+  int fd = open(filenameStr.cstr(), O_RDONLY);
   if (fd == -1)
-    return nullptr;
+    return avengine::string_slice();
 
+  struct stat sb;
   if (fstat(fd, &sb) == -1)
-    return nullptr;
+    return avengine::string_slice();
 
+  size_t length = static_cast<size_t>(sb.st_size);
   char* data =
-      static_cast<char*>(mmap(nullptr, sb.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0));
+      static_cast<char*>(mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0));
 
-  length = sb.st_size;
-
-  // This might cause undefined behavior if it hits a new page.
-  data[length] = '\0';
   close(fd);
 
-  return data;
+  return avengine::string_slice(data, length);
 }
 
-bool isDirectory(char const* path)
+bool isDirectory(avengine::string_slice path)
 {
   struct stat s;
+  avengine::string pathStr = path.toString();
 
-  if (stat(path, &s))
+  if (stat(pathStr.cstr(), &s))
     return false;
 
   return s.st_mode & S_IFDIR;
 }
 
-void listFiles(char* dir, avengine::vector<char*>& files)
+void listFiles(avengine::string_slice dir, avengine::vector<avengine::string>& files)
 {
-  DIR* dr;
-  struct dirent* en;
-  dr = opendir(dir);
+  avengine::string dirStr = dir.toString();
+  DIR* dr = opendir(dirStr.cstr());
   if (dr)
   {
+    struct dirent* en;
     while ((en = readdir(dr)) != NULL)
     {
       if (en->d_name[0] != '.')
-      {
-        char* nameCopy = new char[strlen(en->d_name) + 1];
-        strcpy(nameCopy, en->d_name);
-        files.pushBack(nameCopy);
-      }
+        files.pushBack(avengine::string(en->d_name));
     }
     closedir(dr);
   }
 }
 
-static void usage(const char* program)
+static void usage(avengine::string_slice program)
 {
   std::fprintf(stderr, "Usage:\n");
-  std::fprintf(stderr, "  %s <directory>\n", program);
-  std::fprintf(stderr, "  %s <verses.txt>\n", program);
+  std::fprintf(stderr, "  %.*s <directory>\n", static_cast<int>(program.size()), program.begin());
+  std::fprintf(stderr, "  %.*s <verses.txt>\n", static_cast<int>(program.size()), program.begin());
 }
 
 int main(int argc, char** argv)
@@ -100,37 +102,37 @@ int main(int argc, char** argv)
 
   clock_t start, diff;
 
-  if (isDirectory(argv[1]))
-  {
-    avengine::vector<char*> files;
+  avengine::string_slice arg1(argv[1]);
 
-    listFiles(argv[1], files);
+  if (isDirectory(arg1))
+  {
+    avengine::vector<avengine::string> files;
+
+    listFiles(arg1, files);
 
     start = clock();
 
-    for (char* file : files)
+    for (avengine::string& file : files)
     {
-      char filepath[256];
-      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], file);
+      avengine::string filepath(argv[1]);
+      filepath += file;
 
-      size_t length;
-      char* content = memoryMapFile(filepath, length);
-      assert(content);
+      avengine::string_slice content = memoryMapFile(avengine::string_slice(filepath));
+      assert(content.begin());
 
-      size_t written = indexDocument(file, content);
+      indexDocument(avengine::string_slice(file.cstr()), content);
 
-      munmap(content, length);
+      munmap(content.begin(), content.size());
     }
   }
   else
   {
-    size_t length;
-    char* content = memoryMapFile(argv[1], length);
+    avengine::string_slice content = memoryMapFile(arg1);
 
     printf("Done mapping file!\n");
 
-    avengine::vector<char*> documents;
-    avengine::vector<char*> documentNames;
+    avengine::vector<avengine::string_slice> documents;
+    avengine::vector<avengine::string_slice> documentNames;
     parseTabFile(content, documents, documentNames);
 
     printf("Done parsing verses file, %ld documents!\n", documents.size());
