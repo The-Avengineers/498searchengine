@@ -157,7 +157,7 @@ static void encodePostingList(const PostingList& pl,
 
       append_string(metadataBuffer, doc.url);
       append_string(metadataBuffer, doc.title);
-      append_bytes(metadataBuffer, reinterpret_cast<uint8_t*>(doc.input), sizeof(doc.input));
+      append_bytes(metadataBuffer, reinterpret_cast<const uint8_t*>(&doc.input), sizeof(doc.input));
     }
   }
 
