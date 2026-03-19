@@ -177,7 +177,8 @@ void testIndexDocumentTokenization()
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  uint32_t docId = index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
+  uint32_t docId =
+      index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
