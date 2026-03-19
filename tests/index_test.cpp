@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -111,16 +112,17 @@ void testIndexIngestAcrossDocuments()
 {
   Index index;
 
-  EXPECT(index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0}) == 0u);
-  index.ingest("apple");
-  index.ingest("banana");
-  index.ingest("apple");
+  uint32_t doc0 = index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0});
+  EXPECT(doc0 == 0u);
+  index.ingestIntoDocument(doc0, "apple");
+  index.ingestIntoDocument(doc0, "banana");
+  index.ingestIntoDocument(doc0, "apple");
 
-  EXPECT(index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0}) == 1u);
-  index.ingest("apple");
+  uint32_t doc1 = index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0});
+  EXPECT(doc1 == 1u);
+  index.ingestIntoDocument(doc1, "apple");
 
   EXPECT(index.documentMetadata.size() == 2);
-  EXPECT(index.currentDocId == 1u);
   EXPECT(index.totalUniqWords == 2u);
   EXPECT(index.offset == 4u);
 
@@ -175,11 +177,11 @@ void testIndexDocumentTokenization()
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
+  uint32_t docId = index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
-    index.ingest("alpha");
+    index.ingestIntoDocument(docId, "alpha");
   }
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
@@ -254,6 +256,68 @@ void testSerializationHeaderAndSkipPointers()
   std::free(bytes);
 }
 
+struct ConcurrentThreadArgs
+{
+  Index* index;
+  int wordCount;
+  uint32_t docId;
+};
+
+static void* concurrentIngestThread(void* arg)
+{
+  ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
+  a->docId = a->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
+  for (int i = 0; i < a->wordCount; ++i)
+    a->index->ingestIntoDocument(a->docId, "token");
+  return nullptr;
+}
+
+// Spawns kThreads threads that each call beginDocument() and ingestIntoDocument()
+// concurrently. Verifies no writes are lost and every thread received a unique docId.
+void testConcurrentIngest()
+{
+  constexpr int kThreads = 8;
+  constexpr int kWordsPerDoc = 100;
+
+  Index index;
+  ConcurrentThreadArgs args[kThreads];
+  pthread_t threads[kThreads];
+
+  for (int i = 0; i < kThreads; ++i)
+  {
+    args[i] = {&index, kWordsPerDoc, UINT32_MAX};
+    pthread_create(&threads[i], nullptr, concurrentIngestThread, &args[i]);
+  }
+  for (int i = 0; i < kThreads; ++i)
+    pthread_join(threads[i], nullptr);
+
+  // No beginDocument() calls were lost.
+  EXPECT(index.documentMetadata.size() == static_cast<size_t>(kThreads));
+
+  // No ingestIntoDocument() offset increments were lost.
+  EXPECT(index.offset == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  // Every assigned docId is unique and in [0, kThreads).
+  bool seen[kThreads] = {};
+  for (int i = 0; i < kThreads; ++i)
+  {
+    EXPECT(args[i].docId < static_cast<uint32_t>(kThreads));
+    EXPECT(!seen[args[i].docId]);
+    seen[args[i].docId] = true;
+  }
+
+  // All position records were written.
+  PostingList* token = index.getBucket("token");
+  EXPECT(token != nullptr);
+  EXPECT(token->positions.size() == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  // All term-frequency increments were recorded.
+  size_t totalFreq = 0;
+  for (size_t i = 0; i < token->postings.size(); ++i)
+    totalFreq += token->postings[i].termFreq;
+  EXPECT(totalFreq == static_cast<size_t>(kThreads * kWordsPerDoc));
+}
+
 } // namespace
 
 int main()
@@ -263,5 +327,6 @@ int main()
   testIndexIngestAcrossDocuments();
   testIndexDocumentTokenization();
   testSerializationHeaderAndSkipPointers();
+  testConcurrentIngest();
   return 0;
 }
