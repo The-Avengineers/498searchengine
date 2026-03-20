@@ -1,3 +1,4 @@
+#include "avengine/avengine_lib/string.h"
 #include "avengine/string.h"
 #include <cctype>
 #include <cstdint>

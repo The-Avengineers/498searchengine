@@ -151,7 +151,10 @@ void testIndexIngestAcrossDocuments()
 void testIndexDocumentTokenization()
 {
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  const size_t words = indexDocument("doc://tokenized", text);
+  DocumentMetadata meta{.url = "doc://tokenized", .title = "", .input = 0};
+  avengine::vector<avengine::string_slice> phrases;
+  phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
+  const size_t words = indexDocument(meta, phrases);
 
   EXPECT(words == 4u);
   EXPECT(globalIndex.documentMetadata.size() == 1);
