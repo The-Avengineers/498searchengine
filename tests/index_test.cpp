@@ -126,7 +126,7 @@ void testIndexIngestAcrossDocuments()
 
   EXPECT(index.documentMetadata.size() == 2);
   EXPECT(index.totalUniqWords == 3u); // apple, banana, DOCEND_TOKEN
-  EXPECT(index.offset == 6u); // 3 words + DOCEND for doc0, 1 word + DOCEND for doc1
+  EXPECT(index.offset == 6u);         // 3 words + DOCEND for doc0, 1 word + DOCEND for doc1
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
@@ -230,12 +230,11 @@ void testSerializationHeaderAndSkipPointers()
 
   // DOCUMENT_END posting comes first (lower hash bucket). Compute its byte size:
   //   3 u64 header + varint(10) delta + metadata (varint+url + varint+title + u64 input).
-  const size_t docEndPostingSize =
-      24u                                          // [doc_freq][coll_freq][skip_count]
-      + 1u                                         // varint(10): position delta
-      + 1u + std::strlen("doc://serialize")        // varint(len) + url
-      + 1u + std::strlen("Serialize")              // varint(len) + title
-      + sizeof(uint64_t);                          // RankingInput
+  const size_t docEndPostingSize = 24u  // [doc_freq][coll_freq][skip_count]
+                                   + 1u // varint(10): position delta
+                                   + 1u + std::strlen("doc://serialize") // varint(len) + url
+                                   + 1u + std::strlen("Serialize")       // varint(len) + title
+                                   + sizeof(uint64_t);                   // RankingInput
 
   EXPECT(fileSize >= postingsStart + docEndPostingSize + 24u);
 
