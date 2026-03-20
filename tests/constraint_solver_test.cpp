@@ -11,8 +11,10 @@ using avengine::ISRWord;
 using avengine::string;
 using avengine::vector;
 using avengine::constraint_solver::ConstraintSolver;
+using avengine::constraint_solver::DestroyQueryTree;
 using avengine::constraint_solver::DocumentMatch;
 using avengine::constraint_solver::IsrSource;
+using avengine::constraint_solver::ParseResult;
 
 void fail(const char* expr, int line)
 {
@@ -114,6 +116,22 @@ DictionarySource makeBooleanSource()
   return source;
 }
 
+DictionarySource makeGroupedExclusionSource()
+{
+  DictionarySource source;
+  source.AddOccurrence("apple", 1);
+  source.AddOccurrence("cherry", 2);
+  source.AddDocument("doc-x", 2);
+
+  source.AddOccurrence("banana", 3);
+  source.AddOccurrence("cherry", 4);
+  source.AddDocument("doc-y", 4);
+
+  source.AddOccurrence("cherry", 5);
+  source.AddDocument("doc-z", 5);
+  return source;
+}
+
 void testSingleTermSolve()
 {
   ConstraintSolver solver;
@@ -177,6 +195,93 @@ void testMissingRequiredTermReturnsEmpty()
   EXPECT(result.Matches.size() == 0);
 }
 
+void testOrWithMissingBranchStillMatches()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  auto result = solver.SolveQuery("kiwi | apple", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-a", "doc-b"});
+}
+
+void testDuplicateOrDeduplicatesMatches()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  auto result = solver.SolveQuery("apple | apple", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-a", "doc-b"});
+}
+
+void testDuplicateRequiredTermStaysStable()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  auto result = solver.SolveQuery("apple apple", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-a", "doc-b"});
+}
+
+void testPhraseExclusionSolve()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makePhraseSource();
+  auto result = solver.SolveQuery("apollo -\"moon landing\"", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-1"});
+}
+
+void testGroupedExclusionSolve()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeGroupedExclusionSource();
+  auto result = solver.SolveQuery("cherry -(apple | banana)", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-z"});
+}
+
+void testOrAndPrecedenceSolve()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  auto result = solver.SolveQuery("apple | banana cherry", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-a", "doc-b", "doc-c"});
+}
+
+void testSolveParsedPath()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  ParseResult parsed = solver.ParseQuery("(apple | banana) cherry");
+  EXPECT(parsed.Errors.size() == 0);
+  EXPECT(parsed.Root != nullptr);
+
+  auto result = solver.SolveParsed(parsed.Root, source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-a", "doc-c"});
+
+  DestroyQueryTree(parsed.Root);
+}
+
+void testInvalidQueryErrorsPassThrough()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeBooleanSource();
+  auto result = solver.SolveQuery("apple |", source);
+  EXPECT(result.Errors.size() > 0);
+  EXPECT(result.Matches.size() == 0);
+}
+
+void testEmptySourceReturnsNoMatches()
+{
+  ConstraintSolver solver;
+  DictionarySource source;
+  auto result = solver.SolveQuery("apple", source);
+  EXPECT(result.Errors.size() == 0);
+  EXPECT(result.Matches.size() == 0);
+}
+
 } // namespace
 
 int main()
@@ -188,5 +293,14 @@ int main()
   testAndNotSolve();
   testGroupedSolve();
   testMissingRequiredTermReturnsEmpty();
+  testOrWithMissingBranchStillMatches();
+  testDuplicateOrDeduplicatesMatches();
+  testDuplicateRequiredTermStaysStable();
+  testPhraseExclusionSolve();
+  testGroupedExclusionSolve();
+  testOrAndPrecedenceSolve();
+  testSolveParsedPath();
+  testInvalidQueryErrorsPassThrough();
+  testEmptySourceReturnsNoMatches();
   return 0;
 }
