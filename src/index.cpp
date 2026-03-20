@@ -280,30 +280,28 @@ uint32_t Index::beginDocument(DocumentMetadata metadata)
 {
   pthread_mutex_lock(&writeMutex);
   documentMetadata.pushBack(metadata);
-  uint32_t docId = static_cast<uint32_t>(documentMetadata.size() - 1);
-  pthread_mutex_unlock(&writeMutex);
-  return docId;
+  currentDocId = static_cast<uint32_t>(documentMetadata.size() - 1);
+  return currentDocId;
 }
 
-void Index::ingestIntoDocument(uint32_t docId, avengine::string_slice word)
+void Index::ingest(avengine::string_slice word)
 {
-  pthread_mutex_lock(&writeMutex);
   PostingList* bucket = getBucket(word);
-  bucket->ingest(docId, offset++);
-  pthread_mutex_unlock(&writeMutex);
+  bucket->ingest(currentDocId, offset++);
 }
 
-void Index::endDocument(uint32_t docId)
+void Index::endDocument()
 {
-  ingestIntoDocument(docId, DOCEND_TOKEN);
+  ingest(DOCEND_TOKEN);
+  pthread_mutex_unlock(&writeMutex);
 }
 
 Index globalIndex;
 
 // Walks `text`, lowercases each alpha run in-place via the mutable slice, and
-// ingests each resulting token into `idx` under `docId`. Returns the number of
-// tokens found.
-static size_t tokenizeInto(avengine::string_slice text, Index& idx, uint32_t docId)
+// ingests each resulting token into `idx`. Returns the number of tokens found.
+// Must be called between beginDocument() and endDocument().
+static size_t tokenizeInto(avengine::string_slice text, Index& idx)
 {
   size_t words = 0;
   size_t i = 0;
@@ -321,20 +319,19 @@ static size_t tokenizeInto(avengine::string_slice text, Index& idx, uint32_t doc
       i++;
     }
 
-    idx.ingestIntoDocument(docId, text.substr(wordStart, i - wordStart));
+    idx.ingest(text.substr(wordStart, i - wordStart));
     words++;
 
     while (i < text.size() && !isalpha(text[i]))
       i++;
   }
 
-  idx.endDocument(docId);
+  idx.endDocument();
   return words;
 }
 
 size_t indexDocument(avengine::string_slice url, avengine::string_slice phrases)
 {
-  uint32_t docId =
-      globalIndex.beginDocument({.url = url.toString(), .title = url.toString(), .input = 0});
-  return tokenizeInto(phrases, globalIndex, docId);
+  globalIndex.beginDocument({.url = url.toString(), .title = url.toString(), .input = 0});
+  return tokenizeInto(phrases, globalIndex);
 }

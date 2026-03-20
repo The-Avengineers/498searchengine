@@ -63,6 +63,7 @@ struct Index
   size_t totalUniqWords = 0;
   avengine::vector<DocumentMetadata> documentMetadata;
   pthread_mutex_t writeMutex;
+  uint32_t currentDocId = 0;
 
   PostingList* getBucket(avengine::string_slice word);
   // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
@@ -73,13 +74,14 @@ struct Index
   ~Index();
   // Returns true on I/O error.
   bool serialize(int fd);
-  // Takes the write lock, allocates a doc slot, releases the lock, and returns
-  // the assigned docId. Callers must pass this id to ingestIntoDocument().
+  // Takes the write lock and allocates a doc slot. The lock is held until
+  // endDocument() is called. Returns the assigned docId.
   uint32_t beginDocument(DocumentMetadata metadata);
-  // Ingests the DOCEND_TOKEN into the given document.
-  void endDocument(uint32_t docId);
-  // Takes the write lock and adds a token to the given document.
-  void ingestIntoDocument(uint32_t docId, avengine::string_slice word);
+  // Ingests the DOCEND_TOKEN and releases the write lock.
+  void endDocument();
+  // Adds a token to the current document. Must be called between beginDocument()
+  // and endDocument().
+  void ingest(avengine::string_slice word);
 };
 
 extern Index globalIndex;

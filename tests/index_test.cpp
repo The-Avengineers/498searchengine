@@ -114,17 +114,19 @@ void testIndexIngestAcrossDocuments()
 
   uint32_t doc0 = index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0});
   EXPECT(doc0 == 0u);
-  index.ingestIntoDocument(doc0, "apple");
-  index.ingestIntoDocument(doc0, "banana");
-  index.ingestIntoDocument(doc0, "apple");
+  index.ingest("apple");
+  index.ingest("banana");
+  index.ingest("apple");
+  index.endDocument();
 
   uint32_t doc1 = index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0});
   EXPECT(doc1 == 1u);
-  index.ingestIntoDocument(doc1, "apple");
+  index.ingest("apple");
+  index.endDocument();
 
   EXPECT(index.documentMetadata.size() == 2);
-  EXPECT(index.totalUniqWords == 2u);
-  EXPECT(index.offset == 4u);
+  EXPECT(index.totalUniqWords == 3u); // apple, banana, DOCEND_TOKEN
+  EXPECT(index.offset == 6u); // 3 words + DOCEND for doc0, 1 word + DOCEND for doc1
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
@@ -137,7 +139,7 @@ void testIndexIngestAcrossDocuments()
   EXPECT(apple->positions.size() == 3);
   EXPECT(apple->positions[0] == 0u);
   EXPECT(apple->positions[1] == 2u);
-  EXPECT(apple->positions[2] == 3u);
+  EXPECT(apple->positions[2] == 4u); // offset 3 is DOCEND for doc0
 
   EXPECT(banana->postings.size() == 1);
   EXPECT(banana->postings[0].docId == 0u);
@@ -177,13 +179,13 @@ void testIndexDocumentTokenization()
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  uint32_t docId =
-      index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
+  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
-    index.ingestIntoDocument(docId, "alpha");
+    index.ingest("alpha");
   }
+  index.endDocument();
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
@@ -219,15 +221,25 @@ void testSerializationHeaderAndSkipPointers()
 
   EXPECT(readU64LE(bytes) == 1u);
   const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
-  EXPECT(uniqueWordsPlusOne == 2u);
+  EXPECT(uniqueWordsPlusOne == 3u); // alpha + DOCEND_TOKEN + 1
 
   const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
-  const size_t stringBytes = std::strlen("alpha") + 1u;
+  // String table: DOCUMENT_END\0 (13 bytes) then alpha\0 (6 bytes) — in hashmap bucket order.
+  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  EXPECT(fileSize >= postingsStart + 24u);
+  // DOCUMENT_END posting comes first (lower hash bucket). Compute its byte size:
+  //   3 u64 header + varint(10) delta + metadata (varint+url + varint+title + u64 input).
+  const size_t docEndPostingSize =
+      24u                                          // [doc_freq][coll_freq][skip_count]
+      + 1u                                         // varint(10): position delta
+      + 1u + std::strlen("doc://serialize")        // varint(len) + url
+      + 1u + std::strlen("Serialize")              // varint(len) + title
+      + sizeof(uint64_t);                          // RankingInput
 
-  const uint8_t* posting = bytes + postingsStart;
+  EXPECT(fileSize >= postingsStart + docEndPostingSize + 24u);
+
+  const uint8_t* posting = bytes + postingsStart + docEndPostingSize;
   EXPECT(readU64LE(posting) == 1u);
   EXPECT(readU64LE(posting + 8) == 10u);
   EXPECT(readU64LE(posting + 16) == 3u);
@@ -269,7 +281,8 @@ static void* concurrentIngestThread(void* arg)
   ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
   a->docId = a->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
   for (int i = 0; i < a->wordCount; ++i)
-    a->index->ingestIntoDocument(a->docId, "token");
+    a->index->ingest("token");
+  a->index->endDocument();
   return nullptr;
 }
 
@@ -295,8 +308,8 @@ void testConcurrentIngest()
   // No beginDocument() calls were lost.
   EXPECT(index.documentMetadata.size() == static_cast<size_t>(kThreads));
 
-  // No ingestIntoDocument() offset increments were lost.
-  EXPECT(index.offset == static_cast<size_t>(kThreads * kWordsPerDoc));
+  // No ingest() offset increments were lost (kWordsPerDoc words + 1 DOCEND per thread).
+  EXPECT(index.offset == static_cast<size_t>(kThreads * (kWordsPerDoc + 1)));
 
   // Every assigned docId is unique and in [0, kThreads).
   bool seen[kThreads] = {};
