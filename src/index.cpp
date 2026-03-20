@@ -9,6 +9,7 @@
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -105,6 +106,12 @@ Index::Index() : buckets(HASHMAP_SIZE)
   {
     bucket = nullptr;
   }
+  pthread_mutex_init(&writeMutex, nullptr);
+}
+
+Index::~Index()
+{
+  pthread_mutex_destroy(&writeMutex);
 }
 
 // Encodes a single posting list into `out` (cleared on entry):
@@ -204,6 +211,8 @@ void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffe
 
 bool Index::serialize(int fd)
 {
+  pthread_mutex_lock(&writeMutex);
+
   // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
   // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
   const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
@@ -218,9 +227,15 @@ bool Index::serialize(int fd)
 
   // TODO: maybe fallocate?
   if (lseek(fd, needed * sizeof(uint64_t), SEEK_SET) == (off_t)-1)
+  {
+    pthread_mutex_unlock(&writeMutex);
     return true;
+  }
   if (write(fd, stringBuffer.begin(), stringBuffer.size()) < 0)
+  {
+    pthread_mutex_unlock(&writeMutex);
     return true;
+  }
 
   size_t postingsOffset = 0;
   avengine::vector<uint8_t> postingBuffer;
@@ -236,7 +251,10 @@ bool Index::serialize(int fd)
       encodePostingList(*bucket, documentMetadata, postingBuffer);
 
       if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
+      {
+        pthread_mutex_unlock(&writeMutex);
         return true;
+      }
       postingsOffset += postingBuffer.size();
 
       bucket = bucket->nextBucket;
@@ -244,14 +262,23 @@ bool Index::serialize(int fd)
   }
 
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
+  {
+    pthread_mutex_unlock(&writeMutex);
     return true;
+  }
   if (write(fd, dictionaryBuffer, needed * sizeof(uint64_t)) < 0)
+  {
+    pthread_mutex_unlock(&writeMutex);
     return true;
+  }
+
+  pthread_mutex_unlock(&writeMutex);
   return false;
 }
 
 uint32_t Index::beginDocument(DocumentMetadata metadata)
 {
+  pthread_mutex_lock(&writeMutex);
   documentMetadata.pushBack(metadata);
   currentDocId = static_cast<uint32_t>(documentMetadata.size() - 1);
   return currentDocId;
@@ -259,21 +286,21 @@ uint32_t Index::beginDocument(DocumentMetadata metadata)
 
 void Index::ingest(avengine::string_slice word)
 {
-  assert(currentDocId != UINT32_MAX);
   PostingList* bucket = getBucket(word);
-
   bucket->ingest(currentDocId, offset++);
 }
 
 void Index::endDocument()
 {
   ingest(DOCEND_TOKEN);
+  pthread_mutex_unlock(&writeMutex);
 }
 
 Index globalIndex;
 
 // Walks `text`, lowercases each alpha run in-place via the mutable slice, and
 // ingests each resulting token into `idx`. Returns the number of tokens found.
+// Must be called between beginDocument() and endDocument().
 static size_t tokenizeInto(avengine::string_slice text, Index& idx)
 {
   size_t words = 0;

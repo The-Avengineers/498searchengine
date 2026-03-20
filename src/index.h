@@ -4,6 +4,7 @@
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
+#include <pthread.h>
 
 size_t djb2Hash(avengine::string_slice str);
 
@@ -61,8 +62,8 @@ struct Index
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<DocumentMetadata> documentMetadata;
-  // Updated by `beginDocument()`. ingest(word) always indexes into this doc.
-  uint32_t currentDocId = UINT32_MAX;
+  pthread_mutex_t writeMutex;
+  uint32_t currentDocId = 0;
 
   PostingList* getBucket(avengine::string_slice word);
   // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
@@ -70,13 +71,16 @@ struct Index
   void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
 
   Index();
+  ~Index();
   // Returns true on I/O error.
   bool serialize(int fd);
-  // Starts a new active document and returns its assigned id.
+  // Takes the write lock and allocates a doc slot. The lock is held until
+  // endDocument() is called. Returns the assigned docId.
   uint32_t beginDocument(DocumentMetadata metadata);
-  // Records the term count for the current document and marks it as closed.
+  // Ingests the DOCEND_TOKEN and releases the write lock.
   void endDocument();
-  // Adds a token to the currently active document set by beginDocument().
+  // Adds a token to the current document. Must be called between beginDocument()
+  // and endDocument().
   void ingest(avengine::string_slice word);
 };
 
