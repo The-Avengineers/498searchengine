@@ -1,3 +1,6 @@
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
+#include "avengine/avengine_lib/vector.h"
 #include "index.h"
 #include <cassert>
 #include <cstdio>
@@ -111,6 +114,7 @@ int main(int argc, char** argv)
     listFiles(arg1, files);
 
     start = clock();
+    auto phrases = avengine::vector<avengine::string_slice>();
 
     size_t totalFiles = files.size();
     double lastPrintedPercent = -1.0;
@@ -124,7 +128,16 @@ int main(int argc, char** argv)
       avengine::string_slice content = memoryMapFile(avengine::string_slice(filepath));
       assert(content.begin());
 
-      indexDocument(avengine::string_slice(file.cstr()), content);
+      phrases.pushBack(content);
+
+      auto metadata = DocumentMetadata{
+          .url = file,
+          .title = content.split('\n').front().toString(),
+          .input = 0,
+      };
+
+      indexDocument(metadata, phrases);
+      phrases.clear();
 
       munmap(content.begin(), content.size());
 
@@ -154,7 +167,14 @@ int main(int argc, char** argv)
     start = clock();
     for (size_t i = 0; i < documents.size(); i++)
     {
-      indexDocument(documentNames[i], documents[i]);
+      DocumentMetadata metadata = {
+          .url = "(none)",
+          .title = documentNames[i].toString(),
+          .input = 0,
+      };
+      avengine::vector<avengine::string_slice> phrases;
+      phrases.pushBack(documents[i]);
+      indexDocument(metadata, phrases);
     }
   }
 

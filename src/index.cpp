@@ -301,37 +301,42 @@ Index globalIndex;
 // Walks `text`, lowercases each alpha run in-place via the mutable slice, and
 // ingests each resulting token into `idx`. Returns the number of tokens found.
 // Must be called between beginDocument() and endDocument().
-static size_t tokenizeInto(avengine::string_slice text, Index& idx)
+static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx)
 {
   size_t words = 0;
-  size_t i = 0;
 
-  while (i < text.size() && !isalpha(text[i]))
-    i++;
-
-  while (i < text.size())
+  for (auto text : texts)
   {
-    size_t wordStart = i;
-
-    while (i < text.size() && isalpha(text[i]))
-    {
-      text[i] = text[i] | 32;
-      i++;
-    }
-
-    idx.ingest(text.substr(wordStart, i - wordStart));
-    words++;
+    size_t i = 0;
 
     while (i < text.size() && !isalpha(text[i]))
       i++;
+
+    while (i < text.size())
+    {
+      size_t wordStart = i;
+
+      while (i < text.size() && isalpha(text[i]))
+      {
+        text[i] = text[i] | 32;
+        i++;
+      }
+
+      idx.ingest(text.substr(wordStart, i - wordStart));
+      words++;
+
+      while (i < text.size() && !isalpha(text[i]))
+        i++;
+    }
   }
 
   idx.endDocument();
   return words;
 }
 
-size_t indexDocument(avengine::string_slice url, avengine::string_slice phrases)
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases)
 {
-  globalIndex.beginDocument({.url = url.toString(), .title = url.toString(), .input = 0});
+  globalIndex.beginDocument(document_metadata);
   return tokenizeInto(phrases, globalIndex);
 }

@@ -89,17 +89,5 @@ extern Index globalIndex;
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.
 // Returns the number of tokens ingested.
-size_t indexDocument(avengine::string_slice url, avengine::string_slice phrases);
-
-// TODO: Use support phrases of different kinds and decorate or index titles differently.
-enum class PhraseKind
-{
-  TITLE,
-  NORMAL,
-};
-
-struct Phrase
-{
-  avengine::string_slice text;
-  PhraseKind kind;
-};
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases);
