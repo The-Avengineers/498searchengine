@@ -112,8 +112,12 @@ int main(int argc, char** argv)
 
     start = clock();
 
-    for (avengine::string& file : files)
+    size_t totalFiles = files.size();
+    double lastPrintedPercent = -1.0;
+
+    for (size_t fileIdx = 0; fileIdx < totalFiles; ++fileIdx)
     {
+      avengine::string& file = files[fileIdx];
       avengine::string filepath(argv[1]);
       filepath += file;
 
@@ -123,7 +127,17 @@ int main(int argc, char** argv)
       indexDocument(avengine::string_slice(file.cstr()), content);
 
       munmap(content.begin(), content.size());
+
+      double percent = (static_cast<double>(fileIdx + 1) / static_cast<double>(totalFiles)) * 100.0;
+      double truncated = static_cast<int>(percent * 100.0) / 100.0;
+      if (truncated != lastPrintedPercent)
+      {
+        lastPrintedPercent = truncated;
+        std::printf("\rIndexing: %06.2f%%", percent);
+        std::fflush(stdout);
+      }
     }
+    std::printf("\n");
   }
   else
   {

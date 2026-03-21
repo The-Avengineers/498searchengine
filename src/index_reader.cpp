@@ -21,6 +21,13 @@ struct ParsedSkipPointer
   uint32_t byteOffset;
 };
 
+struct DocInfo
+{
+  uint64_t endPosition; // global token offset of this doc's DOCUMENT_END marker
+  avengine::string title;
+  avengine::string url;
+};
+
 static uint64_t read_u64_le(const uint8_t* ptr)
 {
   uint64_t value = 0;
@@ -48,6 +55,27 @@ static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uin
 
   *next = nullptr;
   return 0;
+}
+
+// Reads a varint-length-prefixed string (as written by append_string in index.cpp):
+//   varint(len) followed by len raw bytes (no null terminator).
+// Advances *next past the consumed bytes.
+// On failure (truncated data) sets *next = nullptr and returns an empty string.
+static avengine::string read_length_prefixed_string(const uint8_t* begin, const uint8_t* end,
+                                                    const uint8_t** next)
+{
+  const uint8_t* after_len = nullptr;
+  uint32_t len = read_var_u32(begin, end, &after_len);
+  if (!after_len || after_len + len > end)
+  {
+    *next = nullptr;
+    return avengine::string();
+  }
+  avengine::string result;
+  for (uint32_t i = 0; i < len; i++)
+    result.pushBack(static_cast<char>(after_len[i]));
+  *next = after_len + len;
+  return result;
 }
 
 static size_t cstr_len_safe(const uint8_t* start, const uint8_t* end)
@@ -92,6 +120,157 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
     i++;
   }
   dst[i] = '\0';
+}
+
+// Parses the DOCUMENT_END posting list to extract per-document boundary positions and titles.
+//
+// The DOCUMENT_END posting blob layout (from encodePostingList in index.cpp):
+//   [doc_freq u64][coll_freq u64][skip_count u64]
+//   [skip stream: skip_count x (posIdx varint, posVal varint, byteOff varint)]
+//   [position delta stream: coll_freq varints, delta-encoded from 0]
+//   [metadata buffer: doc_freq x (url length-prefixed, title length-prefixed, 8-byte RankingInput)]
+//
+// Populates docInfos with one entry per document (endPosition, title), sorted ascending by
+// endPosition. Returns true on success, false if DOCUMENT_END is absent or the blob is malformed.
+static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t postingsStart,
+                                 const avengine::vector<DictEntry>& usedEntries,
+                                 const avengine::vector<avengine::string>& terms,
+                                 avengine::vector<DocInfo>& docInfos)
+{
+  // Locate the DOCUMENT_END entry in the dictionary.
+  ssize_t docendIdx = -1;
+  for (size_t i = 0; i < terms.size(); i++)
+  {
+    if (cstr_equal(terms[i].cstr(), "DOCUMENT_END"))
+    {
+      docendIdx = static_cast<ssize_t>(i);
+      break;
+    }
+  }
+
+  if (docendIdx < 0)
+  {
+    std::fprintf(stderr, "Warning: DOCUMENT_END not found in index; titles unavailable.\n");
+    return false;
+  }
+
+  const DictEntry& de = usedEntries[static_cast<size_t>(docendIdx)];
+
+  // Determine the end of this posting blob by finding the smallest posting offset
+  // that is strictly greater than de.postingOffset.
+  uint64_t nextPosting = static_cast<uint64_t>(fileSize - postingsStart);
+  for (const DictEntry& e : usedEntries)
+  {
+    if (e.postingOffset > de.postingOffset && e.postingOffset < nextPosting)
+      nextPosting = e.postingOffset;
+  }
+
+  size_t startOff = postingsStart + static_cast<size_t>(de.postingOffset);
+  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
+
+  if (startOff + 24 > endOff || endOff > fileSize)
+  {
+    std::fprintf(stderr, "Warning: DOCUMENT_END posting list has corrupt boundaries.\n");
+    return false;
+  }
+
+  const uint8_t* posting = data + startOff;
+  const uint8_t* postingEnd = data + endOff;
+
+  uint64_t docFreq = read_u64_le(posting);
+  uint64_t collFreq = read_u64_le(posting + 8);
+  uint64_t skipCount = read_u64_le(posting + 16);
+  const uint8_t* cursor = posting + 24;
+
+  // Consume the skip-pointer stream (3 varints per entry).
+  for (uint64_t i = 0; i < skipCount; i++)
+  {
+    for (int field = 0; field < 3; field++)
+    {
+      const uint8_t* next = nullptr;
+      read_var_u32(cursor, postingEnd, &next);
+      if (!next)
+      {
+        std::fprintf(stderr, "Warning: Truncated skip pointer stream in DOCUMENT_END.\n");
+        return false;
+      }
+      cursor = next;
+    }
+  }
+
+  // Decode exactly collFreq position deltas to obtain per-document boundary positions.
+  // For DOCUMENT_END, collFreq == docFreq (one end-marker per document).
+  avengine::vector<uint64_t> boundaryPositions;
+  {
+    uint64_t pos = 0;
+    for (uint64_t i = 0; i < collFreq; i++)
+    {
+      const uint8_t* next = nullptr;
+      uint32_t delta = read_var_u32(cursor, postingEnd, &next);
+      if (!next)
+      {
+        std::fprintf(stderr, "Warning: Truncated position stream in DOCUMENT_END.\n");
+        return false;
+      }
+      cursor = next;
+      pos += delta;
+      boundaryPositions.pushBack(pos);
+    }
+  }
+
+  // Read per-document metadata: url (discarded), title (kept), 8-byte RankingInput (skipped).
+  for (uint64_t i = 0; i < docFreq; i++)
+  {
+    // URL — read and discard.
+    const uint8_t* next = nullptr;
+    avengine::string url = read_length_prefixed_string(cursor, postingEnd, &next);
+    if (!next)
+    {
+      std::fprintf(stderr, "Warning: Truncated URL in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor = next;
+
+    // Title — keep.
+    avengine::string title = read_length_prefixed_string(cursor, postingEnd, &next);
+    if (!next)
+    {
+      std::fprintf(stderr, "Warning: Truncated title in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor = next;
+
+    // RankingInput — 8 bytes, skip.
+    if (cursor + 8 > postingEnd)
+    {
+      std::fprintf(stderr,
+                   "Warning: Truncated RankingInput in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor += 8;
+
+    uint64_t endPos = (i < boundaryPositions.size()) ? boundaryPositions[i] : UINT64_MAX;
+    docInfos.pushBack({endPos, title, url});
+  }
+
+  return true;
+}
+
+// Returns the index of the first DocInfo whose endPosition is strictly greater than pos.
+// Since DOCUMENT_END is ingested after all tokens in a document, every token position within
+// document d satisfies pos < docInfos[d].endPosition, making this an upper-bound search.
+// Returns docInfos.size() if no such entry exists (corrupt / position out of range).
+static size_t find_doc_for_position(const avengine::vector<DocInfo>& docInfos, uint64_t pos)
+{
+  for (size_t i = 0; i < docInfos.size(); i++)
+  {
+    if (docInfos[i].endPosition > pos)
+      return i;
+  }
+  return docInfos.size();
 }
 
 static void usage(const char* program)
@@ -142,8 +321,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Layout starts with two u64 values:
-  // [document count][unique words + 1]
+  // Header: [document_count u64][unique_words_plus_one u64]
   const uint64_t documentCount = read_u64_le(data);
   const uint64_t uniqueWordsPlusOne = read_u64_le(data + 8);
   const uint64_t tableSlots = uniqueWordsPlusOne * 2;
@@ -156,8 +334,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Dictionary is a flat hash table where each slot is:
-  // [string offset u64][posting offset u64]
+  // Dictionary is a flat hash table; each slot is [string_offset u64][posting_offset u64].
   avengine::vector<DictEntry> entries;
   for (uint64_t i = 0; i < tableSlots; i++)
   {
@@ -173,8 +350,8 @@ int main(int argc, char** argv)
   avengine::vector<DictEntry> usedEntries;
   avengine::vector<avengine::string> terms;
 
-  // Scan all non-empty dictionary slots, recover C strings from string buffer,
-  // and infer where postings begin by taking max(term_end_offset).
+  // Scan non-empty dictionary slots, recover C strings from string buffer,
+  // and infer where the postings region begins.
   for (const DictEntry& e : entries)
   {
     if (e.stringOffset == 0 && e.postingOffset == 0)
@@ -247,8 +424,7 @@ int main(int argc, char** argv)
 
   const DictEntry found = usedEntries[static_cast<size_t>(foundIndex)];
 
-  // Posting lists are concatenated. To get this term's end offset,
-  // find the next-greater posting offset from other terms.
+  // Determine the end of this posting blob.
   uint64_t nextPosting = static_cast<uint64_t>(sb.st_size - postingsStart);
   for (const DictEntry& e : usedEntries)
   {
@@ -266,8 +442,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Per posting-list header:
-  // [document frequency u64][collection frequency u64][skip count u64].
+  // Per posting-list header: [doc_freq u64][collection_freq u64][skip_count u64].
   const uint8_t* posting = data + startOff;
   uint64_t documentFrequency = read_u64_le(posting);
   uint64_t collectionFrequency = read_u64_le(posting + 8);
@@ -279,6 +454,7 @@ int main(int argc, char** argv)
   for (uint64_t i = 0; i < skipCount; i++)
   {
     const uint8_t* next = nullptr;
+
     uint32_t positionIndex = read_var_u32(cursor, postingEnd, &next);
     if (!next)
       break;
@@ -297,9 +473,10 @@ int main(int argc, char** argv)
     parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
   }
 
-  // Remaining bytes are varint-encoded deltas for token positions.
-  uint32_t pos = 0;
-  size_t decoded = 0;
+  // Parse DOCUMENT_END to build the per-document info table (endPosition + title).
+  avengine::vector<DocInfo> docInfos;
+  parse_docend_posting(data, static_cast<size_t>(sb.st_size), postingsStart, usedEntries, terms,
+                       docInfos);
 
   std::printf("Term: %s\n", queryLower);
   std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
@@ -315,8 +492,12 @@ int main(int argc, char** argv)
     }
     std::printf("\n");
   }
-  std::printf("Positions preview:");
 
+  // Decode position delta stream and print each position with the containing document's title.
+  size_t decoded = 0;
+  uint64_t pos64 = 0;
+
+  std::printf("Positions:\n");
   while (cursor < postingEnd)
   {
     const uint8_t* next = nullptr;
@@ -324,13 +505,22 @@ int main(int argc, char** argv)
     if (!next)
       break;
     cursor = next;
-    pos += delta;
-    if (decoded < 25)
-      std::printf(" %u", pos);
+    pos64 += delta;
+
+    const char* title = "(unknown)";
+    const char* url = "(unknown)";
+
+    size_t docIdx = find_doc_for_position(docInfos, pos64);
+    if (docIdx < docInfos.size())
+    {
+      title = docInfos[docIdx].title.cstr();
+      url = docInfos[docIdx].url.cstr();
+    }
+
+    std::printf("  %llu (%s) `%s`\n", static_cast<unsigned long long>(pos64), title, url);
     decoded++;
   }
 
-  std::printf("\n");
   std::printf("Decoded positions: %zu\n", decoded);
 
   std::free(queryLower);
