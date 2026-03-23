@@ -4,7 +4,7 @@
 #pragma once
 
 #include <avengine/avengine_lib/vector.h>
-#include <cstddef>  // for size_t
+#include <cstddef> // for size_t
 #include <cstdint>
 #include <iostream> // for ostream
 #include <utility>
