@@ -4,8 +4,9 @@
 #include "../../include/avengine/crawler/logger.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
-#include <csignal>
+#include "../index.h"
 #include <fstream>
+#include <signal.h>
 
 using namespace avengine;
 using namespace avengine::crawler;
@@ -14,7 +15,7 @@ using namespace avengine::crawler;
 
 namespace
 {
-volatile std::sig_atomic_t gStopRequested = 0;
+volatile sig_atomic_t gStopRequested = 0;
 
 void handleStopSignal(int)
 {
@@ -41,31 +42,68 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
     return;
   }
 
-  string line;
-  while (std::getline(in, line))
+  char line[1024];
+  while (in.getline(line, sizeof(line)))
   {
-    if (line.empty())
+    if (line[0] == '\0')
     {
       continue;
     }
 
-
-    string normalized = normalizer.normalizeIndividual(line.c_str());
+    string normalized = normalizer.normalizeIndividual(line);
     if (normalized.size() == 0)
     {
       continue;
     }
     seeds.pushBack(normalized);
   }
-  
+}
+
+size_t estimateIndexMemoryBytes(const Index& index)
+{
+  size_t bytes = sizeof(Index);
+  bytes += index.buckets.capacity() * sizeof(PostingList*);
+  bytes += index.documentMetadata.capacity() * sizeof(DocumentMetadata);
+
+  for (size_t i = 0; i < index.documentMetadata.size(); ++i)
+  {
+    const DocumentMetadata& doc = index.documentMetadata[i];
+    bytes += doc.url.size();
+    bytes += doc.title.size();
+  }
+
+  for (size_t i = 0; i < index.buckets.size(); ++i)
+  {
+    PostingList* bucket = index.buckets[i];
+    while (bucket)
+    {
+      bytes += sizeof(PostingList);
+      bytes += bucket->word.size();
+      bytes += bucket->postings.capacity() * sizeof(Posting);
+      bytes += bucket->positions.capacity() * sizeof(uint32_t);
+      bucket = bucket->nextBucket;
+    }
+  }
+
+  return bytes;
+}
+
+[[gnu::always_inline]] inline bool shouldLogIndexProgress(size_t indexedCount, size_t& nextCount)
+{
+  if (indexedCount < nextCount)
+  {
+    return false;
+  }
+  nextCount += 1000;
+  return true;
 }
 
 } // namespace
 
 int main()
 {
-  std::signal(SIGINT, handleStopSignal);
-  std::signal(SIGTERM, handleStopSignal);
+  signal(SIGINT, handleStopSignal);
+  signal(SIGTERM, handleStopSignal);
 
   // Crawler Components
   frontier theFrontier;
@@ -92,6 +130,8 @@ int main()
   theFrontier.seed(filteredSeeds);
 
   size_t processedCount = 0;
+  size_t indexedCount = 0;
+  size_t nextCount = 1000;
   size_t checkpointInterval = 100;
   const string checkpointPath = "frontier_checkpoint.bin";
 
@@ -145,8 +185,9 @@ int main()
       // Call the constructor to parse the HTML                             KINDA DONE (TEST)
       HtmlParser parser(resp.body.cstr(), resp.body.size());
 
-      // Indexer.index(url, content)  give indexer content                    NOT DONE
+
       // indexer.index(entry.url, parser.words, parser.titleWords);
+      ++indexedCount;
 
       // for each extracted link:
       for (size_t j = 0; j < parser.links.size(); ++j)
@@ -187,6 +228,12 @@ int main()
         {
           theFrontier.add(normalized, entry.depth + 1);
         }
+      }
+
+      if (shouldLogIndexProgress(indexedCount, nextCount))
+      {
+        crawlLogger.logIndexStats(indexedCount, estimateIndexMemoryBytes(globalIndex),
+                                          theFrontier.size());
       }
     }
 
