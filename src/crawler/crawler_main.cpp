@@ -184,6 +184,11 @@ int main()
 
       // Call the constructor to parse the HTML                             KINDA DONE (TEST)
       HtmlParser parser(resp.body.cstr(), resp.body.size());
+      if (parser.rejected)
+      {
+        crawlLogger.log(entry.url, "SKIP, TOO MUCH NON-ASCII");
+        continue;
+      }
 
 
       // indexer.index(entry.url, parser.words, parser.titleWords);
@@ -196,7 +201,8 @@ int main()
         if (parser.base.size() > 0)
         {
           // <base href> can be relative or malformed; resolve against fetched URL.
-          string resolvedBase = normalizer.normalize(entry.url, parser.base);
+          string parserBase = parser.base.toString();
+          string resolvedBase = normalizer.normalize(entry.url, parserBase);
           if (resolvedBase.size() > 0)
           {
             baseURL = resolvedBase;
@@ -204,7 +210,8 @@ int main()
         }
 
         // normalize the domain
-        string normalized = normalizer.normalize(baseURL, parser.links[j].URL);
+        string linkUrl = parser.links[j].URL.toString();
+        string normalized = normalizer.normalize(baseURL, linkUrl);
         if (normalized.size() == 0)
         {
           continue;
