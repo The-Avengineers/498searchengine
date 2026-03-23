@@ -87,6 +87,7 @@ public:
   vector<string_slice> words, titleWords;
   vector<Link> links;
   string_slice base;
+  string fullTitle;
   bool rejected;
 
 private:
@@ -292,6 +293,11 @@ private:
     if (in_title)
     {
       titleWords.pushBack(word);
+      if (fullTitle.size() > 0)
+      {
+        fullTitle += " ";
+      }
+      fullTitle += word.toString();
     }
     else
     {
@@ -634,8 +640,9 @@ public:
   // all the HTML tags and producing the list of words in body,
   // words in title, and links found on the page.
   HtmlParser(const char* buffer, size_t length)
-      : words(), titleWords(), links(), base(), rejected(false), curr(buffer), end(buffer + length),
-        normalizedStorage(), curr_in_title(false), curr_in_anchor(false), seen_base(false)
+      : words(), titleWords(), links(), base(), fullTitle(), rejected(false), curr(buffer),
+        end(buffer + length), normalizedStorage(), curr_in_title(false), curr_in_anchor(false),
+        seen_base(false)
   {
     if (should_reject_page(buffer, length))
     {
