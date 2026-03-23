@@ -5,6 +5,7 @@
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 #include <csignal>
+#include <fstream>
 
 using namespace avengine;
 using namespace avengine::crawler;
@@ -31,6 +32,34 @@ bool hasValidHost(URLNormalizer& normalizer, const string& url)
   return parsed.host.size() > 0;
 }
 
+// Populates the seeds vector with URLs in the file
+void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* path)
+{
+  std::ifstream in(path);
+  if (!in.is_open())
+  {
+    return;
+  }
+
+  string line;
+  while (std::getline(in, line))
+  {
+    if (line.empty())
+    {
+      continue;
+    }
+
+
+    string normalized = normalizer.normalizeIndividual(line.c_str());
+    if (normalized.size() == 0)
+    {
+      continue;
+    }
+    seeds.pushBack(normalized);
+  }
+  
+}
+
 } // namespace
 
 int main()
@@ -46,18 +75,8 @@ int main()
   CrawlLogger crawlLogger("crawl_log.csv");
 
   // ── Seed URLs ──
-  // normalize seed URLs with URLNormalizer (normalizeIndividual)
   vector<string> seeds;
-  seeds.pushBack("https://en.wikipedia.org/wiki/Main_Page");
-  seeds.pushBack("https://news.ycombinator.com/");
-  seeds.pushBack("https://www.bbc.com/news");
-  seeds.pushBack("https://www.nasa.gov/");
-  seeds.pushBack("https://www.cdc.gov/");
-  seeds.pushBack("https://www.gutenberg.org/");
-  seeds.pushBack("https://openlibrary.org/");
-  seeds.pushBack("https://www.loc.gov/");
-  seeds.pushBack("https://arxiv.org/");
-  seeds.pushBack("https://www.w3.org/");
+  fill_seeds(seeds, normalizer, "seed_list.txt");
 
   // Filter domains of the seed list                      KINDA DONE (needs testing + blocked list)
   vector<string> filteredSeeds;
