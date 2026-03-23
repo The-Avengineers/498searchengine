@@ -310,12 +310,51 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
   return words;
 }
 
+size_t indexCounter = 0;
+avengine::vector<pthread_t> serializeThreads;
+
+void* serializeIndex(Index* index)
+{
+  char filename[16];
+  snprintf(filename, sizeof(filename), "%05zu.sfi", indexCounter++);
+  int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+  // TODO: Check for errors.
+  index->serialize(fd);
+  close(fd);
+
+  delete index;
+  return nullptr;
+}
+
+void cleanUpIndexer()
+{
+  serializeIndex(globalIndex.index);
+
+  for (size_t i = 0; i < serializeThreads.size(); i++)
+  {
+    pthread_join(serializeThreads[i], nullptr);
+  }
+}
+
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases)
 {
   pthread_mutex_lock(&globalIndex.mutex);
   globalIndex.index->beginDocument(document_metadata);
   size_t result = tokenizeInto(phrases, *globalIndex.index);
+
+  if (globalIndex.index->offset >= OFFSET_THRESHOLD)
+  {
+    Index* oldIndex = globalIndex.index;
+    globalIndex.index = new Index();
+
+    pthread_t tid;
+    pthread_create(&tid, nullptr, reinterpret_cast<void* (*)(void*)>(serializeIndex), oldIndex);
+
+    serializeThreads.pushBack(tid);
+  }
+
   pthread_mutex_unlock(&globalIndex.mutex);
   return result;
 }
