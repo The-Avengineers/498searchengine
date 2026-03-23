@@ -18,11 +18,10 @@ using namespace avengine::crawler;
 
 // TODO THREAD POOL AROUND ALL THIS
 
-
 namespace
 {
 
-// For final checkpointing when we run control C. 
+// For final checkpointing when we run control C.
 volatile sig_atomic_t gStopRequested = 0;
 
 void handleStopSignal(int)
@@ -98,7 +97,7 @@ size_t estimateIndexMemoryBytes(const Index& index)
   return bytes;
 }
 
-// Quick helper for logging 
+// Quick helper for logging
 [[gnu::always_inline]] inline bool shouldLogIndexProgress(size_t indexedCount, size_t& nextCount)
 {
   if (indexedCount < nextCount)
