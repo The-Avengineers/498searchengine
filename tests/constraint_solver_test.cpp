@@ -1,4 +1,5 @@
 #include <avengine/constraint_solver/constraint_solver.h>
+#include <avengine/constraint_solver/isr_tree.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,10 @@ using avengine::vector;
 using avengine::constraint_solver::ConstraintSolver;
 using avengine::constraint_solver::DestroyQueryTree;
 using avengine::constraint_solver::DocumentMatch;
+using avengine::constraint_solver::ISRAnd;
+using avengine::constraint_solver::ISRAndNot;
+using avengine::constraint_solver::ISROr;
+using avengine::constraint_solver::ISRPhrase;
 using avengine::constraint_solver::IsrSource;
 using avengine::constraint_solver::ParseResult;
 
@@ -282,6 +287,158 @@ void testEmptySourceReturnsNoMatches()
   EXPECT(result.Matches.size() == 0);
 }
 
+void testIsrOrExactOccurrenceCountOnDisjointChildren()
+{
+  Dictionary dict;
+  dict.AddOccurrence("apple", 1);
+  dict.AddOccurrence("banana", 2);
+  dict.AddDocument(2);
+
+  ISRWord* apple = dict.OpenIsr("apple");
+  ISRWord* banana = dict.OpenIsr("banana");
+  EXPECT(apple != nullptr);
+  EXPECT(banana != nullptr);
+
+  vector<avengine::ISR*> terms;
+  terms.pushBack(apple);
+  terms.pushBack(banana);
+
+  {
+    ISROr stream(terms);
+    EXPECT(stream.GetNumberOfOccurrences() == 2);
+    EXPECT(stream.Seek(1) != nullptr);
+    EXPECT(stream.GetStartLocation() == 1);
+  }
+
+  delete apple;
+  delete banana;
+}
+
+void testIsrOrExactOccurrenceCountOnOverlappingChildren()
+{
+  Dictionary dict;
+  dict.AddOccurrence("apple", 1);
+  dict.AddOccurrence("apple", 3);
+  dict.AddDocument(3);
+
+  ISRWord* left = dict.OpenIsr("apple");
+  ISRWord* right = dict.OpenIsr("apple");
+  EXPECT(left != nullptr);
+  EXPECT(right != nullptr);
+
+  vector<avengine::ISR*> terms;
+  terms.pushBack(left);
+  terms.pushBack(right);
+
+  {
+    ISROr stream(terms);
+    EXPECT(stream.GetNumberOfOccurrences() == 4);
+    EXPECT(stream.Seek(1) != nullptr);
+    EXPECT(stream.GetStartLocation() == 1);
+  }
+
+  delete left;
+  delete right;
+}
+
+void testIsrAndExactOccurrenceCount()
+{
+  Dictionary dict;
+  dict.AddOccurrence("apple", 1);
+  dict.AddOccurrence("banana", 2);
+  dict.AddDocument(2);
+  dict.AddOccurrence("apple", 3);
+  dict.AddOccurrence("banana", 4);
+  dict.AddDocument(4);
+
+  ISRWord* apple = dict.OpenIsr("apple");
+  ISRWord* banana = dict.OpenIsr("banana");
+  ISREndDoc* endDoc = dict.OpenEndDocIsr();
+  EXPECT(apple != nullptr);
+  EXPECT(banana != nullptr);
+  EXPECT(endDoc != nullptr);
+
+  vector<avengine::ISR*> terms;
+  terms.pushBack(apple);
+  terms.pushBack(banana);
+
+  {
+    ISRAnd stream(terms, endDoc);
+    EXPECT(stream.GetNumberOfOccurrences() == 2);
+    EXPECT(stream.Seek(1) != nullptr);
+    EXPECT(stream.GetStartLocation() == 1);
+  }
+
+  delete apple;
+  delete banana;
+  delete endDoc;
+}
+
+void testIsrPhraseExactOccurrenceCount()
+{
+  Dictionary dict;
+  dict.AddOccurrence("apple", 1);
+  dict.AddOccurrence("banana", 2);
+  dict.AddOccurrence("apple", 4);
+  dict.AddOccurrence("banana", 5);
+  dict.AddDocument(5);
+
+  ISRWord* apple = dict.OpenIsr("apple");
+  ISRWord* banana = dict.OpenIsr("banana");
+  ISREndDoc* endDoc = dict.OpenEndDocIsr();
+  EXPECT(apple != nullptr);
+  EXPECT(banana != nullptr);
+  EXPECT(endDoc != nullptr);
+
+  vector<avengine::ISR*> terms;
+  terms.pushBack(apple);
+  terms.pushBack(banana);
+
+  {
+    ISRPhrase stream(terms, endDoc);
+    EXPECT(stream.GetNumberOfOccurrences() == 2);
+    EXPECT(stream.Seek(1) != nullptr);
+    EXPECT(stream.GetStartLocation() == 1);
+  }
+
+  delete apple;
+  delete banana;
+  delete endDoc;
+}
+
+void testIsrAndNotExactOccurrenceCount()
+{
+  Dictionary dict;
+  dict.AddOccurrence("apple", 1);
+  dict.AddDocument(1);
+  dict.AddOccurrence("apple", 2);
+  dict.AddOccurrence("banana", 3);
+  dict.AddDocument(3);
+
+  ISRWord* apple = dict.OpenIsr("apple");
+  ISRWord* banana = dict.OpenIsr("banana");
+  ISREndDoc* endDoc = dict.OpenEndDocIsr();
+  EXPECT(apple != nullptr);
+  EXPECT(banana != nullptr);
+  EXPECT(endDoc != nullptr);
+
+  vector<avengine::ISR*> required;
+  required.pushBack(apple);
+  vector<avengine::ISR*> excluded;
+  excluded.pushBack(banana);
+
+  {
+    ISRAndNot stream(required, excluded, endDoc);
+    EXPECT(stream.GetNumberOfOccurrences() == 1);
+    EXPECT(stream.Seek(1) != nullptr);
+    EXPECT(stream.GetStartLocation() == 1);
+  }
+
+  delete apple;
+  delete banana;
+  delete endDoc;
+}
+
 } // namespace
 
 int main()
@@ -302,5 +459,10 @@ int main()
   testSolveParsedPath();
   testInvalidQueryErrorsPassThrough();
   testEmptySourceReturnsNoMatches();
+  testIsrOrExactOccurrenceCountOnDisjointChildren();
+  testIsrOrExactOccurrenceCountOnOverlappingChildren();
+  testIsrAndExactOccurrenceCount();
+  testIsrPhraseExactOccurrenceCount();
+  testIsrAndNotExactOccurrenceCount();
   return 0;
 }

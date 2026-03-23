@@ -1,7 +1,14 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
+#include "../src/index.h"
+
 #include <avengine/index_stream_reader.h>
+
+#include <cstdlib>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace
 {
@@ -20,30 +27,106 @@ void appendU64LE(avengine::vector<uint8_t>& out, uint64_t value)
   for (int i = 0; i < 8; i++)
     out.pushBack(static_cast<uint8_t>((value >> (i * 8)) & 0xFFu));
 }
+
+uint64_t readU64LE(const uint8_t* ptr)
+{
+  uint64_t value = 0;
+  for (int i = 0; i < 8; i++)
+    value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
+  return value;
+}
 } // namespace
 
-TEST_CASE("parsePostingBlobHeader parses 56-byte header")
+TEST_CASE("parsePostingBlobHeader parses 16-byte header")
 {
   avengine::vector<uint8_t> bytes;
   appendU64LE(bytes, 11u);
   appendU64LE(bytes, 12u);
-  appendU64LE(bytes, 13u);
-  appendU64LE(bytes, 14u);
-  appendU64LE(bytes, 15u);
-  appendU64LE(bytes, 16u);
-  appendU64LE(bytes, 17u);
 
   avengine::PostingBlobHeader header = {};
   const uint8_t* fields = nullptr;
   REQUIRE(avengine::parsePostingBlobHeader(bytes.begin(), bytes.end(), &header, &fields));
   CHECK(header.documentFrequency == 11u);
-  CHECK(header.normalCollectionFrequency == 12u);
-  CHECK(header.titleCollectionFrequency == 13u);
-  CHECK(header.anchorCollectionFrequency == 14u);
-  CHECK(header.normalSectionCount == 15u);
-  CHECK(header.titleSectionCount == 16u);
-  CHECK(header.anchorSectionCount == 17u);
-  CHECK(fields == bytes.begin() + 56);
+  CHECK(header.collectionFrequency == 12u);
+  CHECK(fields == bytes.begin() + 16);
+}
+
+TEST_CASE("Dictionary ISR factory methods return owned heap objects")
+{
+  avengine::Dictionary dict;
+  dict.AddOccurrence("alpha", 1);
+  dict.AddDocument(1);
+
+  avengine::ISRWord* word = dict.OpenIsr("alpha");
+  avengine::ISREndDoc* endDoc = dict.OpenEndDocIsr();
+
+  REQUIRE(word != nullptr);
+  REQUIRE(endDoc != nullptr);
+  REQUIRE(word->Seek(1) != nullptr);
+  REQUIRE(endDoc->Seek(1) != nullptr);
+  CHECK(word->GetNumberOfOccurrences() == 1u);
+  CHECK(endDoc->GetCurrentDocumentId() == 0u);
+
+  delete word;
+  delete endDoc;
+}
+
+TEST_CASE("parsePostingBlobHeader matches the current writer format")
+{
+  Index index;
+  index.beginDocument("doc://serialize");
+  index.ingest("alpha");
+
+  char pathTemplate[] = "/tmp/index_stream_reader_test_XXXXXX";
+  const int fd = mkstemp(pathTemplate);
+  REQUIRE(fd >= 0);
+
+  CHECK(index.serialize(fd) == false);
+  CHECK(close(fd) == 0);
+
+  struct stat st = {};
+  REQUIRE(stat(pathTemplate, &st) == 0);
+  REQUIRE(st.st_size > 0);
+
+  const int readFd = open(pathTemplate, O_RDONLY);
+  REQUIRE(readFd >= 0);
+
+  const size_t fileSize = static_cast<size_t>(st.st_size);
+  uint8_t* bytes = static_cast<uint8_t*>(std::malloc(fileSize));
+  REQUIRE(bytes != nullptr);
+
+  size_t totalRead = 0;
+  while (totalRead < fileSize)
+  {
+    const ssize_t n = read(readFd, bytes + totalRead, fileSize - totalRead);
+    REQUIRE(n >= 0);
+    if (n == 0)
+      break;
+    totalRead += static_cast<size_t>(n);
+  }
+  CHECK(totalRead == fileSize);
+
+  CHECK(close(readFd) == 0);
+  CHECK(unlink(pathTemplate) == 0);
+
+  REQUIRE(readU64LE(bytes) == INDEX_FILE_MAGIC);
+  REQUIRE(readU64LE(bytes + 8) == INDEX_FILE_VERSION);
+  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
+  REQUIRE(uniqueWordsPlusOne == 2u);
+
+  const size_t dictionaryBytes = static_cast<size_t>(uniqueWordsPlusOne * 2u * 16u);
+  const size_t postingsStart = 32u + dictionaryBytes + 6u;
+  REQUIRE(fileSize >= postingsStart + 16u);
+
+  avengine::PostingBlobHeader header = {};
+  const uint8_t* fieldStreams = nullptr;
+  REQUIRE(avengine::parsePostingBlobHeader(bytes + postingsStart, bytes + fileSize, &header,
+                                           &fieldStreams));
+  CHECK(header.documentFrequency == 1u);
+  CHECK(header.collectionFrequency == 1u);
+  CHECK(fieldStreams == bytes + postingsStart + 16u);
+
+  std::free(bytes);
 }
 
 TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
