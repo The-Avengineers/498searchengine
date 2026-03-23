@@ -4,21 +4,6 @@ namespace avengine
 {
 namespace
 {
-static bool strings_equal(const string a, const string b)
-{
-  return a == b;
-}
-
-static uint64_t hash_string(const string value)
-{
-  uint64_t hash = 5381;
-  for (size_t i = 0; i < value.size(); ++i)
-  {
-    hash = ((hash << 5) + hash) + static_cast<unsigned char>(value[i]);
-  }
-  return hash;
-}
-
 static uint64_t read_u64_le(const uint8_t* ptr)
 {
   uint64_t value = 0;
@@ -384,17 +369,12 @@ bool parsePostingBlobHeader(const uint8_t* begin, const uint8_t* end, PostingBlo
 {
   if (!begin || !end || !out || !fieldStreamsBegin)
     return false;
-  if (begin + 56 > end)
+  if (begin + 16 > end)
     return false;
 
   out->documentFrequency = read_u64_le(begin);
-  out->normalCollectionFrequency = read_u64_le(begin + 8);
-  out->titleCollectionFrequency = read_u64_le(begin + 16);
-  out->anchorCollectionFrequency = read_u64_le(begin + 24);
-  out->normalSectionCount = read_u64_le(begin + 32);
-  out->titleSectionCount = read_u64_le(begin + 40);
-  out->anchorSectionCount = read_u64_le(begin + 48);
-  *fieldStreamsBegin = begin + 56;
+  out->collectionFrequency = read_u64_le(begin + 8);
+  *fieldStreamsBegin = begin + 16; // Skip the 16-byte posting header.
   return true;
 }
 
