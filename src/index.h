@@ -86,8 +86,22 @@ struct Index
 
 extern Index globalIndex;
 
+enum class PhraseKind
+{
+  BODY,
+  TITLE,
+  URL,
+};
+
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.
+// Title and URL terms are stored with '#' and '/' prefix decorators respectively.
 // Returns the number of tokens ingested.
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases,
+                     avengine::vector<avengine::string_slice>& titlePhrases,
+                     avengine::vector<avengine::string_slice>& urlPhrases);
+
+// Convenience overload: indexes body phrases only (no title or URL decoration).
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases);

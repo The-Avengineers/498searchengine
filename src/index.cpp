@@ -298,10 +298,13 @@ void Index::endDocument()
 
 Index globalIndex;
 
-// Walks `text`, lowercases each alpha run in-place via the mutable slice, and
-// ingests each resulting token into `idx`. Returns the number of tokens found.
+// Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
+// ingests each resulting token into `idx` with the given field decorator.
+// BODY terms are ingested as-is; TITLE terms get a '#' prefix; URL terms get a '/' prefix.
 // Must be called between beginDocument() and endDocument().
-static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx)
+// Returns the number of tokens found.
+static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
+                           PhraseKind kind)
 {
   size_t words = 0;
 
@@ -322,7 +325,20 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
         i++;
       }
 
-      idx.ingest(text.substr(wordStart, i - wordStart));
+      if (kind == PhraseKind::BODY)
+      {
+        idx.ingest(text.substr(wordStart, i - wordStart));
+      }
+      else
+      {
+        char prefix = (kind == PhraseKind::TITLE) ? '#' : '/';
+        avengine::string decorated;
+        decorated.pushBack(prefix);
+        avengine::string_slice token = text.substr(wordStart, i - wordStart);
+        for (size_t j = 0; j < token.size(); j++)
+          decorated.pushBack(token[j]);
+        idx.ingest(avengine::string_slice(decorated));
+      }
       words++;
 
       while (i < text.size() && !isalpha(text[i]))
@@ -330,13 +346,26 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
     }
   }
 
-  idx.endDocument();
   return words;
+}
+
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases,
+                     avengine::vector<avengine::string_slice>& titlePhrases,
+                     avengine::vector<avengine::string_slice>& urlPhrases)
+{
+  globalIndex.beginDocument(document_metadata);
+  size_t total = 0;
+  total += tokenizeInto(phrases, globalIndex, PhraseKind::BODY);
+  total += tokenizeInto(titlePhrases, globalIndex, PhraseKind::TITLE);
+  total += tokenizeInto(urlPhrases, globalIndex, PhraseKind::URL);
+  globalIndex.endDocument();
+  return total;
 }
 
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases)
 {
-  globalIndex.beginDocument(document_metadata);
-  return tokenizeInto(phrases, globalIndex);
+  avengine::vector<avengine::string_slice> empty;
+  return indexDocument(document_metadata, phrases, empty, empty);
 }

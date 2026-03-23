@@ -136,7 +136,10 @@ int main(int argc, char** argv)
           .input = 0,
       };
 
-      indexDocument(metadata, phrases);
+      avengine::vector<avengine::string_slice> emptyTitle;
+      avengine::vector<avengine::string_slice> urlPhrases;
+      urlPhrases.pushBack(avengine::string_slice(filepath));
+      indexDocument(metadata, phrases, emptyTitle, urlPhrases);
       phrases.clear();
 
       munmap(content.begin(), content.size());
@@ -174,7 +177,9 @@ int main(int argc, char** argv)
       };
       avengine::vector<avengine::string_slice> phrases;
       phrases.pushBack(documents[i]);
-      indexDocument(metadata, phrases);
+      avengine::vector<avengine::string_slice> emptyTitle;
+      avengine::vector<avengine::string_slice> emptyUrl;
+      indexDocument(metadata, phrases, emptyTitle, emptyUrl);
     }
   }
 

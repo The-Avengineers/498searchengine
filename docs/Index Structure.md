@@ -40,7 +40,19 @@ Posting Blob
         └── u64: ranking_input (RankingInput)
 ```
 
-Notes:
+## Field Decorators
+
+Terms are stored with a single-character prefix indicating their source field:
+
+| Prefix | Field  | Example |
+|--------|--------|---------|
+| (none) | body   | `cat`   |
+| `#`    | title  | `#cat`  |
+| `/`    | URL    | `/cat`  |
+
+The same word in different fields produces separate posting lists. Decoration is applied at index-build time — `HtmlParser` separates `words` (body) and `titleWords` (title); the crawler passes the document URL as the URL phrase. Ranking can boost `#`/`/` prefixed matches independently.
+
+## Notes
 - No sentinel is written at the end of a posting blob.
 - Blob boundaries are inferred from the next-greater `posting_offset`.
 - Skip pointers are sampled at every `floor(sqrt(collection_frequency))` positions; not emitted when stride <= 1.
