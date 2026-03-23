@@ -64,8 +64,6 @@ int main()
   // Copy and move semantics
   string copied(twice);
   assert(copied == twice);
-  assert(copied == "abcabc");
-  assert(copied != "abc");
 
   string moved(std::move(copied));
   assert(moved == string("abcabc"));

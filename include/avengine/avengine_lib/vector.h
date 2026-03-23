@@ -513,7 +513,6 @@ public:
 
     return out;
   }
-
 private:
   T* Data;
   size_t Size;

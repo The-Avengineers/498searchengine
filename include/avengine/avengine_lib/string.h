@@ -166,6 +166,20 @@ public:
     return fullSmallBuffer;
   }
 
+  // Data (mutable)
+  // REQUIRES: Nothing
+  // MODIFIES: Nothing
+  // EFFECTS: Returns a mutable pointer to the first character in the string's
+  //          storage.  The caller is responsible for not writing past size()
+  //          bytes and for keeping this string alive for the lifetime of any
+  //          pointer derived from this accessor.  In particular, a string_slice
+  //          built from data() becomes dangling if the string is moved or
+  //          destroyed, because the SSO buffer lives inside *this.
+  char* data()
+  {
+    return isSmall() ? Data.Small.Buffer : Data.Heap.Ptr;
+  }
+
   // Iterator Begin
   // REQUIRES: Nothing
   // MODIFIES: Nothing
@@ -369,45 +383,12 @@ public:
     return true;
   }
 
-  // Equality Operator against C string
-  // REQUIRES: other is either nullptr or a null-terminated string
-  // MODIFIES: Nothing
-  // EFFECTS: Returns whether *this and other have identical contents
-  bool operator==(const char* other) const
-  {
-    if (other == nullptr)
-    {
-      return false;
-    }
-
-    size_t i = 0;
-    while (i < size() && other[i] != '\0')
-    {
-      if ((*this)[i] != other[i])
-      {
-        return false;
-      }
-      ++i;
-    }
-
-    return i == size() && other[i] == '\0';
-  }
-
   // Not-Equality Operator
   // REQUIRES: Nothing
   // MODIFIES: Nothing
   // EFFECTS: Returns whether at least one character differs between
   //    *this and other
   bool operator!=(const string& other) const
-  {
-    return !(*this == other);
-  }
-
-  // Not-Equality Operator against C string
-  // REQUIRES: other is either nullptr or a null-terminated string
-  // MODIFIES: Nothing
-  // EFFECTS: Returns whether *this and other differ
-  bool operator!=(const char* other) const
   {
     return !(*this == other);
   }

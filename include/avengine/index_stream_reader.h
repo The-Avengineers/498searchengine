@@ -28,6 +28,7 @@ struct PostingBlobHeader
 {
   uint64_t documentFrequency = 0;
   uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
 };
 
 struct WordAttributes

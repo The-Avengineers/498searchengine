@@ -1,194 +1,99 @@
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
+#include "avengine/avengine_lib/vector.h"
 #include "index.h"
-
-#include <avengine/crawler/url_normalizer.h>
-#include <avengine/html_parser/HtmlParser.h>
-
-#include <ctype.h>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 
-namespace
+// Parses a tab-delimited file where each line has the form:
+//   <name>\t<document text>
+// Appends non-owning slices into the same underlying buffer to `documents`
+// and `documentNames`.  The buffer must remain alive for the lifetime of
+// every slice stored in the output vectors.
+void parseTabFile(avengine::string_slice content,
+                  avengine::vector<avengine::string_slice>& documents,
+                  avengine::vector<avengine::string_slice>& documentNames)
 {
-struct IndexedDocument
-{
-  avengine::string url;
-  avengine::string content;
-};
+  avengine::vector<avengine::string_slice> lines = content.split('\n');
 
-struct TokenCounts
-{
-  size_t body = 0;
-  size_t title = 0;
-  size_t url = 0;
-
-  void add(const TokenCounts& other)
+  for (size_t i = 0; i < lines.size(); ++i)
   {
-    body += other.body;
-    title += other.title;
-    url += other.url;
-  }
-};
-
-static size_t tokenize_and_ingest(const avengine::string& input, PhraseKind kind)
-{
-  size_t ingested = 0;
-  avengine::string token;
-
-  for (size_t i = 0; i < input.size(); i++)
-  {
-    const unsigned char c = static_cast<unsigned char>(input[i]);
-    if (isalpha(c))
-    {
-      token.pushBack(static_cast<char>(tolower(c)));
-      continue;
-    }
-
-    if (token.size() != 0)
-    {
-      globalIndex.ingest(token.cstr(), kind);
-      ingested++;
-      token = avengine::string();
-    }
-  }
-
-  if (token.size() != 0)
-  {
-    globalIndex.ingest(token.cstr(), kind);
-    ingested++;
-  }
-
-  return ingested;
-}
-
-static void parse_tab_file(char* content, size_t length,
-                           avengine::vector<IndexedDocument>& documents)
-{
-  char* lineStart = content;
-  for (size_t i = 0; i <= length; i++)
-  {
-    if (i != length && content[i] != '\n')
+    avengine::string_slice line = lines[i];
+    if (line.empty())
       continue;
 
-    content[i] = '\0';
-    if (*lineStart != '\0')
-    {
-      char* tab = strchr(lineStart, '\t');
-      if (tab)
-      {
-        *tab = '\0';
-        documents.pushBack(
-            {.url = avengine::string(lineStart), .content = avengine::string(tab + 1)});
-      }
-    }
+    size_t tabPos = line.find("\t");
+    if (tabPos == avengine::string_slice::npos)
+      continue;
 
-    lineStart = content + i + 1;
+    documentNames.pushBack(line.substr(0, tabPos));
+    documents.pushBack(line.substr(tabPos + 1, line.size() - tabPos - 1));
   }
 }
 
-static char* read_file(char const* filename, size_t& length)
+// Memory-maps `filename` for reading (copy-on-write) and returns a
+// string_slice covering the mapped region.  Returns an empty slice on error.
+// The caller must munmap(slice.begin(), slice.size()) when done.
+avengine::string_slice memoryMapFile(avengine::string_slice filename)
 {
-  int fd = open(filename, O_RDONLY);
+  avengine::string filenameStr = filename.toString();
+  int fd = open(filenameStr.cstr(), O_RDONLY);
   if (fd == -1)
-    return nullptr;
+    return avengine::string_slice();
 
-  struct stat sb = {};
-  if (fstat(fd, &sb) != 0)
-  {
-    close(fd);
-    return nullptr;
-  }
+  struct stat sb;
+  if (fstat(fd, &sb) == -1)
+    return avengine::string_slice();
 
-  length = static_cast<size_t>(sb.st_size);
-  char* data = static_cast<char*>(malloc(length + 1));
-  if (!data)
-  {
-    close(fd);
-    return nullptr;
-  }
+  size_t length = static_cast<size_t>(sb.st_size);
+  char* data =
+      static_cast<char*>(mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0));
 
-  size_t totalRead = 0;
-  while (totalRead < length)
-  {
-    const ssize_t n = read(fd, data + totalRead, length - totalRead);
-    if (n <= 0)
-    {
-      free(data);
-      close(fd);
-      return nullptr;
-    }
-    totalRead += static_cast<size_t>(n);
-  }
-
-  data[length] = '\0';
   close(fd);
-  return data;
+
+  return avengine::string_slice(data, length);
 }
 
-static bool is_directory(char const* path)
+bool isDirectory(avengine::string_slice path)
 {
-  if (!path)
+  struct stat s;
+  avengine::string pathStr = path.toString();
+
+  if (stat(pathStr.cstr(), &s))
     return false;
 
-  struct stat s = {};
-  if (stat(path, &s) != 0)
-    return false;
-
-  return S_ISDIR(s.st_mode);
+  return s.st_mode & S_IFDIR;
 }
 
-static void list_files(const char* dir, avengine::vector<avengine::string>& files)
+void listFiles(avengine::string_slice dir, avengine::vector<avengine::string>& files)
 {
-  DIR* dr = opendir(dir);
-  if (!dr)
-    return;
-
-  struct dirent* en = nullptr;
-  while ((en = readdir(dr)) != nullptr)
+  avengine::string dirStr = dir.toString();
+  DIR* dr = opendir(dirStr.cstr());
+  if (dr)
   {
-    if (en->d_name[0] != '.')
-      files.pushBack(avengine::string(en->d_name));
+    struct dirent* en;
+    while ((en = readdir(dr)) != NULL)
+    {
+      if (en->d_name[0] != '.')
+        files.pushBack(avengine::string(en->d_name));
+    }
+    closedir(dr);
   }
-
-  closedir(dr);
 }
 
-static TokenCounts index_html_document(avengine::crawler::URLNormalizer& normalizer,
-                                       const avengine::string& url, const char* content,
-                                       size_t length)
+static void usage(avengine::string_slice program)
 {
-  avengine::string canonicalUrl = normalizer.normalizeIndividual(url);
-  if (canonicalUrl.size() == 0)
-    canonicalUrl = url;
-
-  globalIndex.beginDocument(canonicalUrl.cstr());
-
-  avengine::HtmlParser parser(content, length);
-
-  TokenCounts counts = {};
-  for (size_t i = 0; i < parser.words.size(); i++)
-    counts.body += tokenize_and_ingest(parser.words[i], PhraseKind::BODY);
-
-  for (size_t i = 0; i < parser.titleWords.size(); i++)
-    counts.title += tokenize_and_ingest(parser.titleWords[i], PhraseKind::TITLE);
-
-  counts.url += tokenize_and_ingest(canonicalUrl, PhraseKind::URL);
-  return counts;
+  std::fprintf(stderr, "Usage:\n");
+  std::fprintf(stderr, "  %.*s <directory>\n", static_cast<int>(program.size()), program.begin());
+  std::fprintf(stderr, "  %.*s <verses.txt>\n", static_cast<int>(program.size()), program.begin());
 }
-
-static void usage(const char* program)
-{
-  fprintf(stderr, "Usage:\n");
-  fprintf(stderr, "  %s <directory>\n", program);
-  fprintf(stderr, "  %s <verses.txt>\n", program);
-}
-} // namespace
 
 int main(int argc, char** argv)
 {
@@ -198,81 +103,94 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  avengine::crawler::URLNormalizer normalizer;
-  TokenCounts total = {};
+  clock_t start, diff;
 
-  const clock_t start = clock();
-  const bool inputIsDirectory = is_directory(argv[1]);
+  avengine::string_slice arg1(argv[1]);
 
-  if (inputIsDirectory)
+  if (isDirectory(arg1))
   {
     avengine::vector<avengine::string> files;
-    list_files(argv[1], files);
 
-    for (size_t i = 0; i < files.size(); i++)
+    listFiles(arg1, files);
+
+    start = clock();
+    auto phrases = avengine::vector<avengine::string_slice>();
+
+    size_t totalFiles = files.size();
+    double lastPrintedPercent = -1.0;
+
+    for (size_t fileIdx = 0; fileIdx < totalFiles; ++fileIdx)
     {
-      char filepath[256];
-      snprintf(filepath, sizeof(filepath), "%s%s", argv[1], files[i].cstr());
+      avengine::string& file = files[fileIdx];
+      avengine::string filepath(argv[1]);
+      filepath += file;
 
-      size_t length = 0;
-      char* content = read_file(filepath, length);
-      if (!content)
+      avengine::string_slice content = memoryMapFile(avengine::string_slice(filepath));
+      assert(content.begin());
+
+      phrases.pushBack(content);
+
+      auto metadata = DocumentMetadata{
+          .url = file,
+          .title = content.split('\n').front().toString(),
+          .input = 0,
+      };
+
+      indexDocument(metadata, phrases);
+      phrases.clear();
+
+      munmap(content.begin(), content.size());
+
+      double percent = (static_cast<double>(fileIdx + 1) / static_cast<double>(totalFiles)) * 100.0;
+      double truncated = static_cast<int>(percent * 100.0) / 100.0;
+      if (truncated != lastPrintedPercent)
       {
-        fprintf(stderr, "Failed to load file: %s\n", filepath);
-        return 1;
+        lastPrintedPercent = truncated;
+        std::printf("\rIndexing: %06.2f%%", percent);
+        std::fflush(stdout);
       }
-
-      total.add(index_html_document(normalizer, files[i], content, length));
-      free(content);
     }
+    std::printf("\n");
   }
   else
   {
-    size_t length = 0;
-    char* content = read_file(argv[1], length);
-    if (!content)
-    {
-      fprintf(stderr, "Failed to load file: %s\n", argv[1]);
-      return 1;
-    }
+    avengine::string_slice content = memoryMapFile(arg1);
 
-    avengine::vector<IndexedDocument> documents;
-    parse_tab_file(content, length, documents);
+    printf("Done mapping file!\n");
 
+    avengine::vector<avengine::string_slice> documents;
+    avengine::vector<avengine::string_slice> documentNames;
+    parseTabFile(content, documents, documentNames);
+
+    printf("Done parsing verses file, %ld documents!\n", documents.size());
+
+    start = clock();
     for (size_t i = 0; i < documents.size(); i++)
     {
-      total.add(index_html_document(normalizer, documents[i].url, documents[i].content.cstr(),
-                                    documents[i].content.size()));
+      DocumentMetadata metadata = {
+          .url = "(none)",
+          .title = documentNames[i].toString(),
+          .input = 0,
+      };
+      avengine::vector<avengine::string_slice> phrases;
+      phrases.pushBack(documents[i]);
+      indexDocument(metadata, phrases);
     }
-
-    free(content);
   }
 
-  clock_t diff = clock() - start;
-  int msec = static_cast<int>(diff * 1000 / CLOCKS_PER_SEC);
+  diff = clock() - start;
+
+  int msec = diff * 1000 / CLOCKS_PER_SEC;
   printf("Done building index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
-  printf("Indexed %zu body tokens, %zu title tokens, %zu url tokens\n", total.body, total.title,
-         total.url);
 
-  const clock_t writeStart = clock();
-  int fd = open("index.sfi", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  if (fd < 0)
-  {
-    perror("open");
-    return 1;
-  }
+  start = clock();
 
-  if (globalIndex.serialize(fd))
-  {
-    close(fd);
-    fprintf(stderr, "Failed to write index.sfi\n");
-    return 1;
-  }
+  int fd = open("index.sfi", O_WRONLY | O_CREAT, 0644);
+  globalIndex.serialize(fd);
   close(fd);
 
-  diff = clock() - writeStart;
-  msec = static_cast<int>(diff * 1000 / CLOCKS_PER_SEC);
-  printf("Done writing index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
+  diff = clock() - start;
 
-  return 0;
+  msec = diff * 1000 / CLOCKS_PER_SEC;
+  printf("Done writing index in %d seconds %d milliseconds\n", msec / 1000, msec % 1000);
 }

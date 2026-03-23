@@ -369,12 +369,13 @@ bool parsePostingBlobHeader(const uint8_t* begin, const uint8_t* end, PostingBlo
 {
   if (!begin || !end || !out || !fieldStreamsBegin)
     return false;
-  if (begin + 16 > end)
+  if (begin + 24 > end)
     return false;
 
   out->documentFrequency = read_u64_le(begin);
   out->collectionFrequency = read_u64_le(begin + 8);
-  *fieldStreamsBegin = begin + 16; // Skip the 16-byte posting header.
+  out->skipCount = read_u64_le(begin + 16);
+  *fieldStreamsBegin = begin + 24; // Skip [doc_freq][collection_freq][skip_count].
   return true;
 }
 

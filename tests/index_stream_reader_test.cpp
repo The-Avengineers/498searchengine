@@ -5,6 +5,7 @@
 
 #include <avengine/index_stream_reader.h>
 
+#include <cstring>
 #include <cstdlib>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -37,18 +38,20 @@ uint64_t readU64LE(const uint8_t* ptr)
 }
 } // namespace
 
-TEST_CASE("parsePostingBlobHeader parses 16-byte header")
+TEST_CASE("parsePostingBlobHeader parses 24-byte header")
 {
   avengine::vector<uint8_t> bytes;
   appendU64LE(bytes, 11u);
   appendU64LE(bytes, 12u);
+  appendU64LE(bytes, 3u);
 
   avengine::PostingBlobHeader header = {};
   const uint8_t* fields = nullptr;
   REQUIRE(avengine::parsePostingBlobHeader(bytes.begin(), bytes.end(), &header, &fields));
   CHECK(header.documentFrequency == 11u);
   CHECK(header.collectionFrequency == 12u);
-  CHECK(fields == bytes.begin() + 16);
+  CHECK(header.skipCount == 3u);
+  CHECK(fields == bytes.begin() + 24);
 }
 
 TEST_CASE("Dictionary ISR factory methods return owned heap objects")
@@ -74,8 +77,9 @@ TEST_CASE("Dictionary ISR factory methods return owned heap objects")
 TEST_CASE("parsePostingBlobHeader matches the current writer format")
 {
   Index index;
-  index.beginDocument("doc://serialize");
+  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   index.ingest("alpha");
+  index.endDocument();
 
   char pathTemplate[] = "/tmp/index_stream_reader_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
@@ -109,14 +113,14 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   CHECK(close(readFd) == 0);
   CHECK(unlink(pathTemplate) == 0);
 
-  REQUIRE(readU64LE(bytes) == INDEX_FILE_MAGIC);
-  REQUIRE(readU64LE(bytes + 8) == INDEX_FILE_VERSION);
-  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
-  REQUIRE(uniqueWordsPlusOne == 2u);
+  REQUIRE(readU64LE(bytes) == 1u);
+  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
+  REQUIRE(uniqueWordsPlusOne == 3u);
 
-  const size_t dictionaryBytes = static_cast<size_t>(uniqueWordsPlusOne * 2u * 16u);
-  const size_t postingsStart = 32u + dictionaryBytes + 6u;
-  REQUIRE(fileSize >= postingsStart + 16u);
+  const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
+  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
+  const size_t postingsStart = dictionaryBytes + stringBytes;
+  REQUIRE(fileSize >= postingsStart + 24u);
 
   avengine::PostingBlobHeader header = {};
   const uint8_t* fieldStreams = nullptr;
@@ -124,7 +128,8 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
                                            &fieldStreams));
   CHECK(header.documentFrequency == 1u);
   CHECK(header.collectionFrequency == 1u);
-  CHECK(fieldStreams == bytes + postingsStart + 16u);
+  CHECK(header.skipCount == 0u);
+  CHECK(fieldStreams == bytes + postingsStart + 24u);
 
   std::free(bytes);
 }

@@ -1,10 +1,10 @@
+#include "avengine/avengine_lib/string.h"
 #include "avengine/string.h"
-#include "index.h"
-
-#include <ctype.h>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -15,12 +15,18 @@ struct DictEntry
   uint64_t postingOffset;
 };
 
-struct DecodedPosting
+struct ParsedSkipPointer
 {
-  avengine::vector<uint32_t> previewPositions;
-  size_t decodedCount = 0;
-  const uint8_t* next = nullptr;
-  bool ok = false;
+  uint32_t positionIndex;
+  uint32_t positionValue;
+  uint32_t byteOffset;
+};
+
+struct DocInfo
+{
+  uint64_t endPosition; // global token offset of this doc's DOCUMENT_END marker
+  avengine::string title;
+  avengine::string url;
 };
 
 static uint64_t read_u64_le(const uint8_t* ptr)
@@ -38,7 +44,7 @@ static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uin
 
   while (begin < end && shift < 35)
   {
-    const uint8_t byte = *begin++;
+    uint8_t byte = *begin++;
     result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
     if ((byte & 0x80u) == 0u)
     {
@@ -50,6 +56,27 @@ static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uin
 
   *next = nullptr;
   return 0;
+}
+
+// Reads a varint-length-prefixed string (as written by append_string in index.cpp):
+//   varint(len) followed by len raw bytes (no null terminator).
+// Advances *next past the consumed bytes.
+// On failure (truncated data) sets *next = nullptr and returns an empty string.
+static avengine::string read_length_prefixed_string(const uint8_t* begin, const uint8_t* end,
+                                                    const uint8_t** next)
+{
+  const uint8_t* after_len = nullptr;
+  uint32_t len = read_var_u32(begin, end, &after_len);
+  if (!after_len || after_len + len > end)
+  {
+    *next = nullptr;
+    return avengine::string();
+  }
+  avengine::string result;
+  for (uint32_t i = 0; i < len; i++)
+    result.pushBack(static_cast<char>(after_len[i]));
+  *next = after_len + len;
+  return result;
 }
 
 static size_t cstr_len_safe(const uint8_t* start, const uint8_t* end)
@@ -90,57 +117,168 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
   size_t i = 0;
   while (src[i] && i + 1 < dstCap)
   {
-    const unsigned char c = static_cast<unsigned char>(src[i]);
-    dst[i] = static_cast<char>(isalpha(c) ? tolower(c) : c);
+    dst[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(src[i])));
     i++;
   }
   dst[i] = '\0';
 }
 
-static DecodedPosting decode_posting(const uint8_t* cursor, const uint8_t* postingEnd,
-                                     uint64_t collectionFrequency)
+// Parses the DOCUMENT_END posting list to extract per-document boundary positions and titles.
+//
+// The DOCUMENT_END posting blob layout (from encodePostingList in index.cpp):
+//   [doc_freq u64][coll_freq u64][skip_count u64]
+//   [skip stream: skip_count x (posIdx varint, posVal varint, byteOff varint)]
+//   [position delta stream: coll_freq varints, delta-encoded from 0]
+//   [metadata buffer: doc_freq x (url length-prefixed, title length-prefixed, 8-byte RankingInput)]
+//
+// Populates docInfos with one entry per document (endPosition, title), sorted ascending by
+// endPosition. Returns true on success, false if DOCUMENT_END is absent or the blob is malformed.
+static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t postingsStart,
+                                 const avengine::vector<DictEntry>& usedEntries,
+                                 const avengine::vector<avengine::string>& terms,
+                                 avengine::vector<DocInfo>& docInfos)
 {
-  DecodedPosting out;
-  uint32_t pos = 0;
-
-  for (uint64_t i = 0; i < collectionFrequency; i++)
+  // Locate the DOCUMENT_END entry in the dictionary.
+  ssize_t docendIdx = -1;
+  for (size_t i = 0; i < terms.size(); i++)
   {
-    const uint8_t* next = nullptr;
-    const uint32_t delta = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      return out;
-
-    cursor = next;
-    pos += delta;
-    if (out.previewPositions.size() < 25)
-      out.previewPositions.pushBack(pos);
-    out.decodedCount++;
+    if (cstr_equal(terms[i].cstr(), "DOCUMENT_END"))
+    {
+      docendIdx = static_cast<ssize_t>(i);
+      break;
+    }
   }
 
-  out.next = cursor;
-  out.ok = true;
-  return out;
+  if (docendIdx < 0)
+  {
+    std::fprintf(stderr, "Warning: DOCUMENT_END not found in index; titles unavailable.\n");
+    return false;
+  }
+
+  const DictEntry& de = usedEntries[static_cast<size_t>(docendIdx)];
+
+  // Determine the end of this posting blob by finding the smallest posting offset
+  // that is strictly greater than de.postingOffset.
+  uint64_t nextPosting = static_cast<uint64_t>(fileSize - postingsStart);
+  for (const DictEntry& e : usedEntries)
+  {
+    if (e.postingOffset > de.postingOffset && e.postingOffset < nextPosting)
+      nextPosting = e.postingOffset;
+  }
+
+  size_t startOff = postingsStart + static_cast<size_t>(de.postingOffset);
+  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
+
+  if (startOff + 24 > endOff || endOff > fileSize)
+  {
+    std::fprintf(stderr, "Warning: DOCUMENT_END posting list has corrupt boundaries.\n");
+    return false;
+  }
+
+  const uint8_t* posting = data + startOff;
+  const uint8_t* postingEnd = data + endOff;
+
+  uint64_t docFreq = read_u64_le(posting);
+  uint64_t collFreq = read_u64_le(posting + 8);
+  uint64_t skipCount = read_u64_le(posting + 16);
+  const uint8_t* cursor = posting + 24;
+
+  // Consume the skip-pointer stream (3 varints per entry).
+  for (uint64_t i = 0; i < skipCount; i++)
+  {
+    for (int field = 0; field < 3; field++)
+    {
+      const uint8_t* next = nullptr;
+      read_var_u32(cursor, postingEnd, &next);
+      if (!next)
+      {
+        std::fprintf(stderr, "Warning: Truncated skip pointer stream in DOCUMENT_END.\n");
+        return false;
+      }
+      cursor = next;
+    }
+  }
+
+  // Decode exactly collFreq position deltas to obtain per-document boundary positions.
+  // For DOCUMENT_END, collFreq == docFreq (one end-marker per document).
+  avengine::vector<uint64_t> boundaryPositions;
+  {
+    uint64_t pos = 0;
+    for (uint64_t i = 0; i < collFreq; i++)
+    {
+      const uint8_t* next = nullptr;
+      uint32_t delta = read_var_u32(cursor, postingEnd, &next);
+      if (!next)
+      {
+        std::fprintf(stderr, "Warning: Truncated position stream in DOCUMENT_END.\n");
+        return false;
+      }
+      cursor = next;
+      pos += delta;
+      boundaryPositions.pushBack(pos);
+    }
+  }
+
+  // Read per-document metadata: url (discarded), title (kept), 8-byte RankingInput (skipped).
+  for (uint64_t i = 0; i < docFreq; i++)
+  {
+    // URL — read and discard.
+    const uint8_t* next = nullptr;
+    avengine::string url = read_length_prefixed_string(cursor, postingEnd, &next);
+    if (!next)
+    {
+      std::fprintf(stderr, "Warning: Truncated URL in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor = next;
+
+    // Title — keep.
+    avengine::string title = read_length_prefixed_string(cursor, postingEnd, &next);
+    if (!next)
+    {
+      std::fprintf(stderr, "Warning: Truncated title in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor = next;
+
+    // RankingInput — 8 bytes, skip.
+    if (cursor + 8 > postingEnd)
+    {
+      std::fprintf(stderr,
+                   "Warning: Truncated RankingInput in DOCUMENT_END metadata at doc %llu.\n",
+                   static_cast<unsigned long long>(i));
+      return false;
+    }
+    cursor += 8;
+
+    uint64_t endPos = (i < boundaryPositions.size()) ? boundaryPositions[i] : UINT64_MAX;
+    docInfos.pushBack({endPos, title, url});
+  }
+
+  return true;
 }
 
-static void print_position_preview(const avengine::vector<uint32_t>& preview)
+// Returns the index of the first DocInfo whose endPosition is strictly greater than pos.
+// Since DOCUMENT_END is ingested after all tokens in a document, every token position within
+// document d satisfies pos < docInfos[d].endPosition, making this an upper-bound search.
+// Returns docInfos.size() if no such entry exists (corrupt / position out of range).
+static size_t find_doc_for_position(const avengine::vector<DocInfo>& docInfos, uint64_t pos)
 {
-  printf("  Positions preview:");
-  if (preview.empty())
+  for (size_t i = 0; i < docInfos.size(); i++)
   {
-    printf(" (none)\n");
-    return;
+    if (docInfos[i].endPosition > pos)
+      return i;
   }
-
-  for (size_t i = 0; i < preview.size(); i++)
-    printf(" %u", preview[i]);
-  printf("\n");
+  return docInfos.size();
 }
 
 static void usage(const char* program)
 {
-  fprintf(stderr, "Usage:\n");
-  fprintf(stderr, "  %s <index.sfi> --list\n", program);
-  fprintf(stderr, "  %s <index.sfi> <term>\n", program);
+  std::fprintf(stderr, "Usage:\n");
+  std::fprintf(stderr, "  %s <index.sfi> --list\n", program);
+  std::fprintf(stderr, "  %s <index.sfi> <term>\n", program);
 }
 
 int main(int argc, char** argv)
@@ -157,21 +295,21 @@ int main(int argc, char** argv)
   int fd = open(filename, O_RDONLY);
   if (fd < 0)
   {
-    perror("open");
+    std::perror("open");
     return 1;
   }
 
-  struct stat sb = {};
+  struct stat sb;
   if (fstat(fd, &sb) != 0)
   {
-    perror("fstat");
+    std::perror("fstat");
     close(fd);
     return 1;
   }
 
-  if (sb.st_size < 32)
+  if (sb.st_size < 16)
   {
-    fprintf(stderr, "Index too small.\n");
+    std::fprintf(stderr, "Index too small.\n");
     close(fd);
     return 1;
   }
@@ -180,36 +318,28 @@ int main(int argc, char** argv)
   close(fd);
   if (data == MAP_FAILED)
   {
-    perror("mmap");
+    std::perror("mmap");
     return 1;
   }
 
-  const uint64_t magic = read_u64_le(data);
-  const uint64_t version = read_u64_le(data + 8);
-  if (magic != INDEX_FILE_MAGIC || version != INDEX_FILE_VERSION)
-  {
-    fprintf(stderr, "Unsupported index format.\n");
-    munmap(data, sb.st_size);
-    return 1;
-  }
-
-  const uint64_t documentCount = read_u64_le(data + 16);
-  const uint64_t uniqueWordsPlusOne = read_u64_le(data + 24);
+  // Header: [document_count u64][unique_words_plus_one u64]
+  const uint64_t documentCount = read_u64_le(data);
+  const uint64_t uniqueWordsPlusOne = read_u64_le(data + 8);
   const uint64_t tableSlots = uniqueWordsPlusOne * 2;
-  const size_t headerBytes = 32;
-  const uint64_t dictionaryBytes = headerBytes + tableSlots * 16;
+  const uint64_t dictionaryBytes = 16 + tableSlots * 16;
 
   if (dictionaryBytes > static_cast<uint64_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt index: dictionary exceeds file size.\n");
+    std::fprintf(stderr, "Corrupt index: dictionary exceeds file size.\n");
     munmap(data, sb.st_size);
     return 1;
   }
 
+  // Dictionary is a flat hash table; each slot is [string_offset u64][posting_offset u64].
   avengine::vector<DictEntry> entries;
   for (uint64_t i = 0; i < tableSlots; i++)
   {
-    const size_t offset = headerBytes + static_cast<size_t>(i * 16);
+    size_t offset = static_cast<size_t>(16 + i * 16);
     entries.pushBack({read_u64_le(data + offset), read_u64_le(data + offset + 8)});
   }
 
@@ -217,56 +347,59 @@ int main(int argc, char** argv)
   const uint8_t* fileEnd = data + sb.st_size;
 
   size_t inferredStringBytes = 0;
+  size_t parsedTerms = 0;
   avengine::vector<DictEntry> usedEntries;
   avengine::vector<avengine::string> terms;
 
-  for (size_t i = 0; i < entries.size(); i++)
+  // Scan non-empty dictionary slots, recover C strings from string buffer,
+  // and infer where the postings region begins.
+  for (const DictEntry& e : entries)
   {
-    const DictEntry& entry = entries[i];
-    if (entry.stringOffset == UINT64_MAX && entry.postingOffset == UINT64_MAX)
+    if (e.stringOffset == 0 && e.postingOffset == 0)
       continue;
-    if (dictionaryBytes + entry.stringOffset >= static_cast<uint64_t>(sb.st_size))
+    if (dictionaryBytes + e.stringOffset >= static_cast<uint64_t>(sb.st_size))
       continue;
 
-    const uint8_t* termPtr = stringStart + entry.stringOffset;
-    const size_t len = cstr_len_safe(termPtr, fileEnd);
+    const uint8_t* termPtr = stringStart + e.stringOffset;
+    size_t len = cstr_len_safe(termPtr, fileEnd);
     if (len == static_cast<size_t>(-1))
       continue;
 
-    const size_t endOff = static_cast<size_t>(entry.stringOffset + len + 1);
+    size_t endOff = static_cast<size_t>(e.stringOffset + len + 1);
     if (endOff > inferredStringBytes)
       inferredStringBytes = endOff;
 
-    usedEntries.pushBack(entry);
+    usedEntries.pushBack(e);
     terms.pushBack(avengine::string(reinterpret_cast<const char*>(termPtr)));
+    parsedTerms++;
   }
 
   const size_t postingsStart = static_cast<size_t>(dictionaryBytes) + inferredStringBytes;
   if (postingsStart > static_cast<size_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt index: postings start exceeds file size.\n");
+    std::fprintf(stderr, "Corrupt index: postings start exceeds file size.\n");
     munmap(data, sb.st_size);
     return 1;
   }
 
-  printf("Format: v4\n");
-  printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
-  printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
-  printf("Parsed terms (best effort): %zu\n", terms.size());
+  std::printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
+  std::printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
+  std::printf("Parsed terms (best effort): %zu\n", parsedTerms);
 
   if (listMode)
   {
-    for (size_t i = 0; i < terms.size(); i++)
-      printf("%s\n", terms[i].cstr());
+    for (const avengine::string& term : terms)
+      std::printf("%s\n", term.cstr());
+
     munmap(data, sb.st_size);
     return 0;
   }
 
-  const size_t rawLen = cstr_len(argv[2]);
-  char* queryLower = static_cast<char*>(malloc(rawLen + 1));
+  size_t rawLen = cstr_len(argv[2]);
+  char* queryLower = static_cast<char*>(std::malloc(rawLen + 1));
   if (!queryLower)
   {
-    fprintf(stderr, "Out of memory.\n");
+    std::fprintf(stderr, "Out of memory.\n");
     munmap(data, sb.st_size);
     return 1;
   }
@@ -284,57 +417,114 @@ int main(int argc, char** argv)
 
   if (foundIndex < 0)
   {
-    printf("Term '%s' not found.\n", queryLower);
-    free(queryLower);
+    std::printf("Term '%s' not found.\n", queryLower);
+    std::free(queryLower);
     munmap(data, sb.st_size);
     return 0;
   }
 
   const DictEntry found = usedEntries[static_cast<size_t>(foundIndex)];
 
+  // Determine the end of this posting blob.
   uint64_t nextPosting = static_cast<uint64_t>(sb.st_size - postingsStart);
-  for (size_t i = 0; i < usedEntries.size(); i++)
+  for (const DictEntry& e : usedEntries)
   {
-    const DictEntry& entry = usedEntries[i];
-    if (entry.postingOffset > found.postingOffset && entry.postingOffset < nextPosting)
-      nextPosting = entry.postingOffset;
+    if (e.postingOffset > found.postingOffset && e.postingOffset < nextPosting)
+      nextPosting = e.postingOffset;
   }
 
-  const size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
-  const size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
-  if (startOff + 16 > endOff || endOff > static_cast<size_t>(sb.st_size))
+  size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
+  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
+  if (startOff + 24 > endOff || endOff > static_cast<size_t>(sb.st_size))
   {
-    fprintf(stderr, "Corrupt v4 posting list boundaries.\n");
-    free(queryLower);
+    std::fprintf(stderr, "Corrupt posting list boundaries.\n");
+    std::free(queryLower);
     munmap(data, sb.st_size);
     return 1;
   }
 
+  // Per posting-list header: [doc_freq u64][collection_freq u64][skip_count u64].
   const uint8_t* posting = data + startOff;
+  uint64_t documentFrequency = read_u64_le(posting);
+  uint64_t collectionFrequency = read_u64_le(posting + 8);
+  uint64_t skipCount = read_u64_le(posting + 16);
+  const uint8_t* cursor = posting + 24;
   const uint8_t* postingEnd = data + endOff;
-  const uint64_t documentFrequency = read_u64_le(posting);
-  const uint64_t collectionFrequency = read_u64_le(posting + 8);
 
-  const DecodedPosting decoded = decode_posting(posting + 16, postingEnd, collectionFrequency);
-  if (!decoded.ok)
+  avengine::vector<ParsedSkipPointer> parsedSkips;
+  for (uint64_t i = 0; i < skipCount; i++)
   {
-    fprintf(stderr, "Corrupt v4 field encoding.\n");
-    free(queryLower);
-    munmap(data, sb.st_size);
-    return 1;
+    const uint8_t* next = nullptr;
+
+    uint32_t positionIndex = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t positionValue = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    uint32_t byteOffset = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+
+    parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
   }
 
-  printf("Term: %s\n", queryLower);
-  printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
-  printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
-  print_position_preview(decoded.previewPositions);
-  printf("Decoded positions: %zu\n", decoded.decodedCount);
+  // Parse DOCUMENT_END to build the per-document info table (endPosition + title).
+  avengine::vector<DocInfo> docInfos;
+  parse_docend_posting(data, static_cast<size_t>(sb.st_size), postingsStart, usedEntries, terms,
+                       docInfos);
 
-  if (decoded.next != postingEnd)
-    printf("Note: %zu trailing posting bytes were not consumed.\n",
-           static_cast<size_t>(postingEnd - decoded.next));
+  std::printf("Term: %s\n", queryLower);
+  std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
+  std::printf("Collection frequency: %llu\n", static_cast<unsigned long long>(collectionFrequency));
+  std::printf("Skip pointers: %zu\n", parsedSkips.size());
+  if (!parsedSkips.empty())
+  {
+    std::printf("Skip preview:");
+    for (size_t i = 0; i < parsedSkips.size() && i < 8; i++)
+    {
+      const ParsedSkipPointer& sp = parsedSkips[i];
+      std::printf(" [idx=%u pos=%u off=%u]", sp.positionIndex, sp.positionValue, sp.byteOffset);
+    }
+    std::printf("\n");
+  }
 
-  free(queryLower);
+  // Decode position delta stream and print each position with the containing document's title.
+  size_t decoded = 0;
+  uint64_t pos64 = 0;
+
+  std::printf("Positions:\n");
+  while (cursor < postingEnd)
+  {
+    const uint8_t* next = nullptr;
+    uint32_t delta = read_var_u32(cursor, postingEnd, &next);
+    if (!next)
+      break;
+    cursor = next;
+    pos64 += delta;
+
+    const char* title = "(unknown)";
+    const char* url = "(unknown)";
+
+    size_t docIdx = find_doc_for_position(docInfos, pos64);
+    if (docIdx < docInfos.size())
+    {
+      title = docInfos[docIdx].title.cstr();
+      url = docInfos[docIdx].url.cstr();
+    }
+
+    std::printf("  %llu (%s) `%s`\n", static_cast<unsigned long long>(pos64), title, url);
+    decoded++;
+  }
+
+  std::printf("Decoded positions: %zu\n", decoded);
+
+  std::free(queryLower);
   munmap(data, sb.st_size);
   return 0;
 }

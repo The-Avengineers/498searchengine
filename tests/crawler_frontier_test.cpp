@@ -155,46 +155,123 @@ int main()
 
   EXPECT(got1 && got2 && got3 && got4 && got5 && got6);
 
-  // Checkpoint file save error
+  // Checkpoint file save/load errors.
   avengine::crawler::frontier err;
   avengine::expected<void, avengine::error> saveBad =
       err.saveCheckpoint("/this/path/does/not/exist/frontier.bin");
   EXPECT(!saveBad.hasValue());
 
-  // Checkpoint file load error
   avengine::expected<void, avengine::error> loadBad =
       err.loadCheckpoint("/this/path/does/not/exist/frontier.bin");
   EXPECT(!loadBad.hasValue());
 
-  // Test checkpointing
-  avengine::crawler::frontier original;
-  original.add("https://a.com/start", 1);
-  original.add("https://b.com/start", 2);
-
-  // create temp file for checkpointing
+  // Create temp file for checkpointing tests.
   char pathTemplate[] = "/tmp/frontier_checkpoint_XXXXXX";
   int fd = mkstemp(pathTemplate);
   EXPECT(fd >= 0);
   EXPECT(close(fd) == 0);
 
-  // save
-  avengine::expected<void, avengine::error> saveRes = original.saveCheckpoint(pathTemplate);
+  // Empty frontier should clear any existing state on load.
+  avengine::crawler::frontier emptyCheckpoint;
+  avengine::expected<void, avengine::error> saveRes = emptyCheckpoint.saveCheckpoint(pathTemplate);
   EXPECT(saveRes.hasValue());
 
-  // load
-  avengine::crawler::frontier loaded;
-  avengine::expected<void, avengine::error> loadRes = loaded.loadCheckpoint(pathTemplate);
+  avengine::crawler::frontier loadedEmpty;
+  loadedEmpty.add("https://stale.example/will-be-cleared", 7);
+  EXPECT(loadedEmpty.size() == 1);
+
+  avengine::expected<void, avengine::error> loadRes = loadedEmpty.loadCheckpoint(pathTemplate);
   EXPECT(loadRes.hasValue());
+  EXPECT(loadedEmpty.size() == 0);
+  avengine::vector<avengine::urlEntry> loadedEmptyBatch = loadedEmpty.nextBatch(100, 10);
+  EXPECT(loadedEmptyBatch.size() == 0);
 
-  // check load size
-  EXPECT(loaded.size() == 2);
+  // check URL, domain, and depth.
+  avengine::crawler::frontier original;
+  original.add("https://a.com/start", 1);
+  original.add("https://b.com/start", -2);
+  original.add("https://a.com/next", 3);
 
-  // check load batch
+  saveRes = original.saveCheckpoint(pathTemplate);
+  EXPECT(saveRes.hasValue());
+
+  avengine::crawler::frontier loaded;
+  loadRes = loaded.loadCheckpoint(pathTemplate);
+  EXPECT(loadRes.hasValue());
+  EXPECT(loaded.size() == 3);
+  EXPECT(loaded.alreadySeen("https://a.com/start"));
+  EXPECT(loaded.alreadySeen("https://b.com/start"));
+
+  // duplicate should still be blocked after load
+  loaded.add("https://a.com/start", 99);
+  EXPECT(loaded.size() == 3);
+
   avengine::vector<avengine::urlEntry> loadedBatch = loaded.nextBatch(100, 10);
-  EXPECT(loadedBatch.size() == 2);
+  EXPECT(loadedBatch.size() == 3);
   EXPECT(loadedBatch[0].depth <= loadedBatch[1].depth);
+  EXPECT(loadedBatch[1].depth <= loadedBatch[2].depth);
   EXPECT(hasEntry(loadedBatch, "https://a.com/start", 1, "a.com"));
-  EXPECT(hasEntry(loadedBatch, "https://b.com/start", 2, "b.com"));
+  EXPECT(hasEntry(loadedBatch, "https://b.com/start", -2, "b.com"));
+  EXPECT(hasEntry(loadedBatch, "https://a.com/next", 3, "a.com"));
+
+  // Loading should replace existing frontier state.
+  avengine::crawler::frontier stale;
+  stale.add("https://stale.example/old-1", 5);
+  stale.add("https://stale.example/old-2", 6);
+  EXPECT(stale.size() == 2);
+
+  loadRes = stale.loadCheckpoint(pathTemplate);
+  EXPECT(loadRes.hasValue());
+  EXPECT(stale.size() == 3);
+
+  avengine::vector<avengine::urlEntry> replacedBatch = stale.nextBatch(100, 10);
+  EXPECT(replacedBatch.size() == 3);
+  EXPECT(hasEntry(replacedBatch, "https://a.com/start", 1, "a.com"));
+  EXPECT(hasEntry(replacedBatch, "https://b.com/start", -2, "b.com"));
+  EXPECT(hasEntry(replacedBatch, "https://a.com/next", 3, "a.com"));
+  EXPECT(!hasEntry(replacedBatch, "https://stale.example/old-1", 5, "stale.example"));
+  EXPECT(!hasEntry(replacedBatch, "https://stale.example/old-2", 6, "stale.example"));
+
+  // Saving to an existing checkpoint path should overwrite prior contents.
+  avengine::crawler::frontier overwrite;
+  overwrite.add("https://overwrite.example/new", 4);
+  saveRes = overwrite.saveCheckpoint(pathTemplate);
+  EXPECT(saveRes.hasValue());
+
+  avengine::crawler::frontier overwrittenLoaded;
+  loadRes = overwrittenLoaded.loadCheckpoint(pathTemplate);
+  EXPECT(loadRes.hasValue());
+  EXPECT(overwrittenLoaded.size() == 1);
+  avengine::vector<avengine::urlEntry> overwrittenBatch = overwrittenLoaded.nextBatch(100, 10);
+  EXPECT(overwrittenBatch.size() == 1);
+  EXPECT(hasEntry(overwrittenBatch, "https://overwrite.example/new", 4, "overwrite.example"));
+
+  // Corrupted checkpoint should fail.
+  FILE* badFp = fopen(pathTemplate, "wb");
+  EXPECT(badFp != nullptr);
+  char oneByte = 0;
+  EXPECT(fwrite(&oneByte, 1, 1, badFp) == 1);
+  EXPECT(fclose(badFp) == 0);
+
+  avengine::crawler::frontier corrupted;
+  loadRes = corrupted.loadCheckpoint(pathTemplate);
+  EXPECT(!loadRes.hasValue());
+
+  // Truncating checkpoint should also fail on load.
+  saveRes = original.saveCheckpoint(pathTemplate);
+  EXPECT(saveRes.hasValue());
+
+  FILE* sizeFp = fopen(pathTemplate, "rb");
+  EXPECT(sizeFp != nullptr);
+  EXPECT(fseek(sizeFp, 0, SEEK_END) == 0);
+  long checkpointSize = ftell(sizeFp);
+  EXPECT(checkpointSize > 1);
+  EXPECT(fclose(sizeFp) == 0);
+  EXPECT(truncate(pathTemplate, checkpointSize - 1) == 0);
+
+  avengine::crawler::frontier truncated;
+  loadRes = truncated.loadCheckpoint(pathTemplate);
+  EXPECT(!loadRes.hasValue());
 
   EXPECT(unlink(pathTemplate) == 0);
   return 0;

@@ -1,73 +1,93 @@
 #pragma once
-
-#include "avengine/string.h"
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
 #include "avengine/vector.h"
+#include <cstddef>
+#include <cstdint>
+#include <pthread.h>
 
-#include <stddef.h>
-#include <stdint.h>
+size_t djb2Hash(avengine::string_slice str);
 
-size_t djb2Hash(char const* str);
-size_t djb2Hash(const avengine::string& str);
-
-constexpr uint64_t INDEX_FILE_MAGIC = 0x3256465345584449ULL;
-constexpr uint64_t INDEX_FILE_VERSION = 4;
-
-enum class PhraseKind
-{
-  BODY,
-  TITLE,
-  URL,
-};
-
+// Consider switching from AoS to SoA.
 struct Posting
 {
-  uint32_t docId = 0;
-  uint32_t termFreq = 0;
+  uint32_t docId;
+  uint32_t termFreq;
+  // It might make sense to make the just an index if resizing is often changing
+  // the base pointer location.
+  size_t positions;
 };
 
+// TODO: Determine the best expected hashmap size given a read-world dataset.
 #define HASHMAP_SIZE 262144
 #define STARTING_CAPACITY 64
+// A special token used to signify the end of a document. This should NEVER be parsed as a regular
+// token.
+constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
+
+// The raw data needed as input to calculate the static rank (distance from seed list, length of
+// document, etc). It MUST be plain old data, no pointers.
+using RankingInput = uint64_t;
 
 struct PostingList
 {
-  PostingList(char const* word, PostingList* nextBucket);
-  Posting* findPosting(uint32_t docId);
-  void ingest(uint32_t docId, uint32_t offset);
+  PostingList(avengine::string_slice word, PostingList* nextBucket);
+  void ingest(uint32_t docId, size_t offset);
 
-  char* word = nullptr;
-  size_t hash = 0;
-  PostingList* nextBucket = nullptr;
+  avengine::string word;
+  size_t hash;
+  PostingList* nextBucket;
+  // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
+  // points in the on-disk-format we should update this to match.
   avengine::vector<Posting> postings;
   avengine::vector<uint32_t> positions;
 };
 
+// TODO: Determine the best expected hashmap size given a read-world dataset.
+#define HASHMAP_SIZE 262144
+
 void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
 void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
+struct DocumentMetadata
+{
+  avengine::string url;
+  avengine::string title;
+  // NOTE: If we choose to add a description for pages it will be passed here.
+  RankingInput input;
+};
 struct Index
 {
   avengine::vector<PostingList*> buckets;
   size_t offset = 0;
   size_t totalUniqWords = 0;
-  avengine::vector<avengine::string> documentNames;
-  uint32_t currentDocId = UINT32_MAX;
+  avengine::vector<DocumentMetadata> documentMetadata;
+  pthread_mutex_t writeMutex;
+  uint32_t currentDocId = 0;
 
-  PostingList* getBucket(char const* word);
+  PostingList* getBucket(avengine::string_slice word);
+  // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
+  // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
+  void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
 
   Index();
+  ~Index();
+  // Returns true on I/O error.
   bool serialize(int fd);
-  uint32_t beginDocument(const char* url);
-  void ingest(char const* word);
-  void ingest(char const* word, PhraseKind kind);
-  void ingestIntoDocument(uint32_t docId, char const* word, PhraseKind kind);
+  // Takes the write lock and allocates a doc slot. The lock is held until
+  // endDocument() is called. Returns the assigned docId.
+  uint32_t beginDocument(DocumentMetadata metadata);
+  // Ingests the DOCEND_TOKEN and releases the write lock.
+  void endDocument();
+  // Adds a token to the current document. Must be called between beginDocument()
+  // and endDocument().
+  void ingest(avengine::string_slice word);
 };
 
 extern Index globalIndex;
 
-size_t indexDocument(char const* url, char* phrases);
-
-struct Phrase
-{
-  char* text;
-  PhraseKind kind;
-};
+// Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
+// each token into the active document. `phrases` must be a writable buffer.
+// Returns the number of tokens ingested.
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases);

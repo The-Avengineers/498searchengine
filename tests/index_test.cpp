@@ -1,23 +1,37 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
-
 #include "../src/index.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 namespace
 {
+void fail(const char* expr, int line)
+{
+  std::fprintf(stderr, "index_test failed at line %d: %s\n", line, expr);
+  std::abort();
+}
+
+#define EXPECT(expr)                                                                               \
+  do                                                                                               \
+  {                                                                                                \
+    if (!(expr))                                                                                   \
+      fail(#expr, __LINE__);                                                                       \
+  } while (false)
+
 uint64_t readU64LE(const uint8_t* ptr)
 {
   uint64_t value = 0;
   for (int i = 0; i < 8; ++i)
+  {
     value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
+  }
   return value;
 }
 
@@ -35,54 +49,43 @@ uint32_t readVarU32(const uint8_t*& cursor, const uint8_t* end)
     shift += 7;
   }
 
-  REQUIRE_MESSAGE(false, "valid varint stream");
+  fail("valid varint stream", __LINE__);
   return 0;
 }
 
-Posting* findPostingByDoc(PostingList* list, uint32_t docId)
-{
-  for (size_t i = 0; i < list->postings.size(); i++)
-  {
-    if (list->postings[i].docId == docId)
-      return &list->postings[i];
-  }
-  return nullptr;
-}
-} // namespace
-
-TEST_CASE("Encoding helpers")
+void testEncodingHelpers()
 {
   avengine::vector<uint8_t> buf;
 
   append_var_uint32(buf, 0u);
-  CHECK(buf.size() == 1);
-  CHECK(buf[0] == 0x00);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x00);
 
   buf.clear();
   append_var_uint32(buf, 127u);
-  CHECK(buf.size() == 1);
-  CHECK(buf[0] == 0x7F);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x7F);
 
   buf.clear();
   append_var_uint32(buf, 128u);
-  CHECK(buf.size() == 2);
-  CHECK(buf[0] == 0x80);
-  CHECK(buf[1] == 0x01);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0x80);
+  EXPECT(buf[1] == 0x01);
 
   buf.clear();
   append_var_uint32(buf, 300u);
-  CHECK(buf.size() == 2);
-  CHECK(buf[0] == 0xAC);
-  CHECK(buf[1] == 0x02);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0xAC);
+  EXPECT(buf[1] == 0x02);
 
   buf.clear();
   const uint64_t expected = 0x0123456789ABCDEFULL;
   append_uint64(buf, expected);
-  CHECK(buf.size() == 8);
-  CHECK(readU64LE(buf.begin()) == expected);
+  EXPECT(buf.size() == 8);
+  EXPECT(readU64LE(buf.begin()) == expected);
 }
 
-TEST_CASE("PostingList ingest tracks one position stream")
+void testPostingListIngest()
 {
   PostingList list("alpha", nullptr);
 
@@ -90,187 +93,256 @@ TEST_CASE("PostingList ingest tracks one position stream")
   list.ingest(2u, 42u);
   list.ingest(9u, 100u);
 
-  CHECK(std::strcmp(list.word, "alpha") == 0);
-  CHECK(list.nextBucket == nullptr);
+  EXPECT(list.word == avengine::string("alpha"));
+  EXPECT(list.nextBucket == nullptr);
 
-  REQUIRE(list.postings.size() == 2);
-  CHECK(list.postings[0].docId == 2u);
-  CHECK(list.postings[0].termFreq == 2u);
-  CHECK(list.postings[1].docId == 9u);
-  CHECK(list.postings[1].termFreq == 1u);
+  EXPECT(list.postings.size() == 2);
+  EXPECT(list.postings[0].docId == 2u);
+  EXPECT(list.postings[0].termFreq == 2u);
+  EXPECT(list.postings[1].docId == 9u);
+  EXPECT(list.postings[1].termFreq == 1u);
 
-  REQUIRE(list.positions.size() == 3u);
-  CHECK(list.positions[0] == 10u);
-  CHECK(list.positions[1] == 42u);
-  CHECK(list.positions[2] == 100u);
+  EXPECT(list.positions.size() == 3);
+  EXPECT(list.positions[0] == 10u);
+  EXPECT(list.positions[1] == 42u);
+  EXPECT(list.positions[2] == 100u);
 }
 
-TEST_CASE("Index ingest across documents")
+void testIndexIngestAcrossDocuments()
 {
   Index index;
 
-  CHECK(index.beginDocument("doc://0") == 0u);
+  uint32_t doc0 = index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0});
+  EXPECT(doc0 == 0u);
   index.ingest("apple");
   index.ingest("banana");
   index.ingest("apple");
+  index.endDocument();
 
-  CHECK(index.beginDocument("doc://1") == 1u);
+  uint32_t doc1 = index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0});
+  EXPECT(doc1 == 1u);
   index.ingest("apple");
+  index.endDocument();
 
-  CHECK(index.documentNames.size() == 2u);
-  CHECK(index.currentDocId == 1u);
-  CHECK(index.totalUniqWords == 2u);
-  CHECK(index.offset == 4u);
+  EXPECT(index.documentMetadata.size() == 2);
+  EXPECT(index.totalUniqWords == 3u); // apple, banana, DOCEND_TOKEN
+  EXPECT(index.offset == 6u);         // 3 words + DOCEND for doc0, 1 word + DOCEND for doc1
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
 
-  Posting* appleDoc0 = findPostingByDoc(apple, 0u);
-  Posting* appleDoc1 = findPostingByDoc(apple, 1u);
-  REQUIRE(appleDoc0 != nullptr);
-  REQUIRE(appleDoc1 != nullptr);
-  CHECK(appleDoc0->termFreq == 2u);
-  CHECK(appleDoc1->termFreq == 1u);
+  EXPECT(apple->postings.size() == 2);
+  EXPECT(apple->postings[0].docId == 0u);
+  EXPECT(apple->postings[0].termFreq == 2u);
+  EXPECT(apple->postings[1].docId == 1u);
+  EXPECT(apple->postings[1].termFreq == 1u);
+  EXPECT(apple->positions.size() == 3);
+  EXPECT(apple->positions[0] == 0u);
+  EXPECT(apple->positions[1] == 2u);
+  EXPECT(apple->positions[2] == 4u); // offset 3 is DOCEND for doc0
 
-  REQUIRE(apple->positions.size() == 3u);
-  CHECK(apple->positions[0] == 0u);
-  CHECK(apple->positions[1] == 2u);
-  CHECK(apple->positions[2] == 3u);
-
-  Posting* bananaDoc0 = findPostingByDoc(banana, 0u);
-  REQUIRE(bananaDoc0 != nullptr);
-  CHECK(bananaDoc0->termFreq == 1u);
-  REQUIRE(banana->positions.size() == 1u);
-  CHECK(banana->positions[0] == 1u);
+  EXPECT(banana->postings.size() == 1);
+  EXPECT(banana->postings[0].docId == 0u);
+  EXPECT(banana->postings[0].termFreq == 1u);
+  EXPECT(banana->positions.size() == 1);
+  EXPECT(banana->positions[0] == 1u);
 }
 
-TEST_CASE("Decorated terms isolate body title and url")
+void testIndexDocumentTokenization()
 {
-  Index index;
-
-  const uint32_t docA = index.beginDocument("http://a.test/");
-  const uint32_t docB = index.beginDocument("http://b.test/");
-
-  index.ingestIntoDocument(docA, "search", PhraseKind::BODY);
-  index.ingestIntoDocument(docA, "search", PhraseKind::TITLE);
-  index.ingestIntoDocument(docB, "search", PhraseKind::URL);
-  index.ingestIntoDocument(docB, "search", PhraseKind::URL);
-
-  PostingList* body = index.getBucket("search");
-  PostingList* title = index.getBucket("#search");
-  PostingList* url = index.getBucket("/search");
-
-  Posting* bodyPosting = findPostingByDoc(body, docA);
-  Posting* titlePosting = findPostingByDoc(title, docA);
-  Posting* urlPosting = findPostingByDoc(url, docB);
-
-  REQUIRE(bodyPosting != nullptr);
-  REQUIRE(titlePosting != nullptr);
-  REQUIRE(urlPosting != nullptr);
-
-  CHECK(bodyPosting->termFreq == 1u);
-  CHECK(titlePosting->termFreq == 1u);
-  CHECK(urlPosting->termFreq == 2u);
-
-  CHECK(findPostingByDoc(body, docB) == nullptr);
-  CHECK(findPostingByDoc(title, docB) == nullptr);
-  CHECK(findPostingByDoc(url, docA) == nullptr);
-
-  CHECK(body->positions.size() == 1u);
-  CHECK(title->positions.size() == 1u);
-  CHECK(url->positions.size() == 2u);
-  CHECK(index.offset == 4u);
-}
-
-TEST_CASE("indexDocument tokenization indexes body terms")
-{
-  const uint32_t docId = static_cast<uint32_t>(globalIndex.documentNames.size());
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  const size_t words = indexDocument("doc://tokenized", text);
+  DocumentMetadata meta{.url = "doc://tokenized", .title = "", .input = 0};
+  avengine::vector<avengine::string_slice> phrases;
+  phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
+  const size_t words = indexDocument(meta, phrases);
 
-  CHECK(words == 4u);
-  CHECK(globalIndex.documentNames.size() >= static_cast<size_t>(docId + 1u));
+  EXPECT(words == 4u);
+  EXPECT(globalIndex.documentMetadata.size() == 1);
 
   PostingList* alpha = globalIndex.getBucket("alpha");
   PostingList* beta = globalIndex.getBucket("beta");
   PostingList* gamma = globalIndex.getBucket("gamma");
 
-  Posting* alphaPosting = findPostingByDoc(alpha, docId);
-  Posting* betaPosting = findPostingByDoc(beta, docId);
-  Posting* gammaPosting = findPostingByDoc(gamma, docId);
+  EXPECT(alpha->postings.size() == 1);
+  EXPECT(alpha->postings[0].termFreq == 2u);
+  EXPECT(beta->postings.size() == 1);
+  EXPECT(beta->postings[0].termFreq == 1u);
+  EXPECT(gamma->postings.size() == 1);
+  EXPECT(gamma->postings[0].termFreq == 1u);
 
-  REQUIRE(alphaPosting != nullptr);
-  REQUIRE(betaPosting != nullptr);
-  REQUIRE(gammaPosting != nullptr);
-
-  CHECK(alphaPosting->termFreq == 2u);
-  CHECK(betaPosting->termFreq == 1u);
-  CHECK(gammaPosting->termFreq == 1u);
+  EXPECT(alpha->positions.size() == 2);
+  EXPECT(alpha->positions[0] == 0u);
+  EXPECT(alpha->positions[1] == 2u);
+  EXPECT(beta->positions.size() == 1);
+  EXPECT(beta->positions[0] == 1u);
+  EXPECT(gamma->positions.size() == 1);
+  EXPECT(gamma->positions[0] == 3u);
 }
 
-TEST_CASE("v4 serialization stays compact")
+void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  index.beginDocument("doc://serialize");
-
+  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   for (uint32_t i = 0; i < 10u; ++i)
-    index.ingest("alpha", PhraseKind::BODY);
+  {
+    (void)i;
+    index.ingest("alpha");
+  }
+  index.endDocument();
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
-  REQUIRE(fd >= 0);
+  EXPECT(fd >= 0);
 
-  CHECK(index.serialize(fd) == false);
-  CHECK(close(fd) == 0);
+  index.serialize(fd);
+  EXPECT(close(fd) == 0);
 
-  struct stat st = {};
-  REQUIRE(stat(pathTemplate, &st) == 0);
-  REQUIRE(st.st_size > 0);
+  struct stat st;
+  EXPECT(stat(pathTemplate, &st) == 0);
+  EXPECT(st.st_size > 0);
 
   const int readFd = open(pathTemplate, O_RDONLY);
-  REQUIRE(readFd >= 0);
+  EXPECT(readFd >= 0);
 
   const size_t fileSize = static_cast<size_t>(st.st_size);
   uint8_t* bytes = static_cast<uint8_t*>(std::malloc(fileSize));
-  REQUIRE(bytes != nullptr);
+  EXPECT(bytes != nullptr);
 
   size_t totalRead = 0;
   while (totalRead < fileSize)
   {
     const ssize_t n = read(readFd, bytes + totalRead, fileSize - totalRead);
-    REQUIRE(n >= 0);
+    EXPECT(n >= 0);
     if (n == 0)
       break;
     totalRead += static_cast<size_t>(n);
   }
-  CHECK(totalRead == fileSize);
+  EXPECT(totalRead == fileSize);
 
-  CHECK(close(readFd) == 0);
-  CHECK(unlink(pathTemplate) == 0);
+  EXPECT(close(readFd) == 0);
+  EXPECT(unlink(pathTemplate) == 0);
 
-  CHECK(readU64LE(bytes) == INDEX_FILE_MAGIC);
-  CHECK(readU64LE(bytes + 8) == INDEX_FILE_VERSION);
-  CHECK(readU64LE(bytes + 16) == 1u);
-  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 24);
-  CHECK(uniqueWordsPlusOne == 2u);
+  EXPECT(readU64LE(bytes) == 1u);
+  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
+  EXPECT(uniqueWordsPlusOne == 3u); // alpha + DOCEND_TOKEN + 1
 
-  const size_t dictionaryBytes = static_cast<size_t>(32u + (uniqueWordsPlusOne * 2u * 16u));
-  const size_t stringBytes = std::strlen("alpha") + 1u;
+  const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
+  // String table: DOCUMENT_END\0 (13 bytes) then alpha\0 (6 bytes) — in hashmap bucket order.
+  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  REQUIRE(fileSize >= postingsStart + 16u);
+  // DOCUMENT_END posting comes first (lower hash bucket). Compute its byte size:
+  //   3 u64 header + varint(10) delta + metadata (varint+url + varint+title + u64 input).
+  const size_t docEndPostingSize = 24u  // [doc_freq][coll_freq][skip_count]
+                                   + 1u // varint(10): position delta
+                                   + 1u + std::strlen("doc://serialize") // varint(len) + url
+                                   + 1u + std::strlen("Serialize")       // varint(len) + title
+                                   + sizeof(uint64_t);                   // RankingInput
 
-  const uint8_t* posting = bytes + postingsStart;
-  CHECK(readU64LE(posting) == 1u);
-  CHECK(readU64LE(posting + 8) == 10u);
+  EXPECT(fileSize >= postingsStart + docEndPostingSize + 24u);
 
-  const uint8_t* cursor = posting + 16u;
+  const uint8_t* posting = bytes + postingsStart + docEndPostingSize;
+  EXPECT(readU64LE(posting) == 1u);
+  EXPECT(readU64LE(posting + 8) == 10u);
+  EXPECT(readU64LE(posting + 16) == 3u);
+
+  const uint8_t* cursor = posting + 24u;
   const uint8_t* end = bytes + fileSize;
 
-  CHECK(readVarU32(cursor, end) == 0u);
-  for (int i = 0; i < 9; ++i)
-    CHECK(readVarU32(cursor, end) == 1u);
+  EXPECT(readVarU32(cursor, end) == 3u);
+  EXPECT(readVarU32(cursor, end) == 3u);
+  EXPECT(readVarU32(cursor, end) == 3u);
 
-  CHECK(cursor == end);
+  EXPECT(readVarU32(cursor, end) == 6u);
+  EXPECT(readVarU32(cursor, end) == 6u);
+  EXPECT(readVarU32(cursor, end) == 6u);
+
+  EXPECT(readVarU32(cursor, end) == 9u);
+  EXPECT(readVarU32(cursor, end) == 9u);
+  EXPECT(readVarU32(cursor, end) == 9u);
+
+  EXPECT(readVarU32(cursor, end) == 0u);
+  for (int i = 0; i < 9; ++i)
+  {
+    EXPECT(readVarU32(cursor, end) == 1u);
+  }
+
+  EXPECT(cursor == end);
   std::free(bytes);
+}
+
+struct ConcurrentThreadArgs
+{
+  Index* index;
+  int wordCount;
+  uint32_t docId;
+};
+
+static void* concurrentIngestThread(void* arg)
+{
+  ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
+  a->docId = a->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
+  for (int i = 0; i < a->wordCount; ++i)
+    a->index->ingest("token");
+  a->index->endDocument();
+  return nullptr;
+}
+
+// Spawns kThreads threads that each call beginDocument() and ingestIntoDocument()
+// concurrently. Verifies no writes are lost and every thread received a unique docId.
+void testConcurrentIngest()
+{
+  constexpr int kThreads = 8;
+  constexpr int kWordsPerDoc = 100;
+
+  Index index;
+  ConcurrentThreadArgs args[kThreads];
+  pthread_t threads[kThreads];
+
+  for (int i = 0; i < kThreads; ++i)
+  {
+    args[i] = {&index, kWordsPerDoc, UINT32_MAX};
+    pthread_create(&threads[i], nullptr, concurrentIngestThread, &args[i]);
+  }
+  for (int i = 0; i < kThreads; ++i)
+    pthread_join(threads[i], nullptr);
+
+  // No beginDocument() calls were lost.
+  EXPECT(index.documentMetadata.size() == static_cast<size_t>(kThreads));
+
+  // No ingest() offset increments were lost (kWordsPerDoc words + 1 DOCEND per thread).
+  EXPECT(index.offset == static_cast<size_t>(kThreads * (kWordsPerDoc + 1)));
+
+  // Every assigned docId is unique and in [0, kThreads).
+  bool seen[kThreads] = {};
+  for (int i = 0; i < kThreads; ++i)
+  {
+    EXPECT(args[i].docId < static_cast<uint32_t>(kThreads));
+    EXPECT(!seen[args[i].docId]);
+    seen[args[i].docId] = true;
+  }
+
+  // All position records were written.
+  PostingList* token = index.getBucket("token");
+  EXPECT(token != nullptr);
+  EXPECT(token->positions.size() == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  // All term-frequency increments were recorded.
+  size_t totalFreq = 0;
+  for (size_t i = 0; i < token->postings.size(); ++i)
+    totalFreq += token->postings[i].termFreq;
+  EXPECT(totalFreq == static_cast<size_t>(kThreads * kWordsPerDoc));
+}
+
+} // namespace
+
+int main()
+{
+  testEncodingHelpers();
+  testPostingListIngest();
+  testIndexIngestAcrossDocuments();
+  testIndexDocumentTokenization();
+  testSerializationHeaderAndSkipPointers();
+  testConcurrentIngest();
+  return 0;
 }
