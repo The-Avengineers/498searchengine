@@ -24,6 +24,11 @@ bool strEq(const avengine::string_slice& lhs, const char* rhs)
   return lhs == avengine::string_slice(rhs);
 }
 
+bool strEq(const avengine::string& lhs, const char* rhs)
+{
+  return lhs == avengine::string(rhs);
+}
+
 bool containsWord(const avengine::vector<avengine::string_slice>& words, const char* target)
 {
   for (size_t i = 0; i < words.size(); ++i)
@@ -56,6 +61,7 @@ int main()
   EXPECT(parser.titleWords.size() == 2);
   EXPECT(strEq(parser.titleWords[0], "search"));
   EXPECT(strEq(parser.titleWords[1], "engine"));
+  EXPECT(strEq(parser.fullTitle, "search engine"));
 
   // Links and anchor text
   EXPECT(parser.links.size() == 2);
@@ -96,6 +102,7 @@ int main()
   EXPECT(parser2.titleWords.size() == 2);
   EXPECT(strEq(parser2.titleWords[0], "upper"));
   EXPECT(strEq(parser2.titleWords[1], "title"));
+  EXPECT(strEq(parser2.fullTitle, "upper title"));
 
   // Only one valid anchor link (the <A HREF=...> one).
   EXPECT(parser2.links.size() == 1);
@@ -141,6 +148,7 @@ int main()
   EXPECT(parser4.rejected);
   EXPECT(parser4.words.size() == 0);
   EXPECT(parser4.titleWords.size() == 0);
+  EXPECT(strEq(parser4.fullTitle, ""));
   EXPECT(parser4.links.size() == 0);
 
   return 0;
