@@ -11,14 +11,18 @@
 #include <fcntl.h>
 #include <fstream>
 #include <signal.h>
+#include <unistd.h>
 
 using namespace avengine;
 using namespace avengine::crawler;
 
 // TODO THREAD POOL AROUND ALL THIS
 
+
 namespace
 {
+
+// For final checkpointing when we run control C. 
 volatile sig_atomic_t gStopRequested = 0;
 
 void handleStopSignal(int)
@@ -31,6 +35,7 @@ bool stopRequested()
   return gStopRequested != 0;
 }
 
+// Ensure that the host is valid before we add to the frontier.
 bool hasValidHost(URLNormalizer& normalizer, const string& url)
 {
   URL parsed = normalizer.parseURL(url);
@@ -63,6 +68,7 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
   }
 }
 
+// NOT IN USE.
 size_t estimateIndexMemoryBytes(const Index& index)
 {
   size_t bytes = sizeof(Index);
@@ -92,6 +98,7 @@ size_t estimateIndexMemoryBytes(const Index& index)
   return bytes;
 }
 
+// Quick helper for logging 
 [[gnu::always_inline]] inline bool shouldLogIndexProgress(size_t indexedCount, size_t& nextCount)
 {
   if (indexedCount < nextCount)
@@ -120,7 +127,7 @@ int main()
   vector<string> seeds;
   fill_seeds(seeds, normalizer, "seed_list.txt");
 
-  // Filter domains of the seed list                      KINDA DONE (needs testing + blocked list)
+  // Filter domains of the seed list
   vector<string> filteredSeeds;
   for (size_t i = 0; i < seeds.size(); ++i)
   {
@@ -133,6 +140,7 @@ int main()
   // Seed URLs to URLFrontier
   theFrontier.seed(filteredSeeds);
 
+  // Crawling metadata.
   size_t processedCount = 0;
   size_t indexedCount = 0;
   size_t nextCount = 1000;
@@ -150,6 +158,7 @@ int main()
       break;
     }
 
+    // For each URL in the batch
     for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
     {
       const urlEntry& entry = batch[i];
@@ -158,8 +167,7 @@ int main()
       // RobotsParser.isAllowed()                                             NOT DONE
       // if (!robotsParser.isAllowed(entry.url)) continue;
 
-      // GET request using the fetcher                                        KINDA DONE (needs
-      // testing)
+      // Fetch the page content
       auto result = theFetcher.fetch(entry.url);
       if (!result.hasValue())
       {
@@ -168,25 +176,24 @@ int main()
         crawlLogger.log(entry.url, msg.cstr());
         continue;
       }
-      // ensure html text
       fetchResponse resp = result.value();
 
-      // check to ensure status == 200
+      // Ensure status == 200.
       if (resp.statusCode != 200)
       {
         crawlLogger.log(entry.url, "SKIP, BAD RESP", resp.statusCode);
         continue;
       }
-
+      // Ensure content type is HTML (TODO ADD PDF PARSING).
       if (!fetcher::isHtmlContentType(resp.headers))
       {
         crawlLogger.log(entry.url, "SKIP, NON-HTML CONTENT");
         continue;
       }
-
+      // Log 200 code and the size of the page.
       crawlLogger.log(entry.url, "OK, Code 200", resp.body.size());
 
-      // Call the constructor to parse the HTML                             KINDA DONE (TEST)
+      // Call the constructor to parse the HTML.
       HtmlParser parser(resp.body.cstr(), resp.body.size());
       if (parser.rejected)
       {
@@ -194,40 +201,23 @@ int main()
         continue;
       }
 
-      // indexer.index(entry.url, parser.words, parser.titleWords);
-      ++indexedCount;
-      avengine::string fullTitle;
-
-      // TODO: Make the HTML parser return the title verbatim
-      for (auto& word : parser.titleWords)
-      {
-        fullTitle += word;
-      }
-
-      // TODO: Have the HTML parser return `string_slice`s directly.
-      auto phrases = avengine::vector<avengine::string_slice>();
-
-      for (avengine::string& word : parser.words)
-      {
-        phrases.pushBack(word.cstr());
-      }
-
+      // Index the document.
       DocumentMetadata documentMetadata = DocumentMetadata{
           .url = entry.url,
-          .title = fullTitle,
+          .title = parser.fullTitle,
           // TODO: Wire in ranker
           .input = 0,
       };
+      indexDocument(documentMetadata, parser.words);
+      ++indexedCount;
 
-      indexDocument(documentMetadata, phrases);
-
-      // for each extracted link:
+      // For each link from the parsed HTML page.
       for (size_t j = 0; j < parser.links.size(); ++j)
       {
         string baseURL = entry.url;
         if (parser.base.size() > 0)
         {
-          // <base href> can be relative or malformed; resolve against fetched URL.
+          // Ensure URL is correct before we add it to the frontier.
           string parserBase = parser.base.toString();
           string resolvedBase = normalizer.normalize(entry.url, parserBase);
           if (resolvedBase.size() > 0)
@@ -236,7 +226,7 @@ int main()
           }
         }
 
-        // normalize the domain
+        // Normalize the domain of the URL.
         string linkUrl = parser.links[j].URL.toString();
         string normalized = normalizer.normalize(baseURL, linkUrl);
         if (normalized.size() == 0)
@@ -251,27 +241,27 @@ int main()
           continue;
         }
 
-        // filter the domain
+        // Filter the domain
         if (filter.isBlocked(normalized))
         {
           continue;
         }
 
-        // if BloomFilter says unseen then add to the frontier
+        // If the URL is not in our bloom filter then add to the frontier.
         if (!theFrontier.alreadySeen(normalized))
         {
           theFrontier.add(normalized, entry.depth + 1);
         }
       }
 
-      if (shouldLogIndexProgress(indexedCount, nextCount))
-      {
-        crawlLogger.logIndexStats(indexedCount, estimateIndexMemoryBytes(globalIndex),
-                                  theFrontier.size());
-      }
+      // if (shouldLogIndexProgress(indexedCount, nextCount))
+      // {
+      //   crawlLogger.logIndexStats(indexedCount, estimateIndexMemoryBytes(globalIndex),
+      //                             theFrontier.size());
+      // }
     }
 
-    // checkpoint
+    // Checkpoint all of our progress and log stats.
     if (processedCount >= checkpointInterval)
     {
       checkpointInterval += 100;
