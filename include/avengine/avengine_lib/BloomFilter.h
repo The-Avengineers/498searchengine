@@ -24,6 +24,7 @@ public:
     const double ln_fpr = log(false_positive_rate);
     size = static_cast<int64_t>(-(num_objects_double * ln_fpr / (ln_2 * ln_2)));
     uint64_t bytes = (size + 7) / 8;
+    size = bytes * 8;
     bits.reserve(bytes);
     for (uint64_t i = 0; i < bytes; ++i)
     {
