@@ -125,13 +125,13 @@ Post* ISRAnd::Seek(Location target)
   {
     for (ISR* term : Terms)
     {
-        if (!term || !term->Seek(target))
-        {
-          ClearCurrent();
-          currentDocumentEnd_ = 0;
-          return nullptr;
-        }
+      if (!term || !term->Seek(target))
+      {
+        ClearCurrent();
+        currentDocumentEnd_ = 0;
+        return nullptr;
       }
+    }
 
     for (;;)
     {
