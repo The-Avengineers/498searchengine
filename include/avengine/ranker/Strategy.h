@@ -490,3 +490,32 @@ public:
     return combined >= 1.0 ? 1.0 : combined;
   }
 };
+
+class TermCoverage : public Ranker::Strategy
+{
+  // scores pages by the fraction of query terms that appear anywhere in document
+  // A document matching all query terms scores 1.0 and matching no terms scores 0.0
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)entry;
+    (void)signals;
+    const size_t query_len = term_positions.size();
+    if (query_len == 0)
+    {
+      return 0.0;
+    }
+
+    size_t present = 0;
+    for (const auto& positions : term_positions)
+    {
+      if (!positions.empty())
+      {
+        ++present;
+      }
+    }
+
+    return static_cast<double>(present) / static_cast<double>(query_len);
+  }
+};
