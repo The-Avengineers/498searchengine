@@ -92,9 +92,8 @@ void CrawlLogger::logIndexStats(size_t indexedCount, size_t indexBytes, size_t f
     return;
   }
   writeTimestamp();
-  logFile << ",INDEX_STATS," << indexedCount 
-          << "," << indexBytes << "," 
-          << frontierSize << std::endl;
+  logFile << ",INDEX_STATS," << indexedCount << "," << indexBytes << "," << frontierSize
+          << std::endl;
   return;
 }
 
