@@ -127,7 +127,7 @@ private:
   // Changes common accented Latin UTF-8 characters to plain ASCII letters.
   // Returns true when a mapping is applied and sets consumed byte count.
   static bool fold_accented_utf8(const unsigned char* p, size_t remaining, char& out,
-                                  size_t& consumed)
+                                 size_t& consumed)
   {
     if (remaining < 2 || p[0] != 0xC3)
     {
@@ -280,7 +280,7 @@ private:
   {
     return string_slice(const_cast<char*>(start_), static_cast<size_t>(end_ - start_));
   }
-  
+
   // add to correct data structures
   void add_to_words(const char* start_, const char* end_, bool in_title, int anchor_link_idx)
   {
