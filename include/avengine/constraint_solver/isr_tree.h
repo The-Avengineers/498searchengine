@@ -28,6 +28,7 @@ private:
   unsigned nearestTerm_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRAnd : public ISR
@@ -49,6 +50,8 @@ private:
   unsigned farthestTerm_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  Location currentDocumentEnd_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRPhrase : public ISR
@@ -64,6 +67,9 @@ public:
   vector<ISR*> Terms;
   unsigned NumberOfTerms = 0;
   ISREndDoc* DocumentEnd = nullptr;
+
+private:
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRAndNot : public ISR
@@ -87,6 +93,8 @@ private:
   unsigned farthestRequired_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  Location currentDocumentEnd_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 } // namespace constraint_solver

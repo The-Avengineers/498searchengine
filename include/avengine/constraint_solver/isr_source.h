@@ -16,8 +16,12 @@ class IsrSource
 public:
   virtual ~IsrSource() = default;
 
-  virtual ISRWord* OpenTermIsr(const string& term) const = 0;
-  virtual ISREndDoc* OpenEndDocIsr() const = 0;
+  // Returns a heap-allocated ISRWord. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] virtual ISRWord* OpenTermIsr(const string& term) const = 0;
+  // Returns a heap-allocated ISREndDoc. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] virtual ISREndDoc* OpenEndDocIsr() const = 0;
   virtual string GetDocumentName(uint32_t docId) const = 0;
 };
 

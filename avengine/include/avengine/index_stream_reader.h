@@ -1,10 +1,10 @@
 #pragma once
 
+#include "avengine/HashTable.h"
+#include "avengine/string.h"
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 
 namespace avengine
 {
@@ -27,12 +27,7 @@ struct FieldDecorator
 struct PostingBlobHeader
 {
   uint64_t documentFrequency = 0;
-  uint64_t normalCollectionFrequency = 0;
-  uint64_t titleCollectionFrequency = 0;
-  uint64_t anchorCollectionFrequency = 0;
-  uint64_t normalSectionCount = 0;
-  uint64_t titleSectionCount = 0;
-  uint64_t anchorSectionCount = 0;
+  uint64_t collectionFrequency = 0;
 };
 
 struct WordAttributes
@@ -187,6 +182,7 @@ private:
   unsigned nearestTerm_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRAnd : public ISR
@@ -208,6 +204,8 @@ private:
   unsigned farthestTerm_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  Location currentDocumentEnd_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRPhrase : public ISR
@@ -223,6 +221,9 @@ public:
   vector<ISR*> Terms;
   unsigned NumberOfTerms = 0;
   ISREndDoc* DocumentEnd = nullptr;
+
+private:
+  unsigned occurrenceCount_ = 0;
 };
 
 class ISRContainer : public ISR
@@ -246,24 +247,33 @@ private:
   unsigned farthestContained_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
+  Location currentDocumentEnd_ = 0;
+  unsigned occurrenceCount_ = 0;
 };
 
 class Dictionary
 {
 public:
+  Dictionary();
+
   void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
   void AddOccurrence(const char* token, Location location);
 
-  ISRWord* OpenIsr(const char* token) const;
-  ISREndDoc* OpenEndDocIsr() const;
+  // Returns a heap-allocated ISRWord. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] ISRWord* OpenIsr(const char* token) const;
+  // Returns a heap-allocated ISREndDoc. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] ISREndDoc* OpenEndDocIsr() const;
   size_t GetNumberOfWords() const;
   size_t GetNumberOfUniqueWords() const;
   size_t GetNumberOfDocuments() const;
 
 private:
   vector<DocumentInfo> documents_;
-  std::unordered_map<std::string, vector<Location>> termLocations_;
+  HashTable<string, vector<Location>> termLocations_;
   size_t totalWords_ = 0;
+  size_t uniqueWords_ = 0;
 };
 
 // Incremental reader for one posting field stream. This is the low-level

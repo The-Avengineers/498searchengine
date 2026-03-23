@@ -27,12 +27,7 @@ struct FieldDecorator
 struct PostingBlobHeader
 {
   uint64_t documentFrequency = 0;
-  uint64_t normalCollectionFrequency = 0;
-  uint64_t titleCollectionFrequency = 0;
-  uint64_t anchorCollectionFrequency = 0;
-  uint64_t normalSectionCount = 0;
-  uint64_t titleSectionCount = 0;
-  uint64_t anchorSectionCount = 0;
+  uint64_t collectionFrequency = 0;
 };
 
 struct WordAttributes
@@ -175,8 +170,12 @@ public:
   void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
   void AddOccurrence(const char* token, Location location);
 
-  ISRWord* OpenIsr(const char* token) const;
-  ISREndDoc* OpenEndDocIsr() const;
+  // Returns a heap-allocated ISRWord. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] ISRWord* OpenIsr(const char* token) const;
+  // Returns a heap-allocated ISREndDoc. The caller owns the result and must
+  // delete it unless ownership is immediately transferred to another owner.
+  [[nodiscard]] ISREndDoc* OpenEndDocIsr() const;
   size_t GetNumberOfWords() const;
   size_t GetNumberOfUniqueWords() const;
   size_t GetNumberOfDocuments() const;
