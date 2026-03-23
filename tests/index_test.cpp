@@ -1,4 +1,5 @@
 #include "../src/index.h"
+#include "avengine/normalization.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -151,9 +152,12 @@ void testIndexIngestAcrossDocuments()
 void testIndexDocumentTokenization()
 {
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  DocumentMetadata meta{.url = "doc://tokenized", .title = "", .input = 0};
   avengine::vector<avengine::string_slice> phrases;
   phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
+
+  avengine::normalizeAndReject(phrases);
+
+  DocumentMetadata meta{.url = "doc://tokenized", .title = "", .input = 0};
   const size_t words = indexDocument(meta, phrases);
 
   EXPECT(words == 4u);

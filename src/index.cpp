@@ -291,12 +291,8 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
     while (i < text.size())
     {
       size_t wordStart = i;
-
       while (i < text.size() && isalpha(text[i]))
-      {
-        text[i] = text[i] | 32;
         i++;
-      }
 
       idx.ingest(text.substr(wordStart, i - wordStart));
       words++;

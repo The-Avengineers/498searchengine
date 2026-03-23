@@ -7,6 +7,7 @@
 #include "../index.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
+#include <avengine/normalization.h>
 #include <csignal>
 #include <fcntl.h>
 #include <fstream>
@@ -194,7 +195,9 @@ int main()
 
       // Call the constructor to parse the HTML.
       HtmlParser parser(resp.body.cstr(), resp.body.size());
-      if (parser.rejected)
+      avengine::RejectionReason rej_res = normalizeAndReject(parser.words);
+
+      if (rej_res != avengine::RejectionReason::NOT_REJECTED)
       {
         crawlLogger.log(entry.url, "SKIP, TOO MUCH NON-ASCII");
         continue;
