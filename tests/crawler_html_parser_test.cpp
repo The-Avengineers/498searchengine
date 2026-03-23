@@ -116,7 +116,8 @@ int main()
   EXPECT(!containsWord(parser2.words, "script"));
 
   // Normalization: lowercase + remove non-alpha + accent folding.
-  const char html3[] = "<html><body>CAF\xc3\xa9 na\xc3\xafve fianc\xc3\xa9 co-op C++ 123</body></html>";
+  const char html3[] =
+      "<html><body>CAF\xc3\xa9 na\xc3\xafve fianc\xc3\xa9 co-op C++ 123</body></html>";
   avengine::HtmlParser parser3(html3, strlen(html3));
   EXPECT(!parser3.rejected);
   EXPECT(containsWord(parser3.words, "cafe"));

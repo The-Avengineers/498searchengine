@@ -5,6 +5,10 @@
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 #include "../index.h"
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
+#include <csignal>
+#include <fcntl.h>
 #include <fstream>
 #include <signal.h>
 
@@ -190,9 +194,32 @@ int main()
         continue;
       }
 
-
       // indexer.index(entry.url, parser.words, parser.titleWords);
       ++indexedCount;
+      avengine::string fullTitle;
+
+      // TODO: Make the HTML parser return the title verbatim
+      for (auto& word : parser.titleWords)
+      {
+        fullTitle += word;
+      }
+
+      // TODO: Have the HTML parser return `string_slice`s directly.
+      auto phrases = avengine::vector<avengine::string_slice>();
+
+      for (avengine::string& word : parser.words)
+      {
+        phrases.pushBack(word.cstr());
+      }
+
+      DocumentMetadata documentMetadata = DocumentMetadata{
+          .url = entry.url,
+          .title = fullTitle,
+          // TODO: Wire in ranker
+          .input = 0,
+      };
+
+      indexDocument(documentMetadata, phrases);
 
       // for each extracted link:
       for (size_t j = 0; j < parser.links.size(); ++j)
@@ -240,7 +267,7 @@ int main()
       if (shouldLogIndexProgress(indexedCount, nextCount))
       {
         crawlLogger.logIndexStats(indexedCount, estimateIndexMemoryBytes(globalIndex),
-                                          theFrontier.size());
+                                  theFrontier.size());
       }
     }
 
@@ -263,6 +290,11 @@ int main()
   {
     crawlLogger.log("DONE, FINAL CHECKPOINT", processedCount, theFrontier.seenCount());
   }
+
+  // TODO: Rework this code and move it into the indexer API.
+  int fd = open("index-crawled.sfi", O_WRONLY | O_CREAT, 0644);
+  globalIndex.serialize(fd);
+  close(fd);
 
   return 0;
 }
