@@ -19,16 +19,16 @@ void fail(const char* expr, int line)
       fail(#expr, __LINE__);                                                                       \
   } while (false)
 
-bool strEq(const avengine::string& lhs, const char* rhs)
+bool strEq(const avengine::string_slice& lhs, const char* rhs)
 {
-  return strcmp(lhs.cstr(), rhs) == 0;
+  return lhs == avengine::string_slice(rhs);
 }
 
-bool containsWord(const avengine::vector<avengine::string>& words, const char* target)
+bool containsWord(const avengine::vector<avengine::string_slice>& words, const char* target)
 {
   for (size_t i = 0; i < words.size(); ++i)
   {
-    if (strcmp(words[i].cstr(), target) == 0)
+    if (words[i] == avengine::string_slice(target))
     {
       return true;
     }
@@ -54,15 +54,15 @@ int main()
 
   // Title words
   EXPECT(parser.titleWords.size() == 2);
-  EXPECT(strEq(parser.titleWords[0], "Search"));
-  EXPECT(strEq(parser.titleWords[1], "Engine"));
+  EXPECT(strEq(parser.titleWords[0], "search"));
+  EXPECT(strEq(parser.titleWords[1], "engine"));
 
   // Links and anchor text
   EXPECT(parser.links.size() == 2);
   EXPECT(strEq(parser.links[0].URL, "/docs/page"));
   EXPECT(parser.links[0].anchorText.size() == 2);
-  EXPECT(strEq(parser.links[0].anchorText[0], "Read"));
-  EXPECT(strEq(parser.links[0].anchorText[1], "More"));
+  EXPECT(strEq(parser.links[0].anchorText[0], "read"));
+  EXPECT(strEq(parser.links[0].anchorText[1], "more"));
   EXPECT(strEq(parser.links[1].URL, "https://cdn.example/file.pdf"));
   EXPECT(parser.links[1].anchorText.size() == 0);
 
@@ -94,15 +94,15 @@ int main()
 
   // Title
   EXPECT(parser2.titleWords.size() == 2);
-  EXPECT(strEq(parser2.titleWords[0], "UPPER"));
-  EXPECT(strEq(parser2.titleWords[1], "Title"));
+  EXPECT(strEq(parser2.titleWords[0], "upper"));
+  EXPECT(strEq(parser2.titleWords[1], "title"));
 
   // Only one valid anchor link (the <A HREF=...> one).
   EXPECT(parser2.links.size() == 1);
   EXPECT(strEq(parser2.links[0].URL, "/Keep"));
   EXPECT(parser2.links[0].anchorText.size() == 2);
-  EXPECT(strEq(parser2.links[0].anchorText[0], "Keep"));
-  EXPECT(strEq(parser2.links[0].anchorText[1], "Text"));
+  EXPECT(strEq(parser2.links[0].anchorText[0], "keep"));
+  EXPECT(strEq(parser2.links[0].anchorText[1], "text"));
 
   // Words
   EXPECT(containsWord(parser2.words, "no"));
@@ -114,6 +114,33 @@ int main()
   EXPECT(!containsWord(parser2.words, "style"));
   EXPECT(!containsWord(parser2.words, "svg"));
   EXPECT(!containsWord(parser2.words, "script"));
+
+  // Normalization: lowercase + remove non-alpha + accent folding.
+  const char html3[] = "<html><body>CAF\xc3\xa9 na\xc3\xafve fianc\xc3\xa9 co-op C++ 123</body></html>";
+  avengine::HtmlParser parser3(html3, strlen(html3));
+  EXPECT(!parser3.rejected);
+  EXPECT(containsWord(parser3.words, "cafe"));
+  EXPECT(containsWord(parser3.words, "naive"));
+  EXPECT(containsWord(parser3.words, "fiance"));
+  EXPECT(containsWord(parser3.words, "coop"));
+  EXPECT(containsWord(parser3.words, "c"));
+  EXPECT(!containsWord(parser3.words, "123"));
+
+  // Accent folding should also work for uppercase accented letters.
+  const char htmlUpperAccents[] = "<html><body>\xC3\x89LAN NI\xC3\x91O</body></html>";
+  avengine::HtmlParser parserUpperAccents(htmlUpperAccents, strlen(htmlUpperAccents));
+  EXPECT(!parserUpperAccents.rejected);
+  EXPECT(containsWord(parserUpperAccents.words, "elan"));
+  EXPECT(containsWord(parserUpperAccents.words, "nino"));
+
+  // Reject pages with too many non-ASCII bytes (>50%).
+  const char html4[] = "\xE4\xB8\xAD\xE6\x96\x87\xE4\xB8\xAD\xE6\x96\x87\xE3\x81\x82\xE3\x81\x84"
+                       "abc";
+  avengine::HtmlParser parser4(html4, strlen(html4));
+  EXPECT(parser4.rejected);
+  EXPECT(parser4.words.size() == 0);
+  EXPECT(parser4.titleWords.size() == 0);
+  EXPECT(parser4.links.size() == 0);
 
   return 0;
 }
