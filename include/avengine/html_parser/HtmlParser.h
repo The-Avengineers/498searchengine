@@ -687,8 +687,8 @@ public:
 
       char folded = '\0';
       size_t consumed = 0;
-      if (fold_accented_utf8(reinterpret_cast<const unsigned char*>(p), 
-                    static_cast<size_t>(end - p), folded, consumed))
+      if (fold_accented_utf8(reinterpret_cast<const unsigned char*>(p),
+                             static_cast<size_t>(end - p), folded, consumed))
       {
         if (space)
         {
