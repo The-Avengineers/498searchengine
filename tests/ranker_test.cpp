@@ -70,7 +70,6 @@ public:
   }
 };
 
-
 void testRankerMethods()
 {
   Ranker ranker;
@@ -132,8 +131,8 @@ void testDomainStrat()
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.3));
   // unknown TLD
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.0));
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.0));
 }
 
 void testShortURLStrat()
