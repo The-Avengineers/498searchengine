@@ -36,9 +36,9 @@ public:
   }
 
 private:
-  const avengine::vector<const char*> TopTier = {".edu", ".gov"};
-  const avengine::vector<const char*> MidTier = {".org", ".ac."};
-  const avengine::vector<const char*> LowTier = {".com", ".net", ".io"};
+  const avengine::vector<const char*> TopTier = {".edu", ".gov", ".org"};
+  const avengine::vector<const char*> MidTier = {".com"};
+  const avengine::vector<const char*> LowTier = {".xyz", ".net", ".io"};
 };
 
 class ShortURLStrat : public Ranker::Strategy
