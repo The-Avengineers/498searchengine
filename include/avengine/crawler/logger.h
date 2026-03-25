@@ -48,6 +48,12 @@ public:
   // Used for when the crawl is done
   void log(const char* event, size_t count, size_t seenCount);
 
+  // Requires indexed URL count, index memory bytes, and frontier list size.
+  // Modifies the logger by appending a periodic indexing stats message.
+  // Returns nothing
+  // Used for the crawler
+  void logIndexStats(size_t indexedCount, size_t indexBytes, size_t frontierSize);
+
 private:
   std::ofstream logFile;
 

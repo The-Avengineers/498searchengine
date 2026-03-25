@@ -25,16 +25,26 @@ The dictionary uses open addressing with linear probing
 ```txt
 Posting Blob
 ├── u64: document_frequency
-├── u64: collection_frequency_placeholder (currently 0xdeadbeef)
-└── varint stream:
-    └── delta-encoded token positions (global index offsets)
+├── u64: collection_frequency
+├── u64: skip_count
+├── Skip section (skip_count entries, each varint-encoded):
+│   ├── varint: position_index
+│   ├── varint: position_value (absolute)
+│   └── varint: delta_stream_byte_offset
+├── Position section:
+│   └── varint-encoded delta positions
+└── Metadata section (DOCUMENT_END term only):
+    └── per-document entries in posting order:
+        ├── varint + bytes: url (length-prefixed)
+        ├── varint + bytes: title (length-prefixed)
+        └── u64: ranking_input (RankingInput)
 ```
 
 Notes:
-- There is currently no per-document posting structure in the serialized data.
 - No sentinel is written at the end of a posting blob.
 - Blob boundaries are inferred from the next-greater `posting_offset`.
-- Acceleration structures (sync points / skip pointers) are not yet serialized.
+- Skip pointers are sampled at every `floor(sqrt(collection_frequency))` positions; not emitted when stride <= 1.
+- The special `DOCUMENT_END` term stores one posting per document; its position deltas encode per-document token counts, and document metadata is appended inline after the position delta stream.
 
 ## Known Limitation
 
@@ -50,6 +60,4 @@ That collides with a valid first term at offset 0, so the first serialized term 
 
 The code contains TODOs for future additions:
 - magic/version bytes in file header
-- true collection frequency
-- skip pointers / synchronization points
 - richer posting/metastream structure

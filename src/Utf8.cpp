@@ -41,7 +41,7 @@ bool IsValidUtf8First(const Utf8* p)
          (*p & 0xF0) == 0xE0 || (*p & 0xF8) == 0xF0 || (*p & 0xFC) == 0xF8 || (*p & 0xFE) == 0xFC;
 }
 
-size_t inline IndicatedLength(const Utf8* p)
+size_t IndicatedLength(const Utf8* p)
 {
   // checking if the first byte matches any one of the cases
   if (*p <= 0b01111111)

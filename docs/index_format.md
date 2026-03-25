@@ -37,3 +37,18 @@ Each posting list uses:
 - Skip pointers are sampled every `floor(sqrt(collection_frequency))` positions.
 - No skip pointers are emitted when the stride is <= 1.
 - `delta_stream_byte_offset` points into the start of the position delta stream for fast seek/jump.
+
+## DOCUMENT_END Special Posting List
+
+The term `DOCUMENT_END` is a synthetic sentinel written at the end of every document. Its posting list has the same header structure as any other term, but appends a metadata section after the position delta stream:
+
+- For each document (in posting order):
+  - `url`: varint-encoded byte length, then raw bytes (no NUL)
+  - `title`: varint-encoded byte length, then raw bytes (no NUL)
+  - `ranking_input`: `u64` (little-endian, `RankingInput`)
+
+The position deltas for `DOCUMENT_END` encode per-document token counts.
+
+## Known Limitation
+
+`string_offset == 0` is used as the empty-slot sentinel in the dictionary hash table. This collides with a valid first term at offset 0 in the string buffer, making that slot ambiguous. A TODO exists in the code to either choose a different sentinel or ensure offset 0 is never valid.

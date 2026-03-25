@@ -3,7 +3,8 @@
 
 #pragma once
 
-#include "../avengine_lib/string.h"
+#include "../Utf8.h"
+#include "../avengine_lib/string_slice.h"
 #include "../avengine_lib/vector.h"
 #include "HtmlTags.h"
 
@@ -75,23 +76,26 @@ namespace avengine
 class Link
 {
 public:
-  string URL;
-  vector<string> anchorText;
-  Link() : URL("") {}
-  Link(const string& URL) : URL(URL) {}
+  string_slice URL;
+  vector<string_slice> anchorText;
+  Link() : URL() {}
+  Link(const string_slice& URL) : URL(URL) {}
 };
 class HtmlParser
 {
 public:
-  vector<string> words, titleWords;
+  vector<string_slice> words, titleWords;
   vector<Link> links;
-  string base;
+  string_slice base;
+  string fullTitle;
+  bool rejected;
 
 private:
   // curr ptr
   const char* curr;
   // end ptr
   const char* end;
+  vector<char> normalizedStorage;
   bool curr_in_title;
   bool curr_in_anchor;
   bool seen_base;
@@ -102,35 +106,198 @@ private:
     anchor_open,
     anchor_closed
   };
+
   static inline char lower_ascii(unsigned char c)
   {
     if (c >= 'A' && c <= 'Z')
       return static_cast<char>(c + 32);
     return static_cast<char>(c);
   }
+
   // check for spaces, tabs, newlines, returns
   static inline bool is_whitespace(char c)
   {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
   }
-  // build a string from a pointer range
-  static string makeString(const char* start_, const char* end_)
+
+  static inline bool is_ascii_alpha(unsigned char c)
   {
-    string s;
-    for (const char* p = start_; p < end_; ++p)
-    {
-      s.pushBack(*p);
-    }
-    return s;
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
   }
+
+  // Changes common accented Latin UTF-8 characters to plain ASCII letters.
+  // Returns true when a mapping is applied and sets consumed byte count.
+  static bool fold_accented_utf8(const unsigned char* p, size_t remaining, char& out,
+                                 size_t& consumed)
+  {
+    if (remaining < 2 || p[0] != 0xC3)
+    {
+      return false;
+    }
+
+    consumed = 2;
+    switch (p[1])
+    {
+    case 0x80:
+    case 0x81:
+    case 0x82:
+    case 0x83:
+    case 0x84:
+    case 0x85:
+    case 0xA0:
+    case 0xA1:
+    case 0xA2:
+    case 0xA3:
+    case 0xA4:
+    case 0xA5:
+      out = 'a';
+      return true;
+    case 0x87:
+    case 0xA7:
+      out = 'c';
+      return true;
+    case 0x88:
+    case 0x89:
+    case 0x8A:
+    case 0x8B:
+    case 0xA8:
+    case 0xA9:
+    case 0xAA:
+    case 0xAB:
+      out = 'e';
+      return true;
+    case 0x8C:
+    case 0x8D:
+    case 0x8E:
+    case 0x8F:
+    case 0xAC:
+    case 0xAD:
+    case 0xAE:
+    case 0xAF:
+      out = 'i';
+      return true;
+    case 0x91:
+    case 0xB1:
+      out = 'n';
+      return true;
+    case 0x92:
+    case 0x93:
+    case 0x94:
+    case 0x95:
+    case 0x96:
+    case 0x98:
+    case 0xB2:
+    case 0xB3:
+    case 0xB4:
+    case 0xB5:
+    case 0xB6:
+    case 0xB8:
+      out = 'o';
+      return true;
+    case 0x99:
+    case 0x9A:
+    case 0x9B:
+    case 0x9C:
+    case 0xB9:
+    case 0xBA:
+    case 0xBB:
+    case 0xBC:
+      out = 'u';
+      return true;
+    case 0x9D:
+    case 0xBD:
+    case 0xBF:
+      out = 'y';
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  string_slice normalize_word_to_storage(const char* start_, const char* end_)
+  {
+    const size_t begin = normalizedStorage.size();
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(start_);
+    const unsigned char* pend = reinterpret_cast<const unsigned char*>(end_);
+
+    while (p < pend)
+    {
+      unsigned char c = *p;
+      if (c < 0x80)
+      {
+        if (is_ascii_alpha(c))
+        {
+          normalizedStorage.pushBack(lower_ascii(c));
+        }
+        ++p;
+        continue;
+      }
+
+      char folded = '\0';
+      size_t consumed = 0;
+      if (fold_accented_utf8(p, static_cast<size_t>(pend - p), folded, consumed))
+      {
+        normalizedStorage.pushBack(folded);
+        p += consumed;
+        continue;
+      }
+
+      size_t skip = IndicatedLength(reinterpret_cast<const Utf8*>(p));
+      if (skip > static_cast<size_t>(pend - p))
+      {
+        skip = 1;
+      }
+      p += skip;
+    }
+
+    const size_t len = normalizedStorage.size() - begin;
+    if (len == 0)
+    {
+      return string_slice();
+    }
+    return string_slice(normalizedStorage.begin() + begin, len);
+  }
+
+  bool should_reject_page(const char* buffer, size_t length) const
+  {
+    if (length == 0)
+    {
+      return false;
+    }
+
+    size_t nonAsciiCount = 0;
+    for (size_t i = 0; i < length; ++i)
+    {
+      if ((static_cast<unsigned char>(buffer[i]) & 0x80) != 0)
+      {
+        ++nonAsciiCount;
+      }
+    }
+    return nonAsciiCount * 2 > length;
+  }
+
+  // build a string slice from a pointer range
+  static string_slice makeSlice(const char* start_, const char* end_)
+  {
+    return string_slice(const_cast<char*>(start_), static_cast<size_t>(end_ - start_));
+  }
+
   // add to correct data structures
   void add_to_words(const char* start_, const char* end_, bool in_title, int anchor_link_idx)
   {
-
-    string word = makeString(start_, end_);
+    string_slice word = normalize_word_to_storage(start_, end_);
+    if (word.size() == 0)
+    {
+      return;
+    }
     if (in_title)
     {
       titleWords.pushBack(word);
+      if (fullTitle.size() > 0)
+      {
+        fullTitle += " ";
+      }
+      fullTitle += word.toString();
     }
     else
     {
@@ -185,7 +352,7 @@ private:
     }
   }
   // get src
-  string get_src(const char* start, const char* tag_end)
+  string_slice get_src(const char* start, const char* tag_end)
   {
     const char* s = start;
 
@@ -218,16 +385,16 @@ private:
             {
               s++;
             }
-            return makeString(valueStart, s);
+            return makeSlice(valueStart, s);
           }
         }
       }
       s++;
     }
-    return string();
+    return string_slice();
   }
   // get href
-  string get_href(const char* start, const char* tag_end)
+  string_slice get_href(const char* start, const char* tag_end)
   {
     const char* s = start;
 
@@ -259,13 +426,13 @@ private:
             {
               s++;
             }
-            return makeString(value_start, s);
+            return makeSlice(value_start, s);
           }
         }
       }
       s++;
     }
-    return string();
+    return string_slice();
   }
   // proccess the tag
   tag_result process_tag()
@@ -429,7 +596,7 @@ private:
       }
       else
       {
-        string href = get_href(attr_start, tag_end);
+        string_slice href = get_href(attr_start, tag_end);
         if (href.size() > 0)
         {
           links.pushBack(Link(href));
@@ -442,7 +609,7 @@ private:
     case DesiredAction::Base:
       if (!is_closing && !seen_base)
       {
-        string href = get_href(attr_start, tag_end);
+        string_slice href = get_href(attr_start, tag_end);
         if (href.size() > 0)
         {
           base = href;
@@ -454,7 +621,7 @@ private:
     case DesiredAction::Embed:
       if (!is_closing)
       {
-        string src = get_src(attr_start, tag_end);
+        string_slice src = get_src(attr_start, tag_end);
         if (src.size() > 0)
           links.pushBack(Link(src));
       }
@@ -468,14 +635,99 @@ private:
   }
 
 public:
+  // Purpose: Public API for the normalization of Queries
+  // Requires: A Pointer to a C string representing the Query
+  // Modifys: Nothing
+  // Returns: An Avengine::string object of the normalized Query
+  static string queryNormalize(const char* query)
+  {
+    if (query == nullptr)
+    {
+      return string();
+    }
+
+    string result;
+    const char* p = reinterpret_cast<const char*>(query);
+    const char* end = p;
+    while (*end != '\0')
+    {
+      ++end;
+    }
+
+    bool space = false;
+    while (p < end)
+    {
+      unsigned char c = *p;
+      if (is_whitespace(static_cast<char>(c)))
+      {
+        if (result.size() > 0)
+        {
+          space = true;
+        }
+        ++p;
+        continue;
+        // Purpose: if we have something like Apple 12 Boy
+        //          we want Apple Boy not Apple  Boy
+      }
+
+      if (c < 0x80)
+      {
+        if (is_ascii_alpha(c))
+        {
+          if (space)
+          {
+            result.pushBack(' ');
+            space = false;
+          }
+          result.pushBack(lower_ascii(c));
+        }
+        ++p;
+        continue;
+      }
+
+      char folded = '\0';
+      size_t consumed = 0;
+      if (fold_accented_utf8(reinterpret_cast<const unsigned char*>(p), 
+                    static_cast<size_t>(end - p), folded, consumed))
+      {
+        if (space)
+        {
+          result.pushBack(' ');
+          space = false;
+        }
+        result.pushBack(folded);
+        p += consumed;
+        continue;
+      }
+
+      size_t skip = IndicatedLength(reinterpret_cast<const Utf8*>(p));
+      if (skip > static_cast<size_t>(end - p))
+      {
+        skip = 1;
+      }
+      p += skip;
+    }
+
+    return result;
+  }
+
   // The constructor is given a buffer and length containing
   // presumed HTML.  It will parse the buffer, stripping out
   // all the HTML tags and producing the list of words in body,
   // words in title, and links found on the page.
   HtmlParser(const char* buffer, size_t length)
-      : curr(buffer), end(buffer + length), curr_in_title(false), curr_in_anchor(false),
+      : words(), titleWords(), links(), base(), fullTitle(), rejected(false), curr(buffer),
+        end(buffer + length), normalizedStorage(), curr_in_title(false), curr_in_anchor(false),
         seen_base(false)
   {
+    if (should_reject_page(buffer, length))
+    {
+      rejected = true;
+      return;
+    }
+
+    normalizedStorage.reserve(length);
+
     const char* start_word_ptr = nullptr;
     int idx = -1;
     while (curr < end)

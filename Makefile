@@ -1,13 +1,16 @@
 AVENGINE_SRC := .
 BUILD_DIR := build
+TEST_BUILD_DIR := build-test
 
-.PHONY: test test-verbose configure build clean
+.PHONY: test test-verbose configure configure-test build clean
 
-test: configure build
-	ctest --test-dir $(BUILD_DIR) --output-on-failure --no-tests=error
+test: configure-test
+	cmake --build $(TEST_BUILD_DIR) --config Debug -j
+	ctest --test-dir $(TEST_BUILD_DIR) --output-on-failure --no-tests=error
 
-test-verbose: configure build
-	ctest --test-dir $(BUILD_DIR) --output-on-failure --no-tests=error -VV
+test-verbose: configure-test
+	cmake --build $(TEST_BUILD_DIR) --config Debug -j
+	ctest --test-dir $(TEST_BUILD_DIR) --output-on-failure --no-tests=error -VV
 
 configure:
 	@if [ -f $(BUILD_DIR)/CMakeCache.txt ] && ! grep -Fxq "CMAKE_HOME_DIRECTORY:INTERNAL=$(CURDIR)" $(BUILD_DIR)/CMakeCache.txt; then \
@@ -16,8 +19,15 @@ configure:
 	fi
 	cmake -S $(AVENGINE_SRC) -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
 
+configure-test:
+	@if [ -f $(TEST_BUILD_DIR)/CMakeCache.txt ] && ! grep -Fxq "CMAKE_HOME_DIRECTORY:INTERNAL=$(CURDIR)" $(TEST_BUILD_DIR)/CMakeCache.txt; then \
+		echo "Removing stale $(TEST_BUILD_DIR)/ configured for a different source root"; \
+		rm -rf $(TEST_BUILD_DIR); \
+	fi
+	cmake -S $(AVENGINE_SRC) -B $(TEST_BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
+
 build: configure
 	cmake --build $(BUILD_DIR) --config Release -j
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(TEST_BUILD_DIR)

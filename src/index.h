@@ -1,9 +1,12 @@
 #pragma once
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
+#include <pthread.h>
 
-size_t djb2Hash(char const* str);
+size_t djb2Hash(avengine::string_slice str);
 
 // Consider switching from AoS to SoA.
 struct Posting
@@ -15,14 +18,24 @@ struct Posting
   size_t positions;
 };
 
+// TODO: Determine the best expected hashmap size given a read-world dataset.
+#define HASHMAP_SIZE 262144
 #define STARTING_CAPACITY 64
+// A special token used to signify the end of a document. This should NEVER be parsed as a regular
+// token.
+constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
+constexpr const size_t OFFSET_THRESHOLD = 400000000;
+
+// The raw data needed as input to calculate the static rank (distance from seed list, length of
+// document, etc). It MUST be plain old data, no pointers.
+using RankingInput = uint64_t;
 
 struct PostingList
 {
-  PostingList(char const* word, PostingList* nextBucket);
+  PostingList(avengine::string_slice word, PostingList* nextBucket);
   void ingest(uint32_t docId, size_t offset);
 
-  char* word;
+  avengine::string word;
   size_t hash;
   PostingList* nextBucket;
   // NOTE: When we figure out exactly what is needed for the skip pointers and synchronization
@@ -34,45 +47,58 @@ struct PostingList
 // TODO: Determine the best expected hashmap size given a read-world dataset.
 #define HASHMAP_SIZE 262144
 
-uint8_t* write_var_uint32(uint8_t* buffer, uint32_t value);
-uint8_t* write_uint64(uint8_t* buffer, uint64_t value);
+void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
+void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
+struct DocumentMetadata
+{
+  avengine::string url;
+  avengine::string title;
+  // NOTE: If we choose to add a description for pages it will be passed here.
+  RankingInput input;
+};
 struct Index
 {
   avengine::vector<PostingList*> buckets;
   size_t offset = 0;
   size_t totalUniqWords = 0;
-  avengine::vector<const char*> documentNames;
-  // Updated by beginDocument(). ingest(word) always indexes into this doc.
-  uint32_t currentDocId = UINT32_MAX;
+  avengine::vector<DocumentMetadata> documentMetadata;
+  uint32_t currentDocId = 0;
 
-  PostingList* getBucket(char const* word);
+  PostingList* getBucket(avengine::string_slice word);
+  // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
+  // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
+  void buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer);
 
   Index();
-  void serialize(int fd);
-  // Starts a new active document and returns its assigned id.
-  uint32_t beginDocument(const char* url);
-  // Adds a token to the currently active document set by beginDocument().
-  void ingest(char const* word);
+  ~Index();
+  // Returns true on I/O error.
+  bool serialize(int fd);
+  // Takes the write lock and allocates a doc slot. The lock is held until
+  // endDocument() is called. Returns the assigned docId.
+  uint32_t beginDocument(DocumentMetadata metadata);
+  // Ingests the DOCEND_TOKEN and releases the write lock.
+  void endDocument();
+  // Adds a token to the current document. Must be called between beginDocument()
+  // and endDocument().
+  void ingest(avengine::string_slice word);
 };
 
-extern Index globalIndex;
-
-// Puts the list of words into the currently active index. url must in it's
-// canonical form. Words is a list of pointers to cstrings in a single
-// continuous block of memory. The text in pharses must be writable and
-// monotonically increasing, i.e phrases[i].text < phrases.text[i + 1].
-size_t indexDocument(char const* url, char* pharses);
-
-// TODO: Use support phrases of different kinds and decorate or index titles differently.
-enum class PhraseKind
+struct IndexSlot
 {
-  TITLE,
-  NORMAL,
+  Index* index;
+  pthread_mutex_t mutex;
 };
 
-struct Phrase
-{
-  char* text;
-  PhraseKind kind;
-};
+extern IndexSlot globalIndex;
+extern avengine::vector<pthread_t> g_serializeThreads;
+
+void* serializeIndex(Index* index);
+
+void cleanUpIndexer();
+
+// Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
+// each token into the active document. `phrases` must be a writable buffer.
+// Returns the number of tokens ingested.
+size_t indexDocument(DocumentMetadata& document_metadata,
+                     avengine::vector<avengine::string_slice>& phrases);

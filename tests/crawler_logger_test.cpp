@@ -35,6 +35,7 @@ int main()
   logger.log("https://example.com/b", "HTTP_STATUS", 404);
   logger.log("https://example.com/c", "OK", static_cast<size_t>(123));
   logger.log("CHECKPOINT", 7, 11, 13);
+  logger.logIndexStats(1000, 2048, 77);
   logger.log("DONE", 9, 17);
 
   // open file
@@ -55,12 +56,14 @@ int main()
     if (lineNo == 3)
       EXPECT(strstr(line, ",CHECKPOINT,7,11,13") != nullptr);
     if (lineNo == 4)
+      EXPECT(strstr(line, ",INDEX_STATS,1000,2048,77") != nullptr);
+    if (lineNo == 5)
       EXPECT(strstr(line, ",DONE,9,17") != nullptr);
     lineNo++;
   }
 
   // close file
-  EXPECT(lineNo == 5);
+  EXPECT(lineNo == 6);
   EXPECT(fclose(fp) == 0);
 
   // Reopen same file to verify append mode.
@@ -74,17 +77,17 @@ int main()
   lineNo = 0;
   while (fgets(line, sizeof(line), fp))
   {
-    if (lineNo == 5)
+    if (lineNo == 6)
     {
       EXPECT(strstr(line, ",APPEND_OK,https://example.com/d") != nullptr);
     }
-    if (lineNo == 6)
+    if (lineNo == 7)
     {
       EXPECT(strstr(line, ",APPEND_OK_2,https://example.com/e") != nullptr);
     }
     lineNo++;
   }
-  EXPECT(lineNo == 7);
+  EXPECT(lineNo == 8);
   EXPECT(fclose(fp) == 0);
 
   // Invalid path shouldn;t crash
