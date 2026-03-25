@@ -201,7 +201,6 @@ Post* ISRWord::Seek(Location target)
   return SetCurrentFromIndex(foundIndex);
 }
 
-
 unsigned ISRWord::GetNumberOfOccurrences() const
 {
   return static_cast<unsigned>(occurrences_.size());
