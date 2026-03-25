@@ -25,8 +25,7 @@ size_t djb2Hash(avengine::string_slice str)
   return hash;
 }
 
-PostingList::PostingList(avengine::string_slice word, PostingList* nextBucket)
-    : nextBucket(nextBucket)
+PostingList::PostingList(avengine::string_slice word)
 {
   this->word = word.toString();
 }
@@ -84,29 +83,22 @@ struct SkipPointer
 
 PostingList* Index::getBucket(avengine::string_slice word)
 {
-  PostingList** bucket = &buckets[djb2Hash(word) % HASHMAP_SIZE];
+  PostingList* pl = map.get(word);
 
-  while (*bucket && avengine::string_slice((*bucket)->word) != word)
+  if (!pl)
   {
-    bucket = &(*bucket)->nextBucket;
-  }
-
-  if (!*bucket)
-  {
+    map.insert(word.toString(), PostingList(word));
     totalUniqWords++;
-    *bucket = new PostingList(word, nullptr);
+    // Re-fetch after insert: a rehash may have moved internal bucket array
+    // slots, but each heap-allocated Bucket node (and the PostingList stored
+    // within it) is never relocated, so the returned pointer is stable.
+    pl = map.get(word);
   }
 
-  return *bucket;
+  return pl;
 }
 
-Index::Index() : buckets(HASHMAP_SIZE)
-{
-  for (PostingList*& bucket : buckets)
-  {
-    bucket = nullptr;
-  }
-}
+Index::Index() {}
 
 Index::~Index() {}
 
@@ -176,33 +168,28 @@ static void encodePostingList(const PostingList& pl,
 
 void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer)
 {
-  for (size_t i = 0; i < HASHMAP_SIZE; i++)
-  {
-    PostingList* bucket = buckets[i];
-
-    while (bucket)
-    {
-      avengine::string_slice wordSlice(bucket->word);
-      size_t hash = djb2Hash(wordSlice) % (totalUniqWords * 2);
-
-      // Linear probe for an empty slot.
-      // TODO: Benchmark alternative probing strategies when querying the index.
-      while (dict[2 + hash * 2] > 0)
+  map.forEach(
+      [&](const avengine::string& /*key*/, PostingList& pl)
       {
-        hash += 1;
-        hash %= (totalUniqWords * 2);
-      }
+        avengine::string_slice wordSlice(pl.word);
+        size_t hash = djb2Hash(wordSlice) % (totalUniqWords * 2);
 
-      dict[2 + hash * 2] = stringBuffer.size();
+        // Linear probe for an empty slot.
+        // TODO: Benchmark alternative probing strategies when querying the index.
+        while (dict[2 + hash * 2] > 0)
+        {
+          hash += 1;
+          hash %= (totalUniqWords * 2);
+        }
 
-      for (size_t i = 0; i < bucket->word.size(); i++)
-        stringBuffer.pushBack(bucket->word[i]);
-      stringBuffer.pushBack('\0');
+        dict[2 + hash * 2] = stringBuffer.size();
 
-      bucket->hash = hash;
-      bucket = bucket->nextBucket;
-    }
-  }
+        for (size_t i = 0; i < pl.word.size(); i++)
+          stringBuffer.pushBack(pl.word[i]);
+        stringBuffer.pushBack('\0');
+
+        pl.hash = hash;
+      });
 }
 
 bool Index::serialize(int fd)
@@ -227,24 +214,28 @@ bool Index::serialize(int fd)
 
   size_t postingsOffset = 0;
   avengine::vector<uint8_t> postingBuffer;
+  bool ioError = false;
 
-  for (size_t i = 0; i < HASHMAP_SIZE; i++)
-  {
-    PostingList* bucket = buckets[i];
+  map.forEach(
+      [&](const avengine::string& /*key*/, PostingList& pl)
+      {
+        if (ioError)
+          return;
 
-    while (bucket)
-    {
-      dictionaryBuffer[2 + bucket->hash * 2 + 1] = postingsOffset;
+        dictionaryBuffer[2 + pl.hash * 2 + 1] = postingsOffset;
 
-      encodePostingList(*bucket, documentMetadata, postingBuffer);
+        encodePostingList(pl, documentMetadata, postingBuffer);
 
-      if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
-        return true;
-      postingsOffset += postingBuffer.size();
+        if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
+        {
+          ioError = true;
+          return;
+        }
+        postingsOffset += postingBuffer.size();
+      });
 
-      bucket = bucket->nextBucket;
-    }
-  }
+  if (ioError)
+    return true;
 
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
     return true;

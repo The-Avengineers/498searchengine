@@ -86,14 +86,13 @@ void testEncodingHelpers()
 
 void testPostingListIngest()
 {
-  PostingList list("alpha", nullptr);
+  PostingList list("alpha");
 
   list.ingest(2u, 10u);
   list.ingest(2u, 42u);
   list.ingest(9u, 100u);
 
   EXPECT(list.word == avengine::string("alpha"));
-  EXPECT(list.nextBucket == nullptr);
 
   EXPECT(list.postings.size() == 2);
   EXPECT(list.postings[0].docId == 2u);
@@ -236,21 +235,22 @@ void testSerializationHeaderAndSkipPointers()
   EXPECT(uniqueWordsPlusOne == 3u); // alpha + DOCEND_TOKEN + 1
 
   const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
-  // String table: DOCUMENT_END\0 (13 bytes) then alpha\0 (6 bytes) — in hashmap bucket order.
+  // String table: alpha\0 (6 bytes) then DOCUMENT_END\0 (13 bytes) — in hashmap bucket order.
+  // unordered_map hashes "alpha" to bucket 43 and "DOCUMENT_END" to bucket 58 (256-slot table),
+  // so alpha is serialized first.
   const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  // DOCUMENT_END posting comes first (lower hash bucket). Compute its byte size:
-  //   3 u64 header + varint(10) delta + metadata (varint+url + varint+title + u64 input).
-  const size_t docEndPostingSize = 24u  // [doc_freq][coll_freq][skip_count]
-                                   + 1u // varint(10): position delta
-                                   + 1u + std::strlen("doc://serialize") // varint(len) + url
-                                   + 1u + std::strlen("Serialize")       // varint(len) + title
-                                   + sizeof(uint64_t);                   // RankingInput
+  // alpha posting comes first (lower hash bucket).
+  // Its exact encoded size: 3×u64 header + 3 skip pointers (3 varints each, all ≤ 9)
+  //                         + 10 position delta varints.
+  const size_t alphaPostingSize = 24u    // [doc_freq][coll_freq][skip_count]
+                                  + 9u   // 3 skip pointers × 3 one-byte varints
+                                  + 10u; // 10 one-byte position deltas
 
-  EXPECT(fileSize >= postingsStart + docEndPostingSize + 24u);
+  EXPECT(fileSize >= postingsStart + alphaPostingSize + 24u);
 
-  const uint8_t* posting = bytes + postingsStart + docEndPostingSize;
+  const uint8_t* posting = bytes + postingsStart;
   EXPECT(readU64LE(posting) == 1u);
   EXPECT(readU64LE(posting + 8) == 10u);
   EXPECT(readU64LE(posting + 16) == 3u);
@@ -276,7 +276,8 @@ void testSerializationHeaderAndSkipPointers()
     EXPECT(readVarU32(cursor, end) == 1u);
   }
 
-  EXPECT(cursor == end);
+  // alpha is the first posting; DOCUMENT_END follows it in the file.
+  EXPECT(cursor == bytes + postingsStart + alphaPostingSize);
   std::free(bytes);
 }
 
