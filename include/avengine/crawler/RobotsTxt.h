@@ -3,10 +3,9 @@
 // Nicole Hamilton, nham@umich.edu
 
 #pragma once
+#include "../Utf8.h"
 #include "../avengine_lib/string.h"
 #include "../avengine_lib/vector.h"
-#include "../Utf8.h"
-
 
 // This file describes a simple RobotsTxt class that can compile a
 // robots.txt file and can then be used to determine whether access
@@ -46,11 +45,9 @@
 // taken as group. Any Allow or Disallow directives that follow apply
 // to the group.  A new User-agent statement begins a new group.
 
-
 //
 // Robot.txt syntax
 //
-
 
 // <robots.txt> ::= <Line> { <Line > }
 // <Line>  ::= { <blank line> | '#" <abitrary text> | <Rule> | <Sitemap> } <LineEnd>
@@ -62,11 +59,9 @@
 // <Crawl-delay> ::= "Crawl-delay:" <integer>
 // <Sitemap> ::= "Sitemap:" <path>
 
-
 //
 // User-agent:
 //
-
 
 // A User-agent: statement specifies a single robot name (or name)
 // or *, meaning all robots.  Multiple User-agent statements one after
@@ -95,11 +90,9 @@
 //     crawler's name, this applies to you. It is not a wildcard
 //     match, it's just a literal, but case-insensitive substring match.
 
-
 //
 // Allow: and Disallow: directives
 //
-
 
 // Directives not preceded by a User-agent are ignored.
 //
@@ -158,11 +151,9 @@
 // are processed in both the directive and path before being compared.
 // If it's a %2f in either, it's literal.
 
-
 //
 // If more than one directive applies
 //
-
 
 // If more than one directive applies based on the path, choose the one
 // which is:
@@ -173,7 +164,6 @@
 // 3. Less restrictive, i.e., choose allow over disallow.
 // 4. Matches a literal User-Agent name, not just *.
 //
-
 
 //
 // Crawl-delay:
@@ -191,11 +181,9 @@
 // assume a default = 0. If multiple Crawl-delays are given, we'll use
 // the largest.
 
-
 //
 // Sitemap:
 //
-
 
 // Sitemap statements direct robots to an XML file intended as a roadmap
 // for search engines.  The argument is supposed to be a full URL.  There
@@ -203,8 +191,6 @@
 //
 // Sitemap statements are global.  They apply to every robot and almost like
 // a comment, it doesn't matter where they apper.
-
-
 
 namespace avengine
 {
@@ -247,6 +233,3 @@ public:
 
 } // namespace crawler
 } // namespace avengine
-
-
-
