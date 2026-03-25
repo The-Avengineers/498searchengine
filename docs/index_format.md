@@ -49,6 +49,20 @@ The term `DOCUMENT_END` is a synthetic sentinel written at the end of every docu
 
 The position deltas for `DOCUMENT_END` encode per-document token counts.
 
+## Field Decorators
+
+Terms in the string buffer (and index) are stored with a single-character prefix to indicate which field of the document they came from:
+
+| Prefix | Field  | Example      |
+|--------|--------|--------------|
+| (none) | body   | `cat`        |
+| `#`    | title  | `#cat`       |
+| `/`    | URL    | `/cat`       |
+
+The same word appearing in multiple fields produces separate posting lists (e.g., `"cat"`, `"#cat"`, and `"/cat"` are three independent entries). This allows query processing and ranking to weight matches by field without changing the core index structure.
+
+Decoration is applied at index-build time in `indexDocument()` (`src/index.cpp`). The `HtmlParser` already separates body words (`words`) and title words (`titleWords`); the crawler passes the document URL as the URL phrase.
+
 ## Known Limitation
 
 `string_offset == 0` is used as the empty-slot sentinel in the dictionary hash table. This collides with a valid first term at offset 0 in the string buffer, making that slot ambiguous. A TODO exists in the code to either choose a different sentinel or ensure offset 0 is never valid.

@@ -274,10 +274,13 @@ void Index::endDocument()
 
 IndexSlot globalIndex = {new Index(), PTHREAD_MUTEX_INITIALIZER};
 
-// Walks `text`, lowercases each alpha run in-place via the mutable slice, and
-// ingests each resulting token into `idx`. Returns the number of tokens found.
+// Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
+// ingests each resulting token into `idx` with the given field decorator.
+// BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
-static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx)
+// Returns the number of tokens found.
+static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
+                           PhraseKind kind)
 {
   size_t words = 0;
 
@@ -298,7 +301,19 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
         i++;
       }
 
-      idx.ingest(text.substr(wordStart, i - wordStart));
+      if (kind == PhraseKind::BODY)
+      {
+        idx.ingest(text.substr(wordStart, i - wordStart));
+      }
+      else
+      {
+        avengine::string decorated;
+        decorated.pushBack('#');
+        avengine::string_slice token = text.substr(wordStart, i - wordStart);
+        for (size_t j = 0; j < token.size(); j++)
+          decorated.pushBack(token[j]);
+        idx.ingest(avengine::string_slice(decorated));
+      }
       words++;
 
       while (i < text.size() && !isalpha(text[i]))
@@ -306,7 +321,6 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
     }
   }
 
-  idx.endDocument();
   return words;
 }
 
@@ -342,7 +356,13 @@ size_t indexDocument(DocumentMetadata& document_metadata,
 {
   pthread_mutex_lock(&globalIndex.mutex);
   globalIndex.index->beginDocument(document_metadata);
-  size_t result = tokenizeInto(phrases, *globalIndex.index);
+  size_t total = 0;
+  total += tokenizeInto(phrases, *globalIndex.index, PhraseKind::BODY);
+  avengine::string titleCopy = document_metadata.title;
+  avengine::vector<avengine::string_slice> titlePhrases;
+  titlePhrases.pushBack(avengine::string_slice(titleCopy));
+  total += tokenizeInto(titlePhrases, *globalIndex.index, PhraseKind::TITLE);
+  globalIndex.index->endDocument();
 
   if (globalIndex.index->offset >= OFFSET_THRESHOLD)
   {
@@ -356,5 +376,5 @@ size_t indexDocument(DocumentMetadata& document_metadata,
   }
 
   pthread_mutex_unlock(&globalIndex.mutex);
-  return result;
+  return total;
 }
