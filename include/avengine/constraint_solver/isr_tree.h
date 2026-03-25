@@ -65,7 +65,7 @@ public:
   unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
+  vector<ISR*> Terms;
   ISREndDoc* DocumentEnd = nullptr;
 
 private:
