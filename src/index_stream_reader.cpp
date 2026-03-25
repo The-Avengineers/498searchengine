@@ -272,7 +272,7 @@ Location ISREndDoc::GetDocumentStart() const
   return doc.start;
 }
 
-Dictionary::Dictionary() : termLocations_(strings_equal, hash_string, 256) {}
+Dictionary::Dictionary() : termLocations_(strings_equal, hashString, 256) {}
 
 void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_t urlLength)
 {

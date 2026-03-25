@@ -94,7 +94,6 @@ void CrawlLogger::log(const char* event, size_t count, size_t seenCount)
 //   writeTimestamp();
 //   logFile << ",INDEX_STATS," << indexedCount << "," << indexBytes << "," << frontierSize
 //           << std::endl;
-//   return;
 // }
 
 } // namespace crawler

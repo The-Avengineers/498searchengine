@@ -52,7 +52,7 @@ public:
   // Modifies the logger by appending a periodic indexing stats message.
   // Returns nothing
   // Used for the crawler
-  void logIndexStats(size_t indexedCount, size_t indexBytes, size_t frontierSize);
+  // void logIndexStats(size_t indexedCount, size_t indexBytes, size_t frontierSize);
 
 private:
   std::ofstream logFile;

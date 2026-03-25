@@ -20,6 +20,7 @@ static unsigned count_occurrences(ISR* stream)
 ISROr::ISROr(const vector<ISR*>& terms)
     : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
 {
+  occurrenceCount_ = count_occurrences(this);
   Seek(1);
 }
 
@@ -215,7 +216,7 @@ unsigned ISRAnd::GetNumberOfOccurrences() const
 }
 
 ISRPhrase::ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
+    : Terms(terms), DocumentEnd(documentEnd)
 {
   occurrenceCount_ = count_occurrences(this);
   Seek(1);
@@ -314,9 +315,7 @@ unsigned ISRPhrase::GetNumberOfOccurrences() const
 }
 
 ISRAndNot::ISRAndNot(const vector<ISR*>& required, const vector<ISR*>& excluded, ISREndDoc* endDoc)
-    : Required(required), Excluded(excluded), EndDoc(endDoc),
-      CountRequired(static_cast<unsigned>(required.size())),
-      CountExcluded(static_cast<unsigned>(excluded.size()))
+    : Required(required), Excluded(excluded), EndDoc(endDoc)
 {
   occurrenceCount_ = count_occurrences(this);
   Seek(1);

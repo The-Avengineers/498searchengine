@@ -191,7 +191,7 @@ SolveResult ConstraintSolver::SolveParsed(const QueryNode* root, const IsrSource
     const uint32_t docId = documentIdFromPost(match, state.DocumentEnd);
     if (docId != std::numeric_limits<uint32_t>::max() && docId != lastDocId)
     {
-      result.Matches.pushBack({docId, source.GetDocumentName(docId)});
+      result.Matches.pushBack({docId, source.GetDocumentURL(docId)});
       lastDocId = docId;
     }
 

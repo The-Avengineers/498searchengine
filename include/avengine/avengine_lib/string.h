@@ -609,7 +609,7 @@ inline bool strings_equal(const string a, const string b)
   return a == b;
 }
 
-inline uint64_t hashString(const string& value)
+inline uint64_t hashString(const string value)
 {
   uint64_t hash = 5381;
   for (size_t i = 0; i < value.size(); ++i)

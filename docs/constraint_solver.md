@@ -90,7 +90,7 @@ It must provide:
 
 - `ISRWord* OpenTermIsr(const string& term) const`
 - `ISREndDoc* OpenEndDocIsr() const`
-- `string GetDocumentName(uint32_t docId) const`
+- `string GetDocumentURL(uint32_t docId) const`
 
 Caller responsibilities:
 
@@ -152,7 +152,7 @@ class MySource : public IsrSource
 public:
   ISRWord* OpenTermIsr(const string& term) const override;
   ISREndDoc* OpenEndDocIsr() const override;
-  string GetDocumentName(uint32_t docId) const override;
+  string GetDocumentURL(uint32_t docId) const override;
 };
 
 ConstraintSolver solver;

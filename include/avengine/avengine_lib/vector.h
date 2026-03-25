@@ -451,7 +451,7 @@ public:
   // EFFECTS: Returns the deduplicated union of *this and other. Duplicate
   //          values in either input are tolerated, and the output keeps one
   //          copy of each distinct value.
-  Vector setUnion(const vector& other) const
+  vector setUnion(const vector& other) const
   {
     vector out;
     out.reserve(Size + other.Size);
