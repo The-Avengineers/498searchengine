@@ -28,6 +28,7 @@ add_library(avengine
   src/HashTable.cpp
   src/crawler/frontier.cpp
   src/crawler/logger.cpp
+  src/crawler/RobotsTxt.cpp
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/index.cpp
