@@ -22,7 +22,7 @@ public:
   // Returns a heap-allocated ISREndDoc. The caller owns the result and must
   // delete it unless ownership is immediately transferred to another owner.
   [[nodiscard]] virtual ISREndDoc* OpenEndDocIsr() const = 0;
-  virtual string GetDocumentUrl(uint32_t docId) const = 0;
+  virtual string GetDocumentURL(uint32_t docId) const = 0;
 };
 
 } // namespace constraint_solver

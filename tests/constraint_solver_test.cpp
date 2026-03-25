@@ -58,7 +58,7 @@ public:
     return dict_.OpenEndDocIsr();
   }
 
-  string GetDocumentName(uint32_t docId) const override
+  string GetDocumentURL(uint32_t docId) const override
   {
     if (docId >= names_.size())
       return string();
