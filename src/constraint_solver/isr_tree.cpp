@@ -20,7 +20,6 @@ static unsigned count_occurrences(ISR* stream)
 ISROr::ISROr(const vector<ISR*>& terms)
     : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
 {
-  occurrenceCount_ = count_occurrences(this);
   Seek(1);
 }
 
