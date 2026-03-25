@@ -134,8 +134,6 @@ public:
 
   Post* Next() override;
   Post* Seek(Location target) override;
-  Location GetStartLocation() const override;
-  Location GetEndLocation() const override;
   unsigned GetNumberOfOccurrences() const override;
   unsigned GetDocumentCount() const;
 
