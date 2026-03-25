@@ -85,8 +85,6 @@ public:
   vector<ISR*> Required;
   vector<ISR*> Excluded;
   ISREndDoc* EndDoc = nullptr;
-  unsigned CountRequired = 0;
-  unsigned CountExcluded = 0;
 
 private:
   unsigned nearestRequired_ = 0;
