@@ -66,48 +66,6 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
     seeds.pushBack(normalized);
   }
 }
-
-// NOT IN USE.
-size_t estimateIndexMemoryBytes(const Index& index)
-{
-  size_t bytes = sizeof(Index);
-  bytes += index.buckets.capacity() * sizeof(PostingList*);
-  bytes += index.documentMetadata.capacity() * sizeof(DocumentMetadata);
-
-  for (size_t i = 0; i < index.documentMetadata.size(); ++i)
-  {
-    const DocumentMetadata& doc = index.documentMetadata[i];
-    bytes += doc.url.size();
-    bytes += doc.title.size();
-  }
-
-  for (size_t i = 0; i < index.buckets.size(); ++i)
-  {
-    PostingList* bucket = index.buckets[i];
-    while (bucket)
-    {
-      bytes += sizeof(PostingList);
-      bytes += bucket->word.size();
-      bytes += bucket->postings.capacity() * sizeof(Posting);
-      bytes += bucket->positions.capacity() * sizeof(uint32_t);
-      bucket = bucket->nextBucket;
-    }
-  }
-
-  return bytes;
-}
-
-// Quick helper for logging
-[[gnu::always_inline]] inline bool shouldLogIndexProgress(size_t indexedCount, size_t& nextCount)
-{
-  if (indexedCount < nextCount)
-  {
-    return false;
-  }
-  nextCount += 1000;
-  return true;
-}
-
 } // namespace
 
 int main()
@@ -252,12 +210,6 @@ int main()
           theFrontier.add(normalized, entry.depth + 1);
         }
       }
-
-      // if (shouldLogIndexProgress(indexedCount, nextCount))
-      // {
-      //   crawlLogger.logIndexStats(indexedCount, estimateIndexMemoryBytes(globalIndex),
-      //                             theFrontier.size());
-      // }
     }
 
     // Checkpoint all of our progress and log stats.
