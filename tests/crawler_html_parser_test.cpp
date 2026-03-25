@@ -151,5 +151,10 @@ int main()
   EXPECT(strEq(parser4.fullTitle, ""));
   EXPECT(parser4.links.size() == 0);
 
+  // Query normalization
+  avengine::string query =
+      avengine::HtmlParser::queryNormalize("  \xE4\xB8\xAD\xE6\x96\x87  NI\xC3\x91O   ");
+  EXPECT(strEq(query, "nino"));
+
   return 0;
 }

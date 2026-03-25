@@ -24,6 +24,7 @@ struct Posting
 // A special token used to signify the end of a document. This should NEVER be parsed as a regular
 // token.
 constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
+constexpr const size_t OFFSET_THRESHOLD = 400000000;
 
 // The raw data needed as input to calculate the static rank (distance from seed list, length of
 // document, etc). It MUST be plain old data, no pointers.
@@ -62,7 +63,6 @@ struct Index
   size_t offset = 0;
   size_t totalUniqWords = 0;
   avengine::vector<DocumentMetadata> documentMetadata;
-  pthread_mutex_t writeMutex;
   uint32_t currentDocId = 0;
 
   PostingList* getBucket(avengine::string_slice word);
@@ -84,10 +84,28 @@ struct Index
   void ingest(avengine::string_slice word);
 };
 
-extern Index globalIndex;
+struct IndexSlot
+{
+  Index* index;
+  pthread_mutex_t mutex;
+};
+
+extern IndexSlot globalIndex;
+extern avengine::vector<pthread_t> g_serializeThreads;
+
+void* serializeIndex(Index* index);
+
+void cleanUpIndexer();
+
+enum class PhraseKind
+{
+  BODY,
+  TITLE,
+};
 
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.
+// Title terms are copied from document metadata and stored with a '#' prefix.
 // Returns the number of tokens ingested.
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases);

@@ -106,13 +106,9 @@ Index::Index() : buckets(HASHMAP_SIZE)
   {
     bucket = nullptr;
   }
-  pthread_mutex_init(&writeMutex, nullptr);
 }
 
-Index::~Index()
-{
-  pthread_mutex_destroy(&writeMutex);
-}
+Index::~Index() {}
 
 // Encodes a single posting list into `out` (cleared on entry):
 //   [doc_freq u64][collection_freq u64][skip_count u64]
@@ -211,8 +207,6 @@ void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffe
 
 bool Index::serialize(int fd)
 {
-  pthread_mutex_lock(&writeMutex);
-
   // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
   // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
   const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
@@ -227,15 +221,9 @@ bool Index::serialize(int fd)
 
   // TODO: maybe fallocate?
   if (lseek(fd, needed * sizeof(uint64_t), SEEK_SET) == (off_t)-1)
-  {
-    pthread_mutex_unlock(&writeMutex);
     return true;
-  }
   if (write(fd, stringBuffer.begin(), stringBuffer.size()) < 0)
-  {
-    pthread_mutex_unlock(&writeMutex);
     return true;
-  }
 
   size_t postingsOffset = 0;
   avengine::vector<uint8_t> postingBuffer;
@@ -251,10 +239,7 @@ bool Index::serialize(int fd)
       encodePostingList(*bucket, documentMetadata, postingBuffer);
 
       if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
-      {
-        pthread_mutex_unlock(&writeMutex);
         return true;
-      }
       postingsOffset += postingBuffer.size();
 
       bucket = bucket->nextBucket;
@@ -262,23 +247,15 @@ bool Index::serialize(int fd)
   }
 
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
-  {
-    pthread_mutex_unlock(&writeMutex);
     return true;
-  }
   if (write(fd, dictionaryBuffer, needed * sizeof(uint64_t)) < 0)
-  {
-    pthread_mutex_unlock(&writeMutex);
     return true;
-  }
 
-  pthread_mutex_unlock(&writeMutex);
   return false;
 }
 
 uint32_t Index::beginDocument(DocumentMetadata metadata)
 {
-  pthread_mutex_lock(&writeMutex);
   documentMetadata.pushBack(metadata);
   currentDocId = static_cast<uint32_t>(documentMetadata.size() - 1);
   return currentDocId;
@@ -293,15 +270,17 @@ void Index::ingest(avengine::string_slice word)
 void Index::endDocument()
 {
   ingest(DOCEND_TOKEN);
-  pthread_mutex_unlock(&writeMutex);
 }
 
-Index globalIndex;
+IndexSlot globalIndex = {new Index(), PTHREAD_MUTEX_INITIALIZER};
 
-// Walks `text`, lowercases each alpha run in-place via the mutable slice, and
-// ingests each resulting token into `idx`. Returns the number of tokens found.
+// Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
+// ingests each resulting token into `idx` with the given field decorator.
+// BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
-static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx)
+// Returns the number of tokens found.
+static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
+                           PhraseKind kind)
 {
   size_t words = 0;
 
@@ -322,7 +301,19 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
         i++;
       }
 
-      idx.ingest(text.substr(wordStart, i - wordStart));
+      if (kind == PhraseKind::BODY)
+      {
+        idx.ingest(text.substr(wordStart, i - wordStart));
+      }
+      else
+      {
+        avengine::string decorated;
+        decorated.pushBack('#');
+        avengine::string_slice token = text.substr(wordStart, i - wordStart);
+        for (size_t j = 0; j < token.size(); j++)
+          decorated.pushBack(token[j]);
+        idx.ingest(avengine::string_slice(decorated));
+      }
       words++;
 
       while (i < text.size() && !isalpha(text[i]))
@@ -330,13 +321,60 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
     }
   }
 
-  idx.endDocument();
   return words;
+}
+
+size_t indexCounter = 0;
+avengine::vector<pthread_t> serializeThreads;
+
+void* serializeIndex(Index* index)
+{
+  char filename[16];
+  snprintf(filename, sizeof(filename), "%05zu.sfi", indexCounter++);
+  int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+  // TODO: Check for errors.
+  index->serialize(fd);
+  close(fd);
+
+  delete index;
+  return nullptr;
+}
+
+void cleanUpIndexer()
+{
+  serializeIndex(globalIndex.index);
+
+  for (size_t i = 0; i < serializeThreads.size(); i++)
+  {
+    pthread_join(serializeThreads[i], nullptr);
+  }
 }
 
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases)
 {
-  globalIndex.beginDocument(document_metadata);
-  return tokenizeInto(phrases, globalIndex);
+  pthread_mutex_lock(&globalIndex.mutex);
+  globalIndex.index->beginDocument(document_metadata);
+  size_t total = 0;
+  total += tokenizeInto(phrases, *globalIndex.index, PhraseKind::BODY);
+  avengine::string titleCopy = document_metadata.title;
+  avengine::vector<avengine::string_slice> titlePhrases;
+  titlePhrases.pushBack(avengine::string_slice(titleCopy));
+  total += tokenizeInto(titlePhrases, *globalIndex.index, PhraseKind::TITLE);
+  globalIndex.index->endDocument();
+
+  if (globalIndex.index->offset >= OFFSET_THRESHOLD)
+  {
+    Index* oldIndex = globalIndex.index;
+    globalIndex.index = new Index();
+
+    pthread_t tid;
+    pthread_create(&tid, nullptr, reinterpret_cast<void* (*)(void*)>(serializeIndex), oldIndex);
+
+    serializeThreads.pushBack(tid);
+  }
+
+  pthread_mutex_unlock(&globalIndex.mutex);
+  return total;
 }

@@ -635,6 +635,82 @@ private:
   }
 
 public:
+  // Purpose: Public API for the normalization of Queries
+  // Requires: A Pointer to a C string representing the Query
+  // Modifys: Nothing
+  // Returns: An Avengine::string object of the normalized Query
+  static string queryNormalize(const char* query)
+  {
+    if (query == nullptr)
+    {
+      return string();
+    }
+
+    string result;
+    const char* p = reinterpret_cast<const char*>(query);
+    const char* end = p;
+    while (*end != '\0')
+    {
+      ++end;
+    }
+
+    bool space = false;
+    while (p < end)
+    {
+      unsigned char c = *p;
+      if (is_whitespace(static_cast<char>(c)))
+      {
+        if (result.size() > 0)
+        {
+          space = true;
+        }
+        ++p;
+        continue;
+        // Purpose: if we have something like Apple 12 Boy
+        //          we want Apple Boy not Apple  Boy
+      }
+
+      if (c < 0x80)
+      {
+        if (is_ascii_alpha(c))
+        {
+          if (space)
+          {
+            result.pushBack(' ');
+            space = false;
+          }
+          result.pushBack(lower_ascii(c));
+        }
+        ++p;
+        continue;
+      }
+
+      char folded = '\0';
+      size_t consumed = 0;
+      if (fold_accented_utf8(reinterpret_cast<const unsigned char*>(p),
+                             static_cast<size_t>(end - p), folded, consumed))
+      {
+        if (space)
+        {
+          result.pushBack(' ');
+          space = false;
+        }
+        result.pushBack(folded);
+        p += consumed;
+        continue;
+      }
+
+      size_t skip = IndicatedLength(reinterpret_cast<const Utf8*>(p));
+      if (skip > static_cast<size_t>(end - p))
+      {
+        skip = 1;
+      }
+      p += skip;
+    }
+
+    return result;
+  }
+
   // The constructor is given a buffer and length containing
   // presumed HTML.  It will parse the buffer, stripping out
   // all the HTML tags and producing the list of words in body,

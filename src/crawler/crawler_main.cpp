@@ -280,10 +280,7 @@ int main()
     crawlLogger.log("DONE, FINAL CHECKPOINT", processedCount, theFrontier.seenCount());
   }
 
-  // TODO: Rework this code and move it into the indexer API.
-  int fd = open("index-crawled.sfi", O_WRONLY | O_CREAT, 0644);
-  globalIndex.serialize(fd);
-  close(fd);
+  cleanUpIndexer();
 
   return 0;
 }
