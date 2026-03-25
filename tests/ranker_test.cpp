@@ -124,15 +124,15 @@ void testDomainStrat()
       1.0));
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions, signals), 1.0));
+  // top tier (.org moved here)
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://charity.org/about", "charity.org"), positions, signals), 1.0));
   // mid tier
   EXPECT(nearlyEqual(
-      strat.Score(makeEntry("https://charity.org/about", "charity.org"), positions, signals), 0.6));
+      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.6));
   // low tier
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.3));
-  // unknown TLD
   EXPECT(
-      nearlyEqual(strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.0));
+      nearlyEqual(strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.3));
 }
 
 void testShortURLStrat()
