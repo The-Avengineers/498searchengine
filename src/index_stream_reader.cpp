@@ -201,15 +201,6 @@ Post* ISRWord::Seek(Location target)
   return SetCurrentFromIndex(foundIndex);
 }
 
-Location ISRWord::GetStartLocation() const
-{
-  return ISR::GetStartLocation();
-}
-
-Location ISRWord::GetEndLocation() const
-{
-  return ISR::GetEndLocation();
-}
 
 unsigned ISRWord::GetNumberOfOccurrences() const
 {
