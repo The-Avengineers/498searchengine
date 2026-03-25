@@ -451,39 +451,45 @@ public:
   // EFFECTS: Returns the deduplicated union of *this and other. Duplicate
   //          values in either input are tolerated, and the output keeps one
   //          copy of each distinct value.
-  vector setUnion(const vector& other) const
+Vector setUnion(const vector& other) const
   {
     vector out;
+    out.reserve(Size + other.Size);
     size_t i = 0;
     size_t j = 0;
 
     while (i < Size || j < other.Size)
     {
-      T nextValue;
-
       if (j >= other.Size || (i < Size && Data[i] < other.Data[j]))
       {
-        nextValue = Data[i++];
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
+        ++i;
       }
       else if (i >= Size || other.Data[j] < Data[i])
       {
-        nextValue = other.Data[j++];
+        if (out.empty() || out.back() != other.Data[j])
+        {
+          out.pushBack(other.Data[j]);
+        }
+        ++j;
       }
       else
       {
-        nextValue = Data[i];
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
         ++i;
         ++j;
-      }
-
-      if (out.empty() || out.back() != nextValue)
-      {
-        out.pushBack(nextValue);
       }
     }
 
     return out;
   }
+  
 
   // REQUIRES: *this and other are sorted ascending and T supports < and ==
   // MODIFIES: Nothing
