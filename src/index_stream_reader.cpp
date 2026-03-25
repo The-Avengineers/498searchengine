@@ -91,7 +91,7 @@ static Attributes make_word_attributes(const vector<DocumentInfo>& documents, Lo
   return attributes;
 }
 
-static Attributes make_document_attributes(const DocumentInfo& document)
+[[maybe_unused]] static Attributes make_document_attributes(const DocumentInfo& document)
 {
   Attributes attributes = {};
   attributes.kind = Attributes::Kind::DOCUMENT;
@@ -397,7 +397,7 @@ Post* ISRAnd::Seek(Location target)
       farthestTerm_ = 0;
       for (size_t i = 0; i < Terms.size(); i++)
       {
-        if (Terms[i]->GetEndLocation() > farthestLocation)
+        if (Terms[i] && Terms[i]->GetEndLocation() > farthestLocation)
         {
           farthestLocation = Terms[i]->GetEndLocation();
           farthestTerm_ = static_cast<unsigned>(i);
@@ -420,7 +420,7 @@ Post* ISRAnd::Seek(Location target)
       for (size_t i = 0; i < Terms.size(); i++)
       {
         ISR* term = Terms[i];
-        if (!term->Seek(documentStart))
+        if (!term || !term->Seek(documentStart))
         {
           ClearCurrent();
           return nullptr;
@@ -605,7 +605,7 @@ Post* ISRContainer::Seek(Location target)
       farthestContained_ = 0;
       for (size_t i = 0; i < Contained.size(); i++)
       {
-        if (Contained[i]->GetEndLocation() > farthestLocation)
+        if (Contained[i] && Contained[i]->GetEndLocation() > farthestLocation)
         {
           farthestLocation = Contained[i]->GetEndLocation();
           farthestContained_ = static_cast<unsigned>(i);
@@ -628,7 +628,7 @@ Post* ISRContainer::Seek(Location target)
       for (size_t i = 0; i < Contained.size(); i++)
       {
         ISR* term = Contained[i];
-        if (!term->Seek(documentStart))
+        if (!term || !term->Seek(documentStart))
         {
           ClearCurrent();
           return nullptr;
