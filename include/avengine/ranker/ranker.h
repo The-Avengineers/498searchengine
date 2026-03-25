@@ -24,6 +24,7 @@ public:
   struct RankSignals
   {
     size_t outlink_count{0};
+    size_t title_word_count{0};
     const vector<vector<size_t>>* title_term_positions{nullptr};
   };
 

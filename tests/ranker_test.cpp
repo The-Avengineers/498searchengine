@@ -5,8 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <unistd.h>
 
 namespace
 {
@@ -72,18 +70,6 @@ public:
   }
 };
 
-string writeTempHtml(const char* html)
-{
-  char pathTemplate[] = "/tmp/ranker_title_test_XXXXXX.html";
-  const int fd = mkstemps(pathTemplate, 5);
-  EXPECT(fd >= 0);
-  close(fd);
-
-  std::ofstream out(pathTemplate, std::ios::binary);
-  out.write(html, static_cast<std::streamsize>(std::strlen(html)));
-  out.close();
-  return string(pathTemplate);
-}
 
 void testRankerMethods()
 {
@@ -133,13 +119,21 @@ void testDomainStrat()
   DomainStrat strat;
   vector<vector<size_t>> positions;
   Ranker::RankSignals signals;
+  // top tier
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("https://university.edu/page", "university.edu"), positions, signals),
       1.0));
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions, signals), 1.0));
+  // mid tier
   EXPECT(nearlyEqual(
-      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.0));
+      strat.Score(makeEntry("https://charity.org/about", "charity.org"), positions, signals), 0.6));
+  // low tier
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.3));
+  // unknown TLD
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.0));
 }
 
 void testShortURLStrat()
@@ -147,8 +141,21 @@ void testShortURLStrat()
   ShortURLStrat strat;
   vector<vector<size_t>> positions;
   Ranker::RankSignals signals;
-  EXPECT(nearlyEqual(strat.Score(makeEntry(""), positions, signals), 0.0));
-  EXPECT(nearlyEqual(strat.Score(makeEntry("abcd"), positions, signals), 0.25));
+  // empty url
+  EXPECT(nearlyEqual(strat.Score(makeEntry(""), positions, signals), 1.0));
+  // short url (len 20 <= 40)
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/"), positions, signals), 1.0));
+  // mid-range url (len 80, midpoint of [40,120]) => score = (120-80)/(120-40) = 0.5
+  const char* mid_url =
+      "https://example.com/some/path/to/a/page/that/is/eighty/characters/in/total/xxxxx";
+  EXPECT(std::strlen(mid_url) == 80);
+  EXPECT(nearlyEqual(strat.Score(makeEntry(mid_url), positions, signals), 0.5));
+  // very long url (>= 120)
+  const char* long_url =
+      "https://example.com/very/long/path/to/a/page/that/exceeds/one/hundred/and/"
+      "twenty/characters/in/total/definitely/over/the/threshold/yes";
+  EXPECT(std::strlen(long_url) >= 120);
+  EXPECT(nearlyEqual(strat.Score(makeEntry(long_url), positions, signals), 0.0));
 }
 
 void testShortTitleStrat()
@@ -157,19 +164,18 @@ void testShortTitleStrat()
   vector<vector<size_t>> positions;
   Ranker::RankSignals signals;
 
-  string shortTitle =
-      writeTempHtml("<html><head><title>one two three</title></head><body></body></html>");
-  string longTitle = writeTempHtml(
-      "<html><head><title>1 2 3 4 5 6 7 8 9 10 11</title></head><body></body></html>");
-
-  EXPECT(nearlyEqual(strat.Score(makeEntry(shortTitle.cstr()), positions, signals), 1.0));
-  EXPECT(nearlyEqual(strat.Score(makeEntry(longTitle.cstr()), positions, signals), 0.0));
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("/tmp/path/does/not/exist/ranker_test.html"), positions, signals),
-      0.0));
-
-  EXPECT(unlink(shortTitle.cstr()) == 0);
-  EXPECT(unlink(longTitle.cstr()) == 0);
+  // short title (3 words <= 5)
+  signals.title_word_count = 3;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 1.0));
+  // long title (16 words >= 15)
+  signals.title_word_count = 16;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 0.0));
+  // mid-range title (10 words) => (15 - 10) / (15 - 5) = 0.5
+  signals.title_word_count = 10;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 0.5));
+  // zero words
+  signals.title_word_count = 0;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 1.0));
 }
 
 void testExactPhraseMatch()

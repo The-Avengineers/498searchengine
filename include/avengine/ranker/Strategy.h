@@ -3,11 +3,8 @@
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
 
-#include <cctype>
 #include <cmath>
 #include <cstddef>
-#include <fstream>
-#include <string>
 
 using namespace avengine;
 
@@ -20,106 +17,72 @@ public:
     (void)term_positions;
     (void)signals;
     const avengine::string& domain = entry.domain;
-    for (size_t i = 0; i < GoodDomains.size(); i++)
+    for (size_t i = 0; i < TopTier.size(); i++)
     {
-      if (domain.find(GoodDomains[i]) != avengine::string::npos)
-      {
+      if (domain.find(TopTier[i]) != avengine::string::npos)
         return 1.0;
-      }
+    }
+    for (size_t i = 0; i < MidTier.size(); i++)
+    {
+      if (domain.find(MidTier[i]) != avengine::string::npos)
+        return 0.6;
+    }
+    for (size_t i = 0; i < LowTier.size(); i++)
+    {
+      if (domain.find(LowTier[i]) != avengine::string::npos)
+        return 0.3;
     }
     return 0.0;
   }
 
 private:
-  const avengine::vector<const char*> GoodDomains = {".edu",
-                                                     ".gov"}; // Add more good domains in here
+  const avengine::vector<const char*> TopTier = {".edu", ".gov"};
+  const avengine::vector<const char*> MidTier = {".org", ".ac."};
+  const avengine::vector<const char*> LowTier = {".com", ".net", ".io"};
 };
 
 class ShortURLStrat : public Ranker::Strategy
 {
-  // naïve implementation: take the reciprocal of the length of url
+  // piecewise linear: 1.0 for urls <= short_thres, linearly drops to 0.0 at long_thres
 public:
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
     (void)signals;
-    return entry.url.size() == 0 ? 0.0 : 1 / double(entry.url.size());
+    const double len = static_cast<double>(entry.url.size());
+    if (len <= short_thres)
+      return 1.0;
+    if (len >= long_thres)
+      return 0.0;
+    return (long_thres - len) / (long_thres - short_thres);
   }
+
+private:
+  static constexpr double short_thres = 40.0;
+  static constexpr double long_thres = 120.0;
 };
 
 class ShortTitleStrat : public Ranker::Strategy
 {
+  // piecewise linear: 1.0 for titles <= short_thres words, linearly drops to 0.0 at long_thres
 public:
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
+    (void)entry;
     (void)term_positions;
-    (void)signals;
-    return getTitleLen(entry.url) <= length_thres ? 1.0 : 0.0;
+    const double words = static_cast<double>(signals.title_word_count);
+    if (words <= short_thres)
+      return 1.0;
+    if (words >= long_thres)
+      return 0.0;
+    return (long_thres - words) / (long_thres - short_thres);
   }
 
 private:
-  size_t getTitleLen(const avengine::string& url) const
-  {
-    std::ifstream in(url.cstr(), std::ios::binary);
-    if (!in)
-    {
-      return length_thres + 1;
-    }
-
-    std::string buffer((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (buffer.empty())
-    {
-      return length_thres + 1;
-    }
-
-    std::string lowered = buffer;
-    for (char& c : lowered)
-    {
-      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-
-    const std::string title_open = "<title";
-    const std::string title_close = "</title>";
-    const size_t open_tag = lowered.find(title_open);
-    if (open_tag == std::string::npos)
-    {
-      return length_thres + 1;
-    }
-
-    const size_t content_start = lowered.find('>', open_tag);
-    if (content_start == std::string::npos)
-    {
-      return length_thres + 1;
-    }
-
-    const size_t close_tag = lowered.find(title_close, content_start + 1);
-    if (close_tag == std::string::npos || close_tag <= content_start + 1)
-    {
-      return length_thres + 1;
-    }
-
-    size_t words = 0;
-    bool in_word = false;
-    for (size_t i = content_start + 1; i < close_tag; ++i)
-    {
-      const bool ws = std::isspace(static_cast<unsigned char>(buffer[i])) != 0;
-      if (!ws && !in_word)
-      {
-        ++words;
-        in_word = true;
-      }
-      else if (ws)
-      {
-        in_word = false;
-      }
-    }
-
-    return words;
-  }
-
-  const size_t length_thres = 10;
+  static constexpr double short_thres = 5.0;
+  static constexpr double long_thres = 15.0;
 };
 
 class ExactPhraseMatch : public Ranker::Strategy
