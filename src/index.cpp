@@ -300,7 +300,7 @@ Index globalIndex;
 
 // Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
 // ingests each resulting token into `idx` with the given field decorator.
-// BODY terms are ingested as-is; TITLE terms get a '#' prefix; URL terms get a '/' prefix.
+// BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
 // Returns the number of tokens found.
 static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
@@ -331,9 +331,8 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
       }
       else
       {
-        char prefix = (kind == PhraseKind::TITLE) ? '#' : '/';
         avengine::string decorated;
-        decorated.pushBack(prefix);
+        decorated.pushBack('#');
         avengine::string_slice token = text.substr(wordStart, i - wordStart);
         for (size_t j = 0; j < token.size(); j++)
           decorated.pushBack(token[j]);
@@ -350,22 +349,15 @@ static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Inde
 }
 
 size_t indexDocument(DocumentMetadata& document_metadata,
-                     avengine::vector<avengine::string_slice>& phrases,
-                     avengine::vector<avengine::string_slice>& titlePhrases,
-                     avengine::vector<avengine::string_slice>& urlPhrases)
+                     avengine::vector<avengine::string_slice>& phrases)
 {
   globalIndex.beginDocument(document_metadata);
   size_t total = 0;
   total += tokenizeInto(phrases, globalIndex, PhraseKind::BODY);
+  avengine::string titleCopy = document_metadata.title;
+  avengine::vector<avengine::string_slice> titlePhrases;
+  titlePhrases.pushBack(avengine::string_slice(titleCopy));
   total += tokenizeInto(titlePhrases, globalIndex, PhraseKind::TITLE);
-  total += tokenizeInto(urlPhrases, globalIndex, PhraseKind::URL);
   globalIndex.endDocument();
   return total;
-}
-
-size_t indexDocument(DocumentMetadata& document_metadata,
-                     avengine::vector<avengine::string_slice>& phrases)
-{
-  avengine::vector<avengine::string_slice> empty;
-  return indexDocument(document_metadata, phrases, empty, empty);
 }

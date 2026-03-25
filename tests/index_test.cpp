@@ -151,17 +151,19 @@ void testIndexIngestAcrossDocuments()
 void testIndexDocumentTokenization()
 {
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  DocumentMetadata meta{.url = "doc://tokenized", .title = "", .input = 0};
+  DocumentMetadata meta{.url = "doc://tokenized", .title = "Title Case", .input = 0};
   avengine::vector<avengine::string_slice> phrases;
   phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
   const size_t words = indexDocument(meta, phrases);
 
-  EXPECT(words == 4u);
+  EXPECT(words == 6u);
   EXPECT(globalIndex.documentMetadata.size() == 1);
 
   PostingList* alpha = globalIndex.getBucket("alpha");
   PostingList* beta = globalIndex.getBucket("beta");
   PostingList* gamma = globalIndex.getBucket("gamma");
+  PostingList* title = globalIndex.getBucket("#title");
+  PostingList* caseWord = globalIndex.getBucket("#case");
 
   EXPECT(alpha->postings.size() == 1);
   EXPECT(alpha->postings[0].termFreq == 2u);
@@ -169,6 +171,10 @@ void testIndexDocumentTokenization()
   EXPECT(beta->postings[0].termFreq == 1u);
   EXPECT(gamma->postings.size() == 1);
   EXPECT(gamma->postings[0].termFreq == 1u);
+  EXPECT(title->postings.size() == 1);
+  EXPECT(title->postings[0].termFreq == 1u);
+  EXPECT(caseWord->postings.size() == 1);
+  EXPECT(caseWord->postings[0].termFreq == 1u);
 
   EXPECT(alpha->positions.size() == 2);
   EXPECT(alpha->positions[0] == 0u);
@@ -177,6 +183,10 @@ void testIndexDocumentTokenization()
   EXPECT(beta->positions[0] == 1u);
   EXPECT(gamma->positions.size() == 1);
   EXPECT(gamma->positions[0] == 3u);
+  EXPECT(title->positions.size() == 1);
+  EXPECT(title->positions[0] == 4u);
+  EXPECT(caseWord->positions.size() == 1);
+  EXPECT(caseWord->positions[0] == 5u);
 }
 
 void testSerializationHeaderAndSkipPointers()

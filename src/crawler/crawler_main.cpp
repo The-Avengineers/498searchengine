@@ -207,10 +207,7 @@ int main()
           // TODO: Wire in ranker
           .input = 0,
       };
-      avengine::string urlCopy = entry.url;
-      avengine::vector<avengine::string_slice> urlPhrases;
-      urlPhrases.pushBack(avengine::string_slice(urlCopy));
-      indexDocument(documentMetadata, parser.words, parser.titleWords, urlPhrases);
+      indexDocument(documentMetadata, parser.words);
       ++indexedCount;
 
       // For each link from the parsed HTML page.
