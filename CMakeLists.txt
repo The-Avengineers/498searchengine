@@ -18,6 +18,11 @@ include(CTest)
 
 add_library(avengine
   src/Common.cpp
+  src/constraint_solver/constraint_solver.cpp
+  src/constraint_solver/isr_tree.cpp
+  src/constraint_solver/query_ast.cpp
+  src/constraint_solver/query_lexer.cpp
+  src/constraint_solver/query_parser.cpp
   src/expression.cpp
   src/HashBlob.cpp
   src/HashTable.cpp
@@ -26,6 +31,7 @@ add_library(avengine
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/index.cpp
+  src/index_stream_reader.cpp
   src/parser.cpp
   src/ranker/ranker.cpp
   src/tokenstream.cpp

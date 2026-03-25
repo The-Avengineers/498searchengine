@@ -4,7 +4,8 @@
 #pragma once
 
 #include <avengine/avengine_lib/vector.h>
-#include <cstddef>  // for size_t
+#include <cstddef> // for size_t
+#include <cstdint>
 #include <iostream> // for ostream
 #include <utility>
 
@@ -601,5 +602,20 @@ inline std::ostream& operator<<(std::ostream& os, const string& s)
     os << *it;
   }
   return os;
+}
+
+inline bool strings_equal(const string a, const string b)
+{
+  return a == b;
+}
+
+inline uint64_t hashString(const string value)
+{
+  uint64_t hash = 5381;
+  for (size_t i = 0; i < value.size(); ++i)
+  {
+    hash = ((hash << 5) + hash) + static_cast<unsigned char>(value[i]);
+  }
+  return hash;
 }
 } // namespace avengine
