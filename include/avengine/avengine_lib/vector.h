@@ -451,7 +451,7 @@ public:
   // EFFECTS: Returns the deduplicated union of *this and other. Duplicate
   //          values in either input are tolerated, and the output keeps one
   //          copy of each distinct value.
-Vector setUnion(const vector& other) const
+  Vector setUnion(const vector& other) const
   {
     vector out;
     out.reserve(Size + other.Size);
@@ -489,7 +489,6 @@ Vector setUnion(const vector& other) const
 
     return out;
   }
-  
 
   // REQUIRES: *this and other are sorted ascending and T supports < and ==
   // MODIFIES: Nothing
