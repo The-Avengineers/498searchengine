@@ -44,7 +44,8 @@ add_library(
   src/Utf8.cpp
   src/crawler/url_normalizer.cpp
   src/crawler/domain_filter.cpp
-  src/crawler/fetcher.cpp)
+  src/crawler/fetcher.cpp
+  src/node.cpp)
 
 target_include_directories(avengine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
