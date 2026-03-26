@@ -329,13 +329,31 @@ avengine::vector<pthread_t> serializeThreads;
 
 void* serializeIndex(Index* index)
 {
+  // Write to a temporary file first, then atomically rename it into place.
+  // This ensures that a reader never sees a partially-written index file.
+  size_t counter = indexCounter++;
   char filename[16];
-  snprintf(filename, sizeof(filename), "%05zu.sfi", indexCounter++);
-  int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  snprintf(filename, sizeof(filename), "%05zu.sfi", counter);
 
-  // TODO: Check for errors.
+  char tmpFilename[20];
+  snprintf(tmpFilename, sizeof(tmpFilename), "%05zu.sfi.tmp", counter);
+
+  int fd = open(tmpFilename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0)
+  {
+    // TODO: Log failure.
+    delete index;
+    return nullptr;
+  }
+
   index->serialize(fd);
   close(fd);
+
+  if (rename(tmpFilename, filename) < 0)
+  {
+    // TODO: Log failure.
+    unlink(tmpFilename);
+  }
 
   delete index;
   return nullptr;
