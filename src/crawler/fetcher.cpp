@@ -1,8 +1,11 @@
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include <cstring>
+#include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -31,6 +34,7 @@ fetcher::~fetcher()
 
 #define USER_AGENT "Avengineers-Crawler/1.0 marundel@umich.edu"
 #define MAX_REDIRECTS 5
+#define CONNECT_TIMEOUT_MS 8000
 
 static inline char lowerAscii(char c)
 {
@@ -44,6 +48,90 @@ static inline char lowerAscii(char c)
 static bool isRedirectStatus(int code)
 {
   return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
+}
+
+static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen,
+                               int timeoutMs, int* socketError)
+{
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags == -1)
+  {
+    *socketError = errno;
+    return false;
+  }
+  // set non blocking
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+  {
+    *socketError = errno;
+    return false;
+  }
+
+  // try to connect
+  int connectResult = connect(fd, addr, addrLen);
+  if (connectResult == 0)
+  {
+    // success
+    fcntl(fd, F_SETFL, flags);
+    *socketError = 0;
+    return true;
+  }
+
+  if (errno != EINPROGRESS)
+  {
+    // Error
+    *socketError = errno;
+    fcntl(fd, F_SETFL, flags);
+    return false;
+  }
+
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLOUT;
+  pfd.revents = 0;
+  // poll the socket for 8 seconds
+  int pollResult = poll(&pfd, 1, timeoutMs);
+  if (pollResult <= 0)
+  {
+    if (pollResult == 0)
+    {
+      *socketError = ETIMEDOUT;
+    }
+    else
+    {
+      *socketError = errno;
+    }
+    fcntl(fd, F_SETFL, flags);
+    return false;
+  }
+
+  int sockErr = 0;
+  socklen_t soLen = sizeof(sockErr);
+  //
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockErr, &soLen) == -1)
+  {
+    *socketError = errno;
+    fcntl(fd, F_SETFL, flags);
+    return false;
+  }
+
+  // connection failed
+  if (sockErr != 0)
+  {
+    *socketError = sockErr;
+    fcntl(fd, F_SETFL, flags);
+    return false;
+  }
+
+  // restore flags
+  if (fcntl(fd, F_SETFL, flags) == -1)
+  {
+    *socketError = errno;
+    return false;
+  }
+
+  // connection worked
+  *socketError = 0;
+  return true;
 }
 
 // Pull a single header value (trimmed) from the raw header block.
@@ -422,12 +510,16 @@ expected<fetchResponse, error> fetcher::fetchHttp(const string& host, const stri
     return expected<fetchResponse, error>::error({"socket creation failed"});
   }
 
-  int con_res = connect(fd, address->ai_addr, address->ai_addrlen);
-
-  if (con_res == -1)
+  int socketError = 0;
+  if (!connectWithTimeout(fd, address->ai_addr, static_cast<socklen_t>(address->ai_addrlen),
+                          CONNECT_TIMEOUT_MS, &socketError))
   {
     close(fd);
     freeaddrinfo(address);
+    if (socketError == ETIMEDOUT)
+    {
+      return expected<fetchResponse, error>::error({"connection timeout"});
+    }
     return expected<fetchResponse, error>::error({"connection failed"});
   }
 
@@ -486,12 +578,16 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
     return expected<fetchResponse, error>::error({"socket creation failed"});
   }
 
-  int con_res = connect(fd, address->ai_addr, address->ai_addrlen);
-
-  if (con_res == -1)
+  int socketError = 0;
+  if (!connectWithTimeout(fd, address->ai_addr, static_cast<socklen_t>(address->ai_addrlen),
+                          CONNECT_TIMEOUT_MS, &socketError))
   {
     close(fd);
     freeaddrinfo(address);
+    if (socketError == ETIMEDOUT)
+    {
+      return expected<fetchResponse, error>::error({"connection timeout"});
+    }
     return expected<fetchResponse, error>::error({"connection failed"});
   }
 

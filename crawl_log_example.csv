@@ -1,0 +1,292 @@
+2026-03-26T00:15:35Z,ROBOTS FETCH FAILED: connection timeout,https://cncdn.com/robots.txt
+2026-03-26T00:15:43Z,FAILED FETCHING: connection timeout,https://cncdn.com/
+2026-03-26T00:15:43Z,OK, Code 200,https://chatgpt.com/,290750
+2026-03-26T00:15:44Z,OK, Code 200,https://forter.com/,231515
+2026-03-26T00:15:44Z,ROBOTS FETCH FAILED: DNS resolution failed,https://wixsite.com/robots.txt
+2026-03-26T00:15:44Z,FAILED FETCHING: DNS resolution failed,https://wixsite.com/
+2026-03-26T00:15:44Z,ROBOTS FETCH FAILED: DNS resolution failed,https://dnsowl.com/robots.txt
+2026-03-26T00:15:44Z,FAILED FETCHING: DNS resolution failed,https://dnsowl.com/
+2026-03-26T00:15:44Z,SKIP, BAD RESP,https://myshopify.com/,404
+2026-03-26T00:15:45Z,OK, Code 200,https://apple.com/,235228
+2026-03-26T00:15:45Z,OK, Code 200,https://appsflyer.com/,366331
+2026-03-26T00:15:46Z,OK, Code 200,https://steampowered.com/,1476555
+2026-03-26T00:15:46Z,SKIP, ROBOTS DISALLOW,https://fbcdn.net/
+2026-03-26T00:15:47Z,SKIP, BAD RESP,https://oracle.com/,403
+2026-03-26T00:15:48Z,OK, Code 200,https://telegram.org/,19656
+2026-03-26T00:15:49Z,FAILED FETCHING: too many redirects,https://adtrafficquality.google/
+2026-03-26T00:15:50Z,OK, Code 200,https://sentry.io/,581241
+2026-03-26T00:15:50Z,SKIP, ROBOTS DISALLOW,https://netflix.com/
+2026-03-26T00:15:51Z,OK, Code 200,https://gandi.net/,180186
+2026-03-26T00:15:51Z,ROBOTS FETCH FAILED: DNS resolution failed,https://cdn77.org/robots.txt
+2026-03-26T00:15:51Z,FAILED FETCHING: DNS resolution failed,https://cdn77.org/
+2026-03-26T00:15:52Z,SKIP, ROBOTS DISALLOW,https://facebook.com/
+2026-03-26T00:15:57Z,OK, Code 200,https://miui.com/,85707
+2026-03-26T00:15:59Z,OK, Code 200,https://europa.eu/,18154
+2026-03-26T00:15:59Z,SKIP, BAD RESP,https://researchgate.net/,403
+2026-03-26T00:16:00Z,OK, Code 200,https://yahoo.com/,1918467
+2026-03-26T00:16:01Z,OK, Code 200,https://discord.gg/,161614
+2026-03-26T00:16:01Z,OK, Code 200,https://launchdarkly.com/,234523
+2026-03-26T00:16:02Z,OK, Code 200,https://office.com/,208122
+2026-03-26T00:16:03Z,OK, Code 200,https://cloud.microsoft/,211850
+2026-03-26T00:16:03Z,ROBOTS FETCH FAILED: DNS resolution failed,https://akadns.net/robots.txt
+2026-03-26T00:16:03Z,FAILED FETCHING: DNS resolution failed,https://akadns.net/
+2026-03-26T00:16:03Z,OK, Code 200,https://adobe.io/,1244496
+2026-03-26T00:16:03Z,ROBOTS FETCH FAILED: DNS resolution failed,https://msftncsi.com/robots.txt
+2026-03-26T00:16:03Z,FAILED FETCHING: DNS resolution failed,https://msftncsi.com/
+2026-03-26T00:16:04Z,SKIP, BAD RESP,https://imdb.com/,202
+2026-03-26T00:16:04Z,ROBOTS FETCH FAILED: connection failed,https://comcast.net/robots.txt
+2026-03-26T00:16:04Z,FAILED FETCHING: connection failed,https://comcast.net/
+2026-03-26T00:16:04Z,ROBOTS FETCH FAILED: DNS resolution failed,https://playstation.net/robots.txt
+2026-03-26T00:16:04Z,FAILED FETCHING: DNS resolution failed,https://playstation.net/
+2026-03-26T00:16:07Z,OK, Code 200,https://userapi.com/,385755
+2026-03-26T00:16:07Z,ROBOTS FETCH FAILED: DNS resolution failed,https://akam.net/robots.txt
+2026-03-26T00:16:07Z,FAILED FETCHING: DNS resolution failed,https://akam.net/
+2026-03-26T00:16:07Z,ROBOTS FETCH FAILED: DNS resolution failed,https://demdex.net/robots.txt
+2026-03-26T00:16:07Z,FAILED FETCHING: DNS resolution failed,https://demdex.net/
+2026-03-26T00:16:07Z,ROBOTS FETCH FAILED: DNS resolution failed,https://pv-cdn.net/robots.txt
+2026-03-26T00:16:07Z,FAILED FETCHING: DNS resolution failed,https://pv-cdn.net/
+2026-03-26T00:16:07Z,ROBOTS FETCH FAILED: DNS resolution failed,https://azurewebsites.net/robots.txt
+2026-03-26T00:16:07Z,FAILED FETCHING: DNS resolution failed,https://azurewebsites.net/
+2026-03-26T00:16:08Z,OK, Code 200,https://nih.gov/,59592
+2026-03-26T00:16:08Z,ROBOTS FETCH FAILED: DNS resolution failed,https://edgesuite.net/robots.txt
+2026-03-26T00:16:08Z,FAILED FETCHING: DNS resolution failed,https://edgesuite.net/
+2026-03-26T00:16:08Z,OK, Code 200,https://ampproject.org/,137601
+2026-03-26T00:16:08Z,ROBOTS FETCH FAILED: DNS resolution failed,https://ggpht.com/robots.txt
+2026-03-26T00:16:08Z,FAILED FETCHING: DNS resolution failed,https://ggpht.com/
+2026-03-26T00:16:09Z,SKIP, BAD RESP,https://appsflyersdk.com/,403
+2026-03-26T00:16:10Z,OK, Code 200,https://youtu.be/,691139
+2026-03-26T00:16:10Z,ROBOTS FETCH FAILED: DNS resolution failed,https://akamaihd.net/robots.txt
+2026-03-26T00:16:10Z,FAILED FETCHING: DNS resolution failed,https://akamaihd.net/
+2026-03-26T00:16:11Z,OK, Code 200,https://azure.com/,493934
+2026-03-26T00:16:12Z,OK, Code 200,https://pinterest.com/,772838
+2026-03-26T00:16:13Z,OK, Code 200,https://stripe.com/,575230
+2026-03-26T00:16:13Z,ROBOTS FETCH FAILED: DNS resolution failed,https://keenetic.io/robots.txt
+2026-03-26T00:16:13Z,FAILED FETCHING: DNS resolution failed,https://keenetic.io/
+2026-03-26T00:16:13Z,OK, Code 200,https://www.yahoo.com/news/articles/trump-prepared-unleash-hell-iran-211827226.html,867366
+2026-03-26T00:16:14Z,OK, Code 200,https://store.steampowered.com/points/shop/?snr=1_4_seasonalsale__global-responsive-menu,2200437
+2026-03-26T00:16:14Z,SKIP, ROBOTS DISALLOW,https://bit.ly/
+2026-03-26T00:16:15Z,OK, Code 200,https://microsoft.com/,215582
+2026-03-26T00:16:16Z,OK, Code 200,https://cloudflare.net/,64539
+2026-03-26T00:16:17Z,OK, Code 200,https://spotify.com/,8531
+2026-03-26T00:16:17Z,ROBOTS FETCH FAILED: DNS resolution failed,https://cloudfront.net/robots.txt
+2026-03-26T00:16:17Z,FAILED FETCHING: DNS resolution failed,https://cloudfront.net/
+2026-03-26T00:16:18Z,FAILED FETCHING: too many redirects,https://cloudflare-dns.com/
+2026-03-26T00:16:18Z,OK, Code 200,https://youtube.com/,689601
+2026-03-26T00:16:19Z,OK, Code 200,https://github.com/,566816
+2026-03-26T00:16:20Z,OK, Code 200,https://www.microsoft.com/en-us/microsoft-365-copilot/pricing,309277
+2026-03-26T00:16:20Z,FAILED FETCHING: too many redirects,https://www.yahoo.com/guides/originals
+2026-03-26T00:16:21Z,ROBOTS FETCH FAILED: DNS resolution failed,https://jomodns.com/robots.txt
+2026-03-26T00:16:21Z,FAILED FETCHING: DNS resolution failed,https://jomodns.com/
+2026-03-26T00:16:21Z,ROBOTS FETCH FAILED: DNS resolution failed,https://ytimg.com/robots.txt
+2026-03-26T00:16:21Z,FAILED FETCHING: DNS resolution failed,https://ytimg.com/
+2026-03-26T00:16:21Z,OK, Code 200,https://digicert.com/,1038
+2026-03-26T00:16:21Z,ROBOTS FETCH FAILED: DNS resolution failed,https://trafficmanager.net/robots.txt
+2026-03-26T00:16:21Z,FAILED FETCHING: DNS resolution failed,https://trafficmanager.net/
+2026-03-26T00:16:22Z,OK, Code 200,https://snapchat.com/,71525
+2026-03-26T00:16:22Z,SKIP, BAD RESP,https://godaddy.com/,403
+2026-03-26T00:16:23Z,OK, Code 200,https://amazonvideo.com/,303258
+2026-03-26T00:16:23Z,ROBOTS FETCH FAILED: DNS resolution failed,https://cdninstagram.com/robots.txt
+2026-03-26T00:16:23Z,FAILED FETCHING: DNS resolution failed,https://cdninstagram.com/
+2026-03-26T00:16:23Z,OK, Code 200,https://sentry.io/product/seer,1215794
+2026-03-26T00:16:24Z,FAILED FETCHING: too many redirects,https://health.yahoo.com/wellness/healthy-aging
+2026-03-26T00:16:24Z,ROBOTS FETCH FAILED: DNS resolution failed,https://office.net/robots.txt
+2026-03-26T00:16:24Z,FAILED FETCHING: DNS resolution failed,https://office.net/
+2026-03-26T00:16:25Z,OK, Code 200,https://mzstatic.com/,235228
+2026-03-26T00:16:25Z,OK, Code 200,https://shopify.com/,634652
+2026-03-26T00:16:28Z,OK, Code 200,https://ebay.com/,904100
+2026-03-26T00:16:28Z,OK, Code 200,https://weather.com/,1203630
+2026-03-26T00:16:30Z,OK, Code 200,https://springer.com/,258327
+2026-03-26T00:16:31Z,OK, Code 200,https://cpanel.net/,266973
+2026-03-26T00:16:32Z,OK, Code 200,https://steamcommunity.com/my/wishlist,128043
+2026-03-26T00:16:32Z,OK, Code 200,https://store.steampowered.com/app/3918850/Might__Magic_Fates__Heroes_TCG/?snr=1_4_seasonalsale__tab-TrendingFree,157342
+2026-03-26T00:16:33Z,OK, Code 200,https://store.steampowered.com/app/3897800/Poker_Night_at_the_Inventory/?snr=1_4_seasonalsale__145,175579
+2026-03-26T00:16:33Z,ROBOTS FETCH FAILED: DNS resolution failed,https://ttdns2.com/robots.txt
+2026-03-26T00:16:33Z,FAILED FETCHING: DNS resolution failed,https://ttdns2.com/
+2026-03-26T00:16:33Z,SKIP, ROBOTS DISALLOW,https://gstatic.com/
+2026-03-26T00:16:33Z,OK, Code 200,https://discord.com/,161614
+2026-03-26T00:16:33Z,ROBOTS FETCH FAILED: DNS resolution failed,https://ttvnw.net/robots.txt
+2026-03-26T00:16:33Z,FAILED FETCHING: DNS resolution failed,https://ttvnw.net/
+2026-03-26T00:16:41Z,ROBOTS FETCH FAILED: connection timeout,https://qq.com/robots.txt
+2026-03-26T00:16:43Z,OK, Code 200,https://qq.com/,121533
+2026-03-26T00:16:43Z,OK, Code 200,https://fastly.net/,680632
+2026-03-26T00:16:43Z,OK, Code 200,https://store.steampowered.com/app/216150/MapleStory/?snr=1_4_seasonalsale__tab-TopGrossing,200376
+2026-03-26T00:16:44Z,OK, Code 200,https://stripe.com/industries/insurance,586346
+2026-03-26T00:16:44Z,OK, Code 200,https://forbusiness.snapchat.com/?utm_source=www_snapchat_com&amp;utm_medium=referral&amp;utm_campaign=internal_referral&amp;utm_content=global_nav_link,565240
+2026-03-26T00:16:44Z,SKIP, ROBOTS DISALLOW,https://signup.ebay.com/pa/crte
+2026-03-26T00:16:44Z,ROBOTS FETCH FAILED: DNS resolution failed,https://nflxso.net/robots.txt
+2026-03-26T00:16:44Z,FAILED FETCHING: DNS resolution failed,https://nflxso.net/
+2026-03-26T00:16:45Z,OK, Code 200,https://tumblr.com/,121956
+2026-03-26T00:16:46Z,OK, Code 200,https://t.me/,19656
+2026-03-26T00:16:46Z,ROBOTS FETCH FAILED: DNS resolution failed,https://ksyuncdn.com/robots.txt
+2026-03-26T00:16:46Z,FAILED FETCHING: DNS resolution failed,https://ksyuncdn.com/
+2026-03-26T00:16:54Z,OK, Code 200,https://workers.dev/,1170374
+2026-03-26T00:16:55Z,OK, Code 200,https://mailinabox.email/,20895
+2026-03-26T00:16:55Z,ROBOTS FETCH FAILED: DNS resolution failed,https://t-msedge.net/robots.txt
+2026-03-26T00:16:55Z,FAILED FETCHING: DNS resolution failed,https://t-msedge.net/
+2026-03-26T00:16:55Z,ROBOTS FETCH FAILED: DNS resolution failed,https://msftconnecttest.com/robots.txt
+2026-03-26T00:16:55Z,FAILED FETCHING: DNS resolution failed,https://msftconnecttest.com/
+2026-03-26T00:16:58Z,OK, Code 200,https://meeting.tencent.com/activities?fromSource=sem70,210099
+2026-03-26T00:16:58Z,OK, Code 200,https://stripe.com/legal/restricted-businesses,201395
+2026-03-26T00:16:58Z,CHECKPOINT,100,4145,4045
+2026-03-26T00:17:01Z,OK, Code 200,https://yandex.net/,435653
+2026-03-26T00:17:01Z,OK, Code 200,https://vimeo.com/,1918981
+2026-03-26T00:17:02Z,OK, Code 200,https://canva.com/,10023
+2026-03-26T00:17:03Z,FAILED FETCHING: too many redirects,https://learn.microsoft.com/
+2026-03-26T00:17:04Z,OK, Code 200,https://go.microsoft.com/fwlink/p/?LinkID=506743,510482
+2026-03-26T00:17:05Z,FAILED FETCHING: too many redirects,https://finance.yahoo.com/markets/stocks/highest-dividend
+2026-03-26T00:17:06Z,OK, Code 200,https://www.youtube.com/channel/UCXPBsjgKKG2HqsKBhWA4uQw,1757099
+2026-03-26T00:17:08Z,OK, Code 200,https://www.appsflyer.com/products/deep-linking/social-to-app,370162
+2026-03-26T00:17:09Z,FAILED FETCHING: too many redirects,https://www.cpanel.net/support
+2026-03-26T00:17:09Z,OK, Code 200,https://stripe.com/jobs,398307
+2026-03-26T00:17:09Z,ROBOTS FETCH FAILED: DNS resolution failed,https://windowsupdate.com/robots.txt
+2026-03-26T00:17:09Z,FAILED FETCHING: DNS resolution failed,https://windowsupdate.com/
+2026-03-26T00:17:17Z,ROBOTS FETCH FAILED: connection timeout,https://shifen.com/robots.txt
+2026-03-26T00:17:25Z,FAILED FETCHING: connection timeout,https://shifen.com/
+2026-03-26T00:17:26Z,OK, Code 200,https://msn.com/,52331
+2026-03-26T00:17:26Z,ROBOTS FETCH FAILED: DNS resolution failed,https://rocket-cdn.com/robots.txt
+2026-03-26T00:17:26Z,FAILED FETCHING: DNS resolution failed,https://rocket-cdn.com/
+2026-03-26T00:17:26Z,ROBOTS FETCH FAILED: DNS resolution failed,https://azurefd.net/robots.txt
+2026-03-26T00:17:26Z,FAILED FETCHING: DNS resolution failed,https://azurefd.net/
+2026-03-26T00:17:26Z,SKIP, ROBOTS DISALLOW,https://soundcloud.com/
+2026-03-26T00:17:30Z,FAILED FETCHING: too many redirects,https://myfritz.net/
+2026-03-26T00:17:31Z,OK, Code 200,https://amazon.com/,673699
+2026-03-26T00:17:31Z,OK, Code 200,https://roku.com/,302282
+2026-03-26T00:17:32Z,OK, Code 200,https://stripe.com/resources/more,489261
+2026-03-26T00:17:32Z,SKIP, ROBOTS DISALLOW,https://reddit.com/
+2026-03-26T00:17:32Z,ROBOTS FETCH FAILED: DNS resolution failed,https://spo-msedge.net/robots.txt
+2026-03-26T00:17:32Z,FAILED FETCHING: DNS resolution failed,https://spo-msedge.net/
+2026-03-26T00:17:33Z,OK, Code 200,https://steampowered.com/?l=greek,1705975
+2026-03-26T00:17:33Z,OK, Code 200,https://shopify.com/tr?country=tr&amp;lang=en,649723
+2026-03-26T00:17:33Z,OK, Code 200,https://discord.com/category/product,190328
+2026-03-26T00:17:34Z,FAILED FETCHING: too many redirects,https://adobe.io/developer-console
+2026-03-26T00:17:34Z,OK, Code 200,https://www.youtube.com/c/appsflyer,1339762
+2026-03-26T00:17:35Z,SKIP, BAD RESP,https://ampproject.org/documentation/components,404
+2026-03-26T00:17:35Z,OK, Code 200,https://vimeo.com/features/video-trimmer,1770045
+2026-03-26T00:17:37Z,OK, Code 200,https://www.microsoft.com/en-us/microsoft-products-and-apps,350994
+2026-03-26T00:17:37Z,FAILED FETCHING: too many redirects,https://sports.yahoo.com/fantasy/mobile
+2026-03-26T00:17:38Z,OK, Code 200,https://docs.launchdarkly.com/sdk/server-side/apex,2672512
+2026-03-26T00:17:39Z,OK, Code 200,https://vimeo.com/terms,867245
+2026-03-26T00:17:40Z,FAILED FETCHING: too many redirects,https://adobe.io/experience-platform-apis
+2026-03-26T00:17:40Z,SKIP, NON-HTML CONTENT,https://ampproject.org/static/files/brand-material/AMP_Logo_Rebrush.zip
+2026-03-26T00:17:41Z,FAILED FETCHING: too many redirects,https://tech.yahoo.com/phones
+2026-03-26T00:17:42Z,OK, Code 200,https://www.appsflyer.com/blog/topic/data-collaboration,384090
+2026-03-26T00:17:43Z,OK, Code 200,https://github.com/gregelin,217002
+2026-03-26T00:17:44Z,FAILED FETCHING: too many redirects,https://apple.com/apple-one
+2026-03-26T00:17:44Z,SKIP, BAD RESP,https://www.amazon.com/Amazon-Video/b/?&amp;node=2858778011&amp;ref=dvm_MLP_ROWNA_US_1&amp;rs=000-0000000-0000000:C,404
+2026-03-26T00:17:55Z,ROBOTS FETCH FAILED: too many redirects,https://outlook.com/robots.txt
+2026-03-26T00:17:57Z,FAILED FETCHING: too many redirects,https://outlook.com/
+2026-03-26T00:17:57Z,OK, Code 200,https://nytimes.com/,1142987
+2026-03-26T00:17:58Z,OK, Code 200,https://tiktok.com/,305691
+2026-03-26T00:17:58Z,ROBOTS FETCH FAILED: DNS resolution failed,https://hichina.com/robots.txt
+2026-03-26T00:17:58Z,FAILED FETCHING: DNS resolution failed,https://hichina.com/
+2026-03-26T00:17:59Z,OK, Code 200,https://amazon.com/s/ref=null_3?_encoding=UTF8&amp;pf_rd_m=ATVPDKIKX0DER&amp;pf_rd_s=desktop-top-slot-2&amp;pf_rd_t=&amp;pf_rd_i=&amp;k=Cat%20Flea%20%26%20Tick%20Control&amp;rh=n%3A2975280011&amp;ref=nb_sb_noss&amp;pd_rd_w=1GrTo&amp;content-id=amzn1.sym.5776c652-c135-4f6f-88ca-be55d168bc8c&amp;pf_rd_p=5776c652-c135-4f6f-88ca-be55d168bc8c&amp;pf_rd_r=YJR96WS8WYQ4YMYDEFZW&amp;pd_rd_wg=3Dusj&amp;pd_rd_r=5e3b1104-d3f7-4bf2-b475-cdfaf9ae85a9&amp;ref_=pd_hp_d_btf_unk,468486
+2026-03-26T00:18:00Z,OK, Code 200,https://store.steampowered.com/app/3557460/DAMON_and_BABY/?snr=1_4_seasonalsale__105,155411
+2026-03-26T00:18:00Z,OK, Code 200,https://gandi.net/en/solutions/create-website/showcase-site,196704
+2026-03-26T00:18:00Z,SKIP, BAD RESP,https://cloudflare.net/tel: +1 (888) 99 FLARE,404
+2026-03-26T00:18:01Z,OK, Code 200,https://developer.adobe.com/express,19046
+2026-03-26T00:18:01Z,OK, Code 200,https://discord.com/safety-news,754002
+2026-03-26T00:18:01Z,OK, Code 200,https://android.com/,254234
+2026-03-26T00:18:01Z,ROBOTS FETCH FAILED: DNS resolution failed,https://amazon.dev/robots.txt
+2026-03-26T00:18:01Z,FAILED FETCHING: DNS resolution failed,https://amazon.dev/
+2026-03-26T00:18:02Z,FAILED FETCHING: too many redirects,https://health.yahoo.com/wellness/sexual-health
+2026-03-26T00:18:03Z,OK, Code 200,https://gandi.net/fr-CH,181836
+2026-03-26T00:18:03Z,OK, Code 200,https://store.steampowered.com/app/3065800/Marathon/?snr=1_4_seasonalsale__tab-TopGrossing,187808
+2026-03-26T00:18:03Z,OK, Code 200,https://nytimes.com/gift-articles,94164
+2026-03-26T00:18:05Z,OK, Code 200,https://www.appsflyer.com/blog/topic/ai-in-marketing,406005
+2026-03-26T00:18:06Z,OK, Code 200,https://www.microsoft.com/en-us/accessibility,206411
+2026-03-26T00:18:07Z,OK, Code 200,https://amazon.com/Dole-Banana-Bunch-4-5-Count/dp/B07ZLFPXHC?_encoding=UTF8&amp;pd_rd_w=ORnEC&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=YJR96WS8WYQ4YMYDEFZW&amp;pd_rd_wg=3Dusj&amp;pd_rd_r=5e3b1104-d3f7-4bf2-b475-cdfaf9ae85a9&amp;ref_=pd_hp_d_btf_crs_zg_bs_16310101,794558
+2026-03-26T00:18:08Z,OK, Code 200,https://www.nytimes.com/section/opinion,477084
+2026-03-26T00:18:09Z,OK, Code 200,https://criteo.com/,555233
+2026-03-26T00:18:09Z,ROBOTS FETCH FAILED: DNS resolution failed,https://a2z.com/robots.txt
+2026-03-26T00:18:09Z,FAILED FETCHING: DNS resolution failed,https://a2z.com/
+2026-03-26T00:18:10Z,OK, Code 200,https://google.com/,79194
+2026-03-26T00:20:20Z,SKIP, BAD RESP,https://amazon-adsystem.com/,404
+2026-03-26T00:20:28Z,ROBOTS FETCH FAILED: connection timeout,https://msedge.net/robots.txt
+2026-03-26T00:20:36Z,FAILED FETCHING: connection timeout,https://msedge.net/
+2026-03-26T00:20:36Z,ROBOTS FETCH FAILED: DNS resolution failed,https://facebook.net/robots.txt
+2026-03-26T00:20:36Z,FAILED FETCHING: DNS resolution failed,https://facebook.net/
+2026-03-26T00:20:36Z,OK, Code 200,https://amazon.com/gp/browse.html?node=388305011&ref_=footer_tfx,179399
+2026-03-26T00:20:37Z,OK, Code 200,https://de.yahoo.com/?p=dnr,1310198
+2026-03-26T00:20:37Z,OK, Code 200,https://mzstatic.com/environment,235228
+2026-03-26T00:20:38Z,FAILED FETCHING: too many redirects,https://tech.yahoo.com/ai/meta-ai
+2026-03-26T00:20:39Z,OK, Code 200,https://launchpad.net/,20633
+2026-03-26T00:20:41Z,SKIP, BAD RESP,https://aliyuncs.com/,404
+2026-03-26T00:20:42Z,OK, Code 200,https://amazon.com/Starbucks-Italian-Ground-Coffee-Arabica/dp/B0936GLRVN?_encoding=UTF8&amp;pd_rd_w=1l8It&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=YJR96WS8WYQ4YMYDEFZW&amp;pd_rd_wg=3Dusj&amp;pd_rd_r=5e3b1104-d3f7-4bf2-b475-cdfaf9ae85a9&amp;ref_=pd_hp_d_btf_crs_zg_bs_284507,836141
+2026-03-26T00:20:43Z,OK, Code 200,https://azure.microsoft.com/en-us,493933
+2026-03-26T00:20:43Z,OK, Code 200,https://www.springernature.com/,55812
+2026-03-26T00:20:44Z,FAILED FETCHING: too many redirects,https://finance.yahoo.com/topic/earnings
+2026-03-26T00:20:45Z,OK, Code 200,https://forbusiness.snapchat.com/public-profiles,619672
+2026-03-26T00:20:45Z,FAILED FETCHING: too many redirects,https://tech.yahoo.com/science/space
+2026-03-26T00:20:46Z,FAILED FETCHING: too many redirects,https://shopping.yahoo.com/stores/best-buy
+2026-03-26T00:20:46Z,OK, Code 200,https://telegram.org/?setln=id,19693
+2026-03-26T00:20:46Z,ROBOTS FETCH FAILED: DNS resolution failed,https://microsoftonline.com/robots.txt
+2026-03-26T00:20:46Z,FAILED FETCHING: DNS resolution failed,https://microsoftonline.com/
+2026-03-26T00:20:46Z,ROBOTS FETCH FAILED: connection failed,https://amazonaws.com/robots.txt
+2026-03-26T00:20:46Z,FAILED FETCHING: connection failed,https://amazonaws.com/
+2026-03-26T00:20:47Z,OK, Code 200,https://rubiconproject.com/,163869
+2026-03-26T00:20:48Z,OK, Code 200,https://github.io/,14446
+2026-03-26T00:20:49Z,FAILED FETCHING: too many redirects,https://launchdarkly.com/partner-program
+2026-03-26T00:20:49Z,OK, Code 200,https://t.me/?setln=en,19656
+2026-03-26T00:20:50Z,OK, Code 200,https://finance.yahoo.com/research-hub/screener/most_active_penny_stocks,3142936
+2026-03-26T00:20:51Z,FAILED FETCHING: too many redirects,https://sports.yahoo.com/nfl/players
+2026-03-26T00:20:51Z,SKIP, ROBOTS DISALLOW,https://passport.yandex.ru/auth?retpath=https%3A%2F%2Fsso.passport.yandex.ru%2Fpush%3Fretpath%3Dhttps%253A%252F%252Fya.ru%252F%26uuid%3D6edea96b-6422-4aa3-a78b-ef614bfe098e&amp;msid=1774484220780851-8515525284241813028-balancer-l7leveler-kubr-yp-vla-175-BAL&amp;origin=home_yaru_desktop_new
+2026-03-26T00:20:52Z,OK, Code 200,https://amazon.com/fmc/grocery-gateway?gsc=fe16aGPfFs46S&ref_=nav_cs_groceries,223588
+2026-03-26T00:20:55Z,OK, Code 200,https://telekom.net/,165681
+2026-03-26T00:20:56Z,OK, Code 200,https://paypal.com/,313888
+2026-03-26T00:20:56Z,OK, Code 200,https://gravatar.com/,87489
+2026-03-26T00:20:57Z,OK, Code 200,https://store.steampowered.com/stats/?snr=1_4_seasonalsale__global-responsive-menu,32288
+2026-03-26T00:20:57Z,OK, Code 200,https://shopify.com/dk?country=dk&amp;lang=en,663464
+2026-03-26T00:20:58Z,FAILED FETCHING: too many redirects,https://develop.sentry.dev/getting-started
+2026-03-26T00:20:59Z,OK, Code 200,https://policies.google.com/technologies/cookies,569037
+2026-03-26T00:21:00Z,FAILED FETCHING: too many redirects,https://www.magnite.com/press
+2026-03-26T00:21:00Z,OK, Code 200,https://azure.microsoft.com/en-us/support,197755
+2026-03-26T00:21:02Z,OK, Code 200,https://www.exploregeorgia.org/weather-and-travel-tips,242268
+2026-03-26T00:21:02Z,CHECKPOINT,200,7141,6941
+2026-03-26T00:21:10Z,ROBOTS FETCH FAILED: connection timeout,https://ripn.net/robots.txt
+2026-03-26T00:21:18Z,FAILED FETCHING: connection timeout,https://ripn.net/
+2026-03-26T00:21:18Z,OK, Code 200,https://pages.ebay.com/payment/2.0/terms.html,264153
+2026-03-26T00:21:18Z,OK, Code 200,https://github.com/mobile,330856
+2026-03-26T00:21:19Z,OK, Code 200,https://store.nytimes.com/,156134
+2026-03-26T00:21:20Z,FAILED FETCHING: too many redirects,https://launchdarkly.com/features/feature-lifecycle-management
+2026-03-26T00:21:22Z,OK, Code 200,https://azure.microsoft.com/en-us/resources/cloud-computing-dictionary/what-is-aiaas,242362
+2026-03-26T00:21:22Z,OK, Code 200,https://www.microsoft.com/en-us/power-platform,302657
+2026-03-26T00:21:23Z,FAILED FETCHING: too many redirects,https://tech.yahoo.com/audio/deals
+2026-03-26T00:21:24Z,OK, Code 200,https://store.steampowered.com/app/3545060/Team_Fortress_2_Classified/?snr=1_4_seasonalsale__tab-TrendingFree,159331
+2026-03-26T00:21:24Z,OK, Code 200,https://discord.gg/login,5940
+2026-03-26T00:21:25Z,OK, Code 200,https://www.yahoo.com/news/world/article/iran-war-latest-updates-trump-threatens-to-obliterate-power-plants-in-48-hour-ultimatum-iranian-missiles-strike-near-israels-nuclear-site-170844301.html,952629
+2026-03-26T00:21:26Z,OK, Code 200,https://tech.yahoo.com/audio/article/best-wireless-earbuds-191737075.html,1522566
+2026-03-26T00:21:27Z,OK, Code 200,https://nytimes.com/spotlight/graphics,843975
+2026-03-26T00:21:27Z,OK, Code 200,https://shopify.com/pos,625311
+2026-03-26T00:21:27Z,OK, Code 200,https://mzstatic.com/us/shop/goto/giftcards,235228
+2026-03-26T00:21:28Z,OK, Code 200,https://www.microsoft.com/en-us/microsoft-365-copilot/chat,397457
+2026-03-26T00:21:28Z,SKIP, BAD RESP,https://www.nytimes.com/2026/03/24/nyregion/air-canada-pilots-laguardia.html,403
+2026-03-26T00:21:31Z,OK, Code 200,https://help.gandi.net/contact/feedback,65440
+2026-03-26T00:21:33Z,FAILED FETCHING: too many redirects,https://www.magnite.com/event-hub
+2026-03-26T00:21:33Z,OK, Code 200,https://shopify.com/ch-fr?country=ch&amp;lang=fr,668102
+2026-03-26T00:21:33Z,ROBOTS FETCH FAILED: DNS resolution failed,https://miit.gov.cn/robots.txt
+2026-03-26T00:21:33Z,FAILED FETCHING: DNS resolution failed,https://miit.gov.cn/
+2026-03-26T00:21:35Z,OK, Code 200,https://vk.com/,385755
+2026-03-26T00:21:43Z,ROBOTS FETCH FAILED: connection timeout,https://duckdns.org/robots.txt
+2026-03-26T00:21:51Z,FAILED FETCHING: connection timeout,https://duckdns.org/
+2026-03-26T00:21:51Z,ROBOTS FETCH FAILED: DNS resolution failed,https://omtrdc.net/robots.txt
+2026-03-26T00:21:51Z,FAILED FETCHING: DNS resolution failed,https://omtrdc.net/
+2026-03-26T00:21:52Z,OK, Code 200,https://tw.yahoo.com/?p=dnr,566058
+2026-03-26T00:21:53Z,OK, Code 200,https://gandi.net/en/security,226125
+2026-03-26T00:21:54Z,OK, Code 200,https://store.steampowered.com/app/2399830/ARK_Survival_Ascended/?snr=1_4_seasonalsale__tab-TopGrossing,238457
+2026-03-26T00:21:54Z,SKIP, ROBOTS DISALLOW,https://docs.gandi.net/en
+2026-03-26T00:21:54Z,OK, Code 200,https://discord.com/guidelines,79266
+2026-03-26T00:21:55Z,OK, Code 200,https://policies.google.com/privacy,669888
+2026-03-26T00:21:55Z,ROBOTS FETCH FAILED: DNS resolution failed,https://e2ro.com/robots.txt
+2026-03-26T00:21:55Z,FAILED FETCHING: DNS resolution failed,https://e2ro.com/
+2026-03-26T00:21:55Z,OK, Code 200,https://twitch.tv/,186654
+2026-03-26T00:21:56Z,OK, Code 200,https://inmobi.com/,26479
+2026-03-26T00:21:56Z,ROBOTS FETCH FAILED: DNS resolution failed,https://fastly-edge.com/robots.txt
+2026-03-26T00:21:56Z,FAILED FETCHING: DNS resolution failed,https://fastly-edge.com/
+2026-03-26T00:21:57Z,OK, Code 200,https://skype.com/,56419
+2026-03-26T00:21:58Z,FAILED FETCHING: too many redirects,https://apple.com/apple-cash
+2026-03-26T00:21:58Z,OK, Code 200,https://en.wikipedia.org/wiki/Sender_Policy_Framework,141686
+2026-03-26T00:21:58Z,OK, Code 200,https://azure.microsoft.com/en-us/pricing,632853
+2026-03-26T00:21:59Z,OK, Code 200,https://www.appsflyer.com/podcasts,350292
+2026-03-26T00:22:00Z,OK, Code 200,https://vimeo.com/features/screen-recorder,2031960
+2026-03-26T00:22:04Z,OK, Code 200,https://windows.com/,142592
+2026-03-26T00:22:05Z,OK, Code 200,https://whatsapp.com/,273233
