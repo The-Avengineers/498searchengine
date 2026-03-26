@@ -36,7 +36,7 @@ public:
   {
     if (num_elements > 0)
     {
-      Data = new T[num_elements];
+      Data = new T[num_elements]();
     }
   }
 
