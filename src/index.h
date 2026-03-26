@@ -26,6 +26,8 @@ struct Posting
 constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
 constexpr const size_t OFFSET_THRESHOLD = 400000000;
 
+constexpr const char* INDEX_DIRECTORY = ".";
+
 // The raw data needed as input to calculate the static rank (distance from seed list, length of
 // document, etc). It MUST be plain old data, no pointers.
 using RankingInput = uint64_t;
@@ -96,6 +98,7 @@ extern avengine::vector<pthread_t> g_serializeThreads;
 void* serializeIndex(Index* index);
 
 void cleanUpIndexer();
+void resumeIndexer();
 
 enum class PhraseKind
 {

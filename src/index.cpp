@@ -369,6 +369,64 @@ void cleanUpIndexer()
   }
 }
 
+void resumeIndexer()
+{
+  // Find the largest .sfi file index and set indexCounter to the next value.
+  DIR* dir = opendir(INDEX_DIRECTORY);
+  if (dir == nullptr)
+  {
+    return;
+  }
+
+  size_t maxIndex = 0;
+  bool found = false;
+
+  struct dirent* entry;
+  while ((entry = readdir(dir)) != nullptr)
+  {
+    const char* name = entry->d_name;
+    size_t len = strlen(name);
+
+    // Filenames have the form "%05zu.sfi" (9 chars: 5 digits + '.' + 3 chars).
+    if (len != 9)
+      continue;
+
+    if (strcmp(name + 5, ".sfi") != 0)
+      continue;
+
+    // Ensure the first 5 characters are all digits.
+    bool allDigits = true;
+    for (int i = 0; i < 5; i++)
+    {
+      if (name[i] < '0' || name[i] > '9')
+      {
+        allDigits = false;
+        break;
+      }
+    }
+    if (!allDigits)
+    {
+      continue;
+    }
+
+    char numBuf[6];
+    memcpy(numBuf, name, 5);
+    numBuf[5] = '\0';
+    size_t idx = static_cast<size_t>(atoi(numBuf));
+
+    if (!found || idx > maxIndex)
+    {
+      maxIndex = idx;
+      found = true;
+    }
+  }
+
+  closedir(dir);
+
+  if (found)
+    indexCounter = maxIndex + 1;
+}
+
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases)
 {
