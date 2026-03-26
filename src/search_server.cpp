@@ -149,8 +149,8 @@ void handleClient(int clientFd)
   const size_t methodEnd = findChar(request, ' ');
   const size_t targetEnd = findChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
 
-  if (methodEnd == string::npos || targetEnd == string::npos ||
-      methodEnd >= lineEnd || targetEnd > lineEnd || !startsWith(request, "GET "))
+  if (methodEnd == string::npos || targetEnd == string::npos || methodEnd >= lineEnd ||
+      targetEnd > lineEnd || !startsWith(request, "GET "))
   {
     sendResponse(clientFd, 405, "Method Not Allowed",
                  string("{\"query\":\"\",\"errors\":[{\"message\":\"GET only\"}],\"results\":[]}"));
@@ -161,8 +161,9 @@ void handleClient(int clientFd)
   if (!startsWith(target, "/api/search"))
   {
     // Frontend files land in the next slice. For now this is API only.
-    sendResponse(clientFd, 404, "Not Found",
-                 string("{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}"));
+    sendResponse(
+        clientFd, 404, "Not Found",
+        string("{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}"));
     return;
   }
 
@@ -181,7 +182,8 @@ void handleClient(int clientFd)
       const string param = copyRange(target, cursor, next);
       const size_t equals = findChar(param, '=');
       const string key = equals == string::npos ? param : copyRange(param, 0, equals);
-      const string value = equals == string::npos ? string() : copyRange(param, equals + 1, param.size());
+      const string value =
+          equals == string::npos ? string() : copyRange(param, equals + 1, param.size());
 
       if (key == "q")
         query = decodeQueryValue(value);
