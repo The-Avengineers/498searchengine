@@ -1,3 +1,4 @@
+#include <avengine/avengine_lib/vector.h>
 #include <avengine/indexer/indexer.h>
 #include <cassert>
 #include <cctype>
@@ -166,7 +167,7 @@ static void encodePostingList(const PostingList& pl,
   append_bytes(out, metadataBuffer.begin(), metadataBuffer.size());
 }
 
-void Index::buildStringTable(uint64_t* dict, avengine::vector<char>& stringBuffer)
+void Index::buildStringTable(avengine::vector<uint64_t>& dict, avengine::vector<char>& stringBuffer)
 {
   map.forEach(
       [&](const avengine::string& /*key*/, PostingList& pl)
@@ -197,7 +198,7 @@ bool Index::serialize(int fd)
   // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
   // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
   const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
-  uint64_t* dictionaryBuffer = new uint64_t[needed]();
+  avengine::vector<uint64_t> dictionaryBuffer(needed);
 
   // TODO: Write magic bytes to identify file format and version.
   dictionaryBuffer[0] = documentMetadata.size();
@@ -239,7 +240,7 @@ bool Index::serialize(int fd)
 
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
     return true;
-  if (write(fd, dictionaryBuffer, needed * sizeof(uint64_t)) < 0)
+  if (write(fd, dictionaryBuffer.begin(), needed * sizeof(uint64_t)) < 0)
     return true;
 
   return false;
