@@ -131,6 +131,8 @@ int main()
   const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsPolicyManager(kRobotsUserAgent);
 
+  resumeIndexer();
+
   // ── Main crawl loop ──
   while (theFrontier.size() > 0 && !stopRequested())
   {
