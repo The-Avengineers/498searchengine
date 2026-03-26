@@ -13,7 +13,8 @@ namespace crawler
 
 Robots_Agent::Robots_Rules::Robots_Rules()
     : rules(nullptr), crawlDelaySeconds(0), lastRequestTime(0), initialized(false)
-{}
+{
+}
 
 Robots_Agent::Robots_Agent(const Utf8* userAgent) : userAgent_(userAgent) {}
 

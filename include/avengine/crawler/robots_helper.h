@@ -47,7 +47,7 @@ private:
   string buildOrigin(const URL& parsed) const;
 
   // Requires: origin to be == protocol://host[:port]
-  // Modifys: policies_ 
+  // Modifys: policies_
   // Effects: returns a pointer to the cached policy entry for origin
   Robots_Rules* getOrCreatePolicy(const string& origin);
 

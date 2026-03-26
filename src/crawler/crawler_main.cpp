@@ -98,7 +98,7 @@ int main()
   signal(SIGINT, handleStopSignal);
   signal(SIGTERM, handleStopSignal);
   signal(SIGPIPE, SIG_IGN);
-  
+
   // Crawler Components
   frontier theFrontier;
   fetcher theFetcher;

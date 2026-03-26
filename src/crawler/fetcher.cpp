@@ -1,14 +1,14 @@
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include <cstring>
+#include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <poll.h>
-#include <errno.h>
-#include <fcntl.h>
 
 #include <openssl/ssl.h>
 #include <zlib.h>
@@ -50,8 +50,8 @@ static bool isRedirectStatus(int code)
   return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
 }
 
-static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen, int timeoutMs,
-                               int* socketError)
+static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen,
+                               int timeoutMs, int* socketError)
 {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
@@ -92,11 +92,12 @@ static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t ad
   int pollResult = poll(&pfd, 1, timeoutMs);
   if (pollResult <= 0)
   {
-    if (pollResult == 0) 
+    if (pollResult == 0)
     {
       *socketError = ETIMEDOUT;
     }
-    else {
+    else
+    {
       *socketError = errno;
     }
     fcntl(fd, F_SETFL, flags);
