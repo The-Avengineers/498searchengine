@@ -217,11 +217,16 @@ void testUrlDepth()
   UrlDepth strat;
   vector<vector<size_t>> positions;
   Ranker::RankSignals signals;
+  // depth 0 (seed) and depth 2 are within shallow_thres → 1.0
   EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 0), positions, signals),
-                     0.0));
-  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 4), positions, signals),
-                     0.25));
-  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/root", "", 0), positions, signals),
+                     1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 2), positions, signals),
+                     1.0));
+  // depth 5 is midpoint of [2,8] → (8-5)/(8-2) = 0.5
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 5), positions, signals),
+                     0.5));
+  // depth 10 is beyond deep_thres → 0.0
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/deep", "", 10), positions, signals),
                      0.0));
 }
 
