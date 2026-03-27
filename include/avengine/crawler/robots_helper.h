@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Utf8.h"
+#include "../avengine_lib/mutex.h"
 #include "../avengine_lib/string.h"
 #include "../avengine_lib/vector.h"
 #include "RobotsTxt.h"
@@ -32,13 +33,14 @@ private:
     string origin;
     RobotsTxt* rules;
     int crawlDelaySeconds;
-    time_t lastRequestTime;
+    double lastRequestTime;
     bool initialized;
 
     Robots_Rules();
   };
 
   vector<Robots_Rules> policies_;
+  mutex policiesMu_;
   const Utf8* userAgent_;
 
   // Requires: parsed.host and parsed.protocol
@@ -51,16 +53,10 @@ private:
   // Effects: returns a pointer to the cached policy entry for origin
   Robots_Rules* getOrCreatePolicy(const string& origin);
 
-  // Requires: policy from getOrCreatePolicy
-  // Modifys: policy
-  // Effects: fetches and parses origin/robots.txt once then adds rules,
-  //          may append log lines via crawlLogger, may perform network fetch via theFetcher
-  void ensurePolicyLoaded(Robots_Rules& policy, fetcher& theFetcher, CrawlLogger& crawlLogger);
-
-  // Requires: policy.crawlDelaySeconds and lastRequestTime
-  // Modifys: thread sleeps TODO: ADD YIELD?
-  // Effects: blocks until it is allowed to crawl
-  void enforceCrawlDelay(const Robots_Rules& policy) const;
+  // Requires: waitSeconds
+  // Modifys: thread sleeps
+  // Effects: blocks for 0 <= X <= 0.3 seconds
+  void enforceCrawlDelay(double waitSeconds) const;
 
   // Requires: nothing
   // Modifys: polocies_

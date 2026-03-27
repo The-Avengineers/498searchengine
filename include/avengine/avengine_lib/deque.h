@@ -137,7 +137,7 @@ public:
   // MODIFIES: Nothing
   // EFFECTS: Returns true if *this and other contain the same elements
   //          in the same order, false otherwise
-  bool operator==(const Deque& other) const
+  bool operator==(const deque& other) const
   {
     if (count != other.count)
     {
@@ -157,7 +157,7 @@ public:
   // REQUIRES: Nothing
   // MODIFIES: Nothing
   // EFFECTS: Returns true if *this and other are not equal, false otherwise
-  bool operator!=(const Deque& other) const
+  bool operator!=(const deque& other) const
   {
     return !(*this == other);
   }
