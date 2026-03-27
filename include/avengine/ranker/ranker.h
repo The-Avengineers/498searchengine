@@ -66,7 +66,7 @@ public:
   void ClearStrategies();
 
   /**
-  * resets top 10 results list before next query
+   * resets top 10 results list before next query
    */
   void ResetResults();
 
