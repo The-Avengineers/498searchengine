@@ -323,12 +323,12 @@ int main()
 
   size_t workerCount = 8; // MAKE BIGGER
   thread* workers = new thread[workerCount];
-  threadArgs* threadArgs = new threadArgs[workerCount];
+  threadArgs* workerArgs = new threadArgs[workerCount];
   size_t startedWorkers = 0;
   for (size_t i = 0; i < workerCount; ++i)
   {
-    threadArgs[i].state = &workerState;
-    if (workers[i].start(crawlBatchWorker, &threadArgs[i]))
+    workerArgs[i].state = &workerState;
+    if (workers[i].start(crawlBatchWorker, &workerArgs[i]))
     {
       ++startedWorkers;
     }
@@ -408,7 +408,7 @@ int main()
     }
   }
   delete[] workers;
-  delete[] threadArgs;
+  delete[] workerArgs;
 
   workerState.countMu.lock();
   const size_t processedSnapshot = processedCount;
