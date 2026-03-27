@@ -82,7 +82,7 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
   char line[1024];
   while (in.getline(line, sizeof(line)))
   {
-    if (line[0] == '\0')
+    if (line[0] == '\0' || line[0] == '#')
     {
       continue;
     }
@@ -103,16 +103,14 @@ struct globalCrawlerState
   CrawlLogger* crawlLogger;
   Robots_Agent* robotsAgent;
   mutex frontierMu;
-  mutex robotsMu;
   mutex queueMu;
-  mutex countMu;
   condition_variable queueCV;
   condition_variable batchDoneCV;
   deque<urlEntry> q;
   size_t inFlight;
   bool shuttingDown;
-  size_t* processedCount;
-  size_t* indexedCount;
+  atomic_counter* processedCount;
+  atomic_counter* indexedCount;
 
   globalCrawlerState()
       : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), robotsAgent(nullptr), q(),
@@ -130,9 +128,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
                        fetcher& theFetcher)
 {
 
-  state.countMu.lock();
-  ++(*state.processedCount);
-  state.countMu.unlock();
+  state.processedCount->fetch_add(1);
 
   string crawlUrl = https_url_helper(normalizer, entry.url);
 
@@ -142,10 +138,8 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
-  state.robotsMu.lock();
-  const bool allowed =
-      state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
-  state.robotsMu.unlock();
+  const bool allowed = state.robotsAgent->allow(crawlUrl, normalizer, 
+                                          theFetcher, *state.crawlLogger);
 
   if (!allowed)
   {
@@ -190,9 +184,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
   };
   indexDocument(documentMetadata, parser.words);
 
-  state.countMu.lock();
-  ++(*state.indexedCount);
-  state.countMu.unlock();
+  state.indexedCount->fetch_add(1);
 
   for (size_t j = 0; j < parser.links.size(); ++j)
   {
@@ -307,8 +299,8 @@ int main()
   theFrontier.seed(filteredSeeds);
 
   // Crawling metadata
-  size_t processedCount = 0;
-  size_t indexedCount = 0;
+  atomic_counter processedCount(0);
+  atomic_counter indexedCount(0);
   size_t checkpointInterval = 100;
   const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsAgent(kRobotsUserAgent);
@@ -379,9 +371,7 @@ int main()
       workerState.queueMu.unlock();
     }
 
-    workerState.countMu.lock();
-    const size_t processedSnapshot = processedCount;
-    workerState.countMu.unlock();
+    const size_t processedSnapshot = static_cast<size_t>(processedCount.get_val());
 
     // Checkpoint all of our progress and log stats.
     if (processedSnapshot >= checkpointInterval)
@@ -410,9 +400,7 @@ int main()
   delete[] workers;
   delete[] workerArgs;
 
-  workerState.countMu.lock();
-  const size_t processedSnapshot = processedCount;
-  workerState.countMu.unlock();
+  const size_t processedSnapshot = static_cast<size_t>(processedCount.get_val());
 
   // Final checkpoint
   workerState.frontierMu.lock();
