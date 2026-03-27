@@ -138,8 +138,8 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
-  const bool allowed = state.robotsAgent->allow(crawlUrl, normalizer, 
-                                          theFetcher, *state.crawlLogger);
+  const bool allowed =
+      state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
 
   if (!allowed)
   {

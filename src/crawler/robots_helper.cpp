@@ -3,8 +3,8 @@
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/logger.h"
 
-#include <time.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 namespace avengine
@@ -21,7 +21,7 @@ double nowSeconds()
   gettimeofday(&tv, nullptr);
   return static_cast<double>(tv.tv_sec) + (static_cast<double>(tv.tv_usec) / 1000000.0);
 }
-}
+} // namespace
 
 Robots_Agent::Robots_Rules::Robots_Rules()
     : rules(nullptr), crawlDelaySeconds(0), lastRequestTime(0), initialized(false)
@@ -115,7 +115,8 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
       fetchResponse resp = result.value();
       if (resp.statusCode == 200)
       {
-        RobotsTxt* parsedRules = new RobotsTxt(reinterpret_cast<const Utf8*>(resp.body.cstr()), resp.body.size());
+        RobotsTxt* parsedRules =
+            new RobotsTxt(reinterpret_cast<const Utf8*>(resp.body.cstr()), resp.body.size());
         policiesMu_.lock();
         Robots_Rules* policy = getOrCreatePolicy(origin);
         if (policy->rules == nullptr)
@@ -132,7 +133,6 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
     }
   }
 
-  
   bool allowed = true;
   double waitSeconds = 0.0;
   policiesMu_.lock();
@@ -141,8 +141,8 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
   if (policy->rules != nullptr)
   {
     int crawlDelay = 0;
-    allowed = policy->rules->UrlAllowed(
-        userAgent_, reinterpret_cast<const Utf8*>(crawlUrl.cstr()), &crawlDelay);
+    allowed = policy->rules->UrlAllowed(userAgent_, reinterpret_cast<const Utf8*>(crawlUrl.cstr()),
+                                        &crawlDelay);
     if (crawlDelay > policy->crawlDelaySeconds)
     {
       policy->crawlDelaySeconds = crawlDelay;
@@ -171,7 +171,6 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
     // Reserve this request slot while lock is held to avoid per-origin races.
     policy->lastRequestTime = now + waitSeconds;
   }
-  
 
   policiesMu_.unlock();
 
