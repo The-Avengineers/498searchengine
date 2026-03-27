@@ -8,7 +8,6 @@ namespace avengine
 class thread
 {
 public:
-
   typedef void* (*entry_fn)(void*);
 
   thread() : started_(false) {}

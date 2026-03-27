@@ -5,9 +5,8 @@ namespace avengine
 
 template <typename MutexT> class lock_guard
 {
-  
-public:
 
+public:
   explicit lock_guard(MutexT& mutex) : mutex_(mutex)
   {
     mutex_.lock();
@@ -24,7 +23,6 @@ public:
 
 private:
   MutexT& mutex_;
-  
 };
 
 } // namespace avengine

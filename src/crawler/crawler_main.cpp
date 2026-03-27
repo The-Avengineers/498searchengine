@@ -9,9 +9,9 @@
 #include "avengine/avengine_lib/condition_variable.h"
 #include "avengine/avengine_lib/deque.h"
 #include "avengine/avengine_lib/mutex.h"
-#include "avengine/avengine_lib/thread.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
+#include "avengine/avengine_lib/thread.h"
 #include <csignal>
 #include <fcntl.h>
 #include <fstream>
@@ -115,10 +115,10 @@ struct globalCrawlerState
   size_t* indexedCount;
 
   globalCrawlerState()
-      : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), 
-      robotsAgent(nullptr), q(), inFlight(0), shuttingDown(false), 
-      processedCount(nullptr), indexedCount(nullptr)
-  {}
+      : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), robotsAgent(nullptr), q(),
+        inFlight(0), shuttingDown(false), processedCount(nullptr), indexedCount(nullptr)
+  {
+  }
 };
 
 struct threadArgs
@@ -143,7 +143,8 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
   }
 
   state.robotsMu.lock();
-  const bool allowed = state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
+  const bool allowed =
+      state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
   state.robotsMu.unlock();
 
   if (!allowed)
@@ -281,7 +282,7 @@ int main()
   signal(SIGINT, handleStopSignal);
   signal(SIGTERM, handleStopSignal);
   signal(SIGPIPE, SIG_IGN);
-  
+
   // Crawler Components
   frontier theFrontier;
   URLNormalizer normalizer;

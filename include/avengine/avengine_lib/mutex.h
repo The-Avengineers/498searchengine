@@ -9,7 +9,6 @@ class mutex
 {
 
 public:
-
   mutex()
   {
     pthread_mutex_init(&mu, nullptr);
@@ -45,9 +44,7 @@ public:
   }
 
 private:
-
   pthread_mutex_t mu;
-
 };
 
 } // namespace avengine

@@ -11,7 +11,6 @@ class condition_variable
 {
 
 public:
-
   condition_variable()
   {
     pthread_cond_init(&cv, nullptr);
@@ -42,9 +41,7 @@ public:
   }
 
 private:
-
   pthread_cond_t cv;
-
 };
 
 } // namespace avengine
