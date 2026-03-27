@@ -66,6 +66,11 @@ public:
   void ClearStrategies();
 
   /**
+  * resets top 10 results list before next query
+   */
+  void ResetResults();
+
+  /**
    * Score a single URL using all strategies.
    */
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
