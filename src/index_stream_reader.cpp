@@ -1,6 +1,5 @@
 #include "avengine/index_stream_reader.h"
 
-#include <algorithm>
 #include <limits>
 
 namespace avengine
@@ -91,16 +90,21 @@ static Attributes make_word_attributes(const vector<DocumentInfo>& documents, Lo
   return attributes;
 }
 
-[[maybe_unused]] static Attributes make_document_attributes(const DocumentInfo& document)
+static size_t lower_bound_index(const vector<Location>& values, Location target)
 {
-  Attributes attributes = {};
-  attributes.kind = Attributes::Kind::DOCUMENT;
-  attributes.Document.documentId = document.documentId;
-  attributes.Document.documentLength =
-      document.end >= document.start ? static_cast<uint32_t>(document.end - document.start + 1) : 0;
-  attributes.Document.titleLength = document.titleLength;
-  attributes.Document.urlLength = document.urlLength;
-  return attributes;
+  size_t left = 0;
+  size_t right = values.size();
+
+  while (left < right)
+  {
+    const size_t mid = left + ((right - left) / 2);
+    if (values[mid] < target)
+      left = mid + 1;
+    else
+      right = mid;
+  }
+
+  return left;
 }
 } // namespace
 
@@ -187,8 +191,8 @@ Post* ISRWord::Seek(Location target)
   if (target == 0)
     target = 1;
 
-  const Location* found = std::lower_bound(occurrences_.begin(), occurrences_.end(), target);
-  if (found == occurrences_.end())
+  const size_t foundIndex = lower_bound_index(occurrences_, target);
+  if (foundIndex >= occurrences_.size())
   {
     currentIndex_ = occurrences_.size();
     exhausted_ = true;
@@ -196,17 +200,7 @@ Post* ISRWord::Seek(Location target)
     return nullptr;
   }
 
-  return SetCurrentFromIndex(static_cast<size_t>(found - occurrences_.begin()));
-}
-
-Location ISRWord::GetStartLocation() const
-{
-  return ISR::GetStartLocation();
-}
-
-Location ISRWord::GetEndLocation() const
-{
-  return ISR::GetEndLocation();
+  return SetCurrentFromIndex(foundIndex);
 }
 
 unsigned ISRWord::GetNumberOfOccurrences() const
@@ -693,6 +687,8 @@ unsigned ISRContainer::GetNumberOfOccurrences() const
   return CountContained;
 }
 
+Dictionary::Dictionary() : termLocations_(strings_equal, hashString, 256) {}
+
 void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_t urlLength)
 {
   const Location startLocation = documents_.empty() ? 1 : (documents_.back().end + 1);
@@ -708,7 +704,15 @@ void Dictionary::AddOccurrence(const char* token, Location location)
   if (!token || location == 0)
     return;
 
-  termLocations_[token].pushBack(location);
+  const string key(token);
+  Tuple<string, vector<Location>>* found = termLocations_.Find(key);
+  if (!found)
+  {
+    found = termLocations_.Find(key, vector<Location>());
+    uniqueWords_++;
+  }
+
+  found->value.pushBack(location);
   totalWords_++;
 }
 
@@ -717,13 +721,13 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
   if (!token)
     return nullptr;
 
-  auto found = termLocations_.find(token);
-  if (found == termLocations_.end())
+  Tuple<string, vector<Location>>* found = termLocations_.Find(string(token));
+  if (!found)
     return nullptr;
 
   uint32_t documentCount = 0;
-  uint32_t lastDocumentId = std::numeric_limits<uint32_t>::max();
-  for (Location location : found->second)
+  uint32_t lastDocumentId = static_cast<uint32_t>(-1);
+  for (Location location : found->value)
   {
     DocumentInfo document = {};
     if (find_document_for_location(documents_, location, &document))
@@ -736,10 +740,10 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
     }
   }
 
-  if (documentCount == 0 && !found->second.empty())
+  if (documentCount == 0 && !found->value.empty())
     documentCount = 1;
 
-  return new ISRWord(found->second, documents_, documentCount);
+  return new ISRWord(found->value, documents_, documentCount);
 }
 
 ISREndDoc* Dictionary::OpenEndDocIsr() const
@@ -757,7 +761,7 @@ size_t Dictionary::GetNumberOfWords() const
 
 size_t Dictionary::GetNumberOfUniqueWords() const
 {
-  return termLocations_.size();
+  return uniqueWords_;
 }
 
 size_t Dictionary::GetNumberOfDocuments() const
@@ -770,17 +774,13 @@ bool parsePostingBlobHeader(const uint8_t* begin, const uint8_t* end, PostingBlo
 {
   if (!begin || !end || !out || !fieldStreamsBegin)
     return false;
-  if (begin + 56 > end)
+  if (begin + 24 > end)
     return false;
 
   out->documentFrequency = read_u64_le(begin);
-  out->normalCollectionFrequency = read_u64_le(begin + 8);
-  out->titleCollectionFrequency = read_u64_le(begin + 16);
-  out->anchorCollectionFrequency = read_u64_le(begin + 24);
-  out->normalSectionCount = read_u64_le(begin + 32);
-  out->titleSectionCount = read_u64_le(begin + 40);
-  out->anchorSectionCount = read_u64_le(begin + 48);
-  *fieldStreamsBegin = begin + 56;
+  out->collectionFrequency = read_u64_le(begin + 8);
+  out->skipCount = read_u64_le(begin + 16);
+  *fieldStreamsBegin = begin + 24;
   return true;
 }
 

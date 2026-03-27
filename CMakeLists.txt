@@ -19,11 +19,18 @@ include(CTest)
 
 add_library(avengine
   src/Common.cpp
+  src/constraint_solver/constraint_solver.cpp
+  src/constraint_solver/isr_tree.cpp
+  src/constraint_solver/query_ast.cpp
+  src/constraint_solver/query_lexer.cpp
+  src/constraint_solver/query_parser.cpp
   src/expression.cpp
   src/HashBlob.cpp
   src/HashTable.cpp
   src/crawler/frontier.cpp
   src/crawler/logger.cpp
+  src/crawler/RobotsTxt.cpp
+  src/crawler/robots_helper.cpp
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/index.cpp
@@ -86,9 +93,12 @@ if (BUILD_TESTING)
   foreach(test_src IN LISTS TEST_SOURCES)
     get_filename_component(test_name "${test_src}" NAME_WE)
 
-    if (test_name MATCHES "doctest|smoke" AND NOT doctest_FOUND)
-      message(STATUS "Skipping ${test_name}: doctest not found")
-      continue()
+    if(NOT doctest_FOUND)
+      file(READ "${test_src}" test_src_contents)
+      if(test_src_contents MATCHES "#include <doctest/doctest.h>")
+        message(STATUS "Skipping ${test_name}: doctest not found")
+        continue()
+      endif()
     endif()
 
     add_executable(${test_name} ${test_src})

@@ -85,5 +85,16 @@ void CrawlLogger::log(const char* event, size_t count, size_t seenCount)
   return;
 }
 
+// void CrawlLogger::logIndexStats(size_t indexedCount, size_t indexBytes, size_t frontierSize)
+// {
+//   if (!logFile.is_open())
+//   {
+//     return;
+//   }
+//   writeTimestamp();
+//   logFile << ",INDEX_STATS," << indexedCount << "," << indexBytes << "," << frontierSize
+//           << std::endl;
+// }
+
 } // namespace crawler
 } // namespace avengine

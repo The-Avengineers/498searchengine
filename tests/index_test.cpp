@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -54,31 +55,34 @@ uint32_t readVarU32(const uint8_t*& cursor, const uint8_t* end)
 
 void testEncodingHelpers()
 {
-  uint8_t varBuf[8] = {};
+  avengine::vector<uint8_t> buf;
 
-  uint8_t* varEnd = write_var_uint32(varBuf, 0u);
-  EXPECT((varEnd - varBuf) == 1);
-  EXPECT(varBuf[0] == 0x00);
+  append_var_uint32(buf, 0u);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x00);
 
-  varEnd = write_var_uint32(varBuf, 127u);
-  EXPECT((varEnd - varBuf) == 1);
-  EXPECT(varBuf[0] == 0x7F);
+  buf.clear();
+  append_var_uint32(buf, 127u);
+  EXPECT(buf.size() == 1);
+  EXPECT(buf[0] == 0x7F);
 
-  varEnd = write_var_uint32(varBuf, 128u);
-  EXPECT((varEnd - varBuf) == 2);
-  EXPECT(varBuf[0] == 0x80);
-  EXPECT(varBuf[1] == 0x01);
+  buf.clear();
+  append_var_uint32(buf, 128u);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0x80);
+  EXPECT(buf[1] == 0x01);
 
-  varEnd = write_var_uint32(varBuf, 300u);
-  EXPECT((varEnd - varBuf) == 2);
-  EXPECT(varBuf[0] == 0xAC);
-  EXPECT(varBuf[1] == 0x02);
+  buf.clear();
+  append_var_uint32(buf, 300u);
+  EXPECT(buf.size() == 2);
+  EXPECT(buf[0] == 0xAC);
+  EXPECT(buf[1] == 0x02);
 
-  uint8_t u64Buf[8] = {};
+  buf.clear();
   const uint64_t expected = 0x0123456789ABCDEFULL;
-  uint8_t* u64End = write_uint64(u64Buf, expected);
-  EXPECT((u64End - u64Buf) == 8);
-  EXPECT(readU64LE(u64Buf) == expected);
+  append_uint64(buf, expected);
+  EXPECT(buf.size() == 8);
+  EXPECT(readU64LE(buf.begin()) == expected);
 }
 
 void testPostingListIngest()
@@ -89,7 +93,7 @@ void testPostingListIngest()
   list.ingest(2u, 42u);
   list.ingest(9u, 100u);
 
-  EXPECT(std::strcmp(list.word, "alpha") == 0);
+  EXPECT(list.word == avengine::string("alpha"));
   EXPECT(list.nextBucket == nullptr);
 
   EXPECT(list.postings.size() == 2);
@@ -108,18 +112,21 @@ void testIndexIngestAcrossDocuments()
 {
   Index index;
 
-  EXPECT(index.beginDocument("doc://0") == 0u);
+  uint32_t doc0 = index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0});
+  EXPECT(doc0 == 0u);
   index.ingest("apple");
   index.ingest("banana");
   index.ingest("apple");
+  index.endDocument();
 
-  EXPECT(index.beginDocument("doc://1") == 1u);
+  uint32_t doc1 = index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0});
+  EXPECT(doc1 == 1u);
   index.ingest("apple");
+  index.endDocument();
 
-  EXPECT(index.documentNames.size() == 2);
-  EXPECT(index.currentDocId == 1u);
-  EXPECT(index.totalUniqWords == 2u);
-  EXPECT(index.offset == 4u);
+  EXPECT(index.documentMetadata.size() == 2);
+  EXPECT(index.totalUniqWords == 3u); // apple, banana, DOCEND_TOKEN
+  EXPECT(index.offset == 6u);         // 3 words + DOCEND for doc0, 1 word + DOCEND for doc1
 
   PostingList* apple = index.getBucket("apple");
   PostingList* banana = index.getBucket("banana");
@@ -132,7 +139,7 @@ void testIndexIngestAcrossDocuments()
   EXPECT(apple->positions.size() == 3);
   EXPECT(apple->positions[0] == 0u);
   EXPECT(apple->positions[1] == 2u);
-  EXPECT(apple->positions[2] == 3u);
+  EXPECT(apple->positions[2] == 4u); // offset 3 is DOCEND for doc0
 
   EXPECT(banana->postings.size() == 1);
   EXPECT(banana->postings[0].docId == 0u);
@@ -144,14 +151,19 @@ void testIndexIngestAcrossDocuments()
 void testIndexDocumentTokenization()
 {
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  const size_t words = indexDocument("doc://tokenized", text);
+  DocumentMetadata meta{.url = "doc://tokenized", .title = "Title Case", .input = 0};
+  avengine::vector<avengine::string_slice> phrases;
+  phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
+  const size_t words = indexDocument(meta, phrases);
 
-  EXPECT(words == 4u);
-  EXPECT(globalIndex.documentNames.size() == 1);
+  EXPECT(words == 6u);
+  EXPECT(globalIndex.index->documentMetadata.size() == 1);
 
-  PostingList* alpha = globalIndex.getBucket("alpha");
-  PostingList* beta = globalIndex.getBucket("beta");
-  PostingList* gamma = globalIndex.getBucket("gamma");
+  PostingList* alpha = globalIndex.index->getBucket("alpha");
+  PostingList* beta = globalIndex.index->getBucket("beta");
+  PostingList* gamma = globalIndex.index->getBucket("gamma");
+  PostingList* title = globalIndex.index->getBucket("#title");
+  PostingList* caseWord = globalIndex.index->getBucket("#case");
 
   EXPECT(alpha->postings.size() == 1);
   EXPECT(alpha->postings[0].termFreq == 2u);
@@ -159,6 +171,10 @@ void testIndexDocumentTokenization()
   EXPECT(beta->postings[0].termFreq == 1u);
   EXPECT(gamma->postings.size() == 1);
   EXPECT(gamma->postings[0].termFreq == 1u);
+  EXPECT(title->postings.size() == 1);
+  EXPECT(title->postings[0].termFreq == 1u);
+  EXPECT(caseWord->postings.size() == 1);
+  EXPECT(caseWord->postings[0].termFreq == 1u);
 
   EXPECT(alpha->positions.size() == 2);
   EXPECT(alpha->positions[0] == 0u);
@@ -167,17 +183,22 @@ void testIndexDocumentTokenization()
   EXPECT(beta->positions[0] == 1u);
   EXPECT(gamma->positions.size() == 1);
   EXPECT(gamma->positions[0] == 3u);
+  EXPECT(title->positions.size() == 1);
+  EXPECT(title->positions[0] == 4u);
+  EXPECT(caseWord->positions.size() == 1);
+  EXPECT(caseWord->positions[0] == 5u);
 }
 
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  index.beginDocument("doc://serialize");
+  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
     index.ingest("alpha");
   }
+  index.endDocument();
 
   char pathTemplate[] = "/tmp/index_test_XXXXXX";
   const int fd = mkstemp(pathTemplate);
@@ -213,15 +234,24 @@ void testSerializationHeaderAndSkipPointers()
 
   EXPECT(readU64LE(bytes) == 1u);
   const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
-  EXPECT(uniqueWordsPlusOne == 2u);
+  EXPECT(uniqueWordsPlusOne == 3u); // alpha + DOCEND_TOKEN + 1
 
   const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
-  const size_t stringBytes = std::strlen("alpha") + 1u;
+  // String table: DOCUMENT_END\0 (13 bytes) then alpha\0 (6 bytes) — in hashmap bucket order.
+  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
   const size_t postingsStart = dictionaryBytes + stringBytes;
 
-  EXPECT(fileSize >= postingsStart + 24u);
+  // DOCUMENT_END posting comes first (lower hash bucket). Compute its byte size:
+  //   3 u64 header + varint(10) delta + metadata (varint+url + varint+title + u64 input).
+  const size_t docEndPostingSize = 24u  // [doc_freq][coll_freq][skip_count]
+                                   + 1u // varint(10): position delta
+                                   + 1u + std::strlen("doc://serialize") // varint(len) + url
+                                   + 1u + std::strlen("Serialize")       // varint(len) + title
+                                   + sizeof(uint64_t);                   // RankingInput
 
-  const uint8_t* posting = bytes + postingsStart;
+  EXPECT(fileSize >= postingsStart + docEndPostingSize + 24u);
+
+  const uint8_t* posting = bytes + postingsStart + docEndPostingSize;
   EXPECT(readU64LE(posting) == 1u);
   EXPECT(readU64LE(posting + 8) == 10u);
   EXPECT(readU64LE(posting + 16) == 3u);
@@ -251,6 +281,75 @@ void testSerializationHeaderAndSkipPointers()
   std::free(bytes);
 }
 
+struct ConcurrentThreadArgs
+{
+  IndexSlot* slot;
+  int wordCount;
+  uint32_t docId;
+};
+
+static void* concurrentIngestThread(void* arg)
+{
+  ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
+  pthread_mutex_lock(&a->slot->mutex);
+  a->docId =
+      a->slot->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
+  for (int i = 0; i < a->wordCount; ++i)
+    a->slot->index->ingest("token");
+  a->slot->index->endDocument();
+  pthread_mutex_unlock(&a->slot->mutex);
+  return nullptr;
+}
+
+// Spawns kThreads threads that each call beginDocument() and ingestIntoDocument()
+// concurrently. Verifies no writes are lost and every thread received a unique docId.
+void testConcurrentIngest()
+{
+  constexpr int kThreads = 8;
+  constexpr int kWordsPerDoc = 100;
+
+  IndexSlot slot = {new Index(), PTHREAD_MUTEX_INITIALIZER};
+  ConcurrentThreadArgs args[kThreads];
+  pthread_t threads[kThreads];
+
+  for (int i = 0; i < kThreads; ++i)
+  {
+    args[i] = {&slot, kWordsPerDoc, UINT32_MAX};
+    pthread_create(&threads[i], nullptr, concurrentIngestThread, &args[i]);
+  }
+  for (int i = 0; i < kThreads; ++i)
+    pthread_join(threads[i], nullptr);
+
+  // No beginDocument() calls were lost.
+  EXPECT(slot.index->documentMetadata.size() == static_cast<size_t>(kThreads));
+
+  // No ingest() offset increments were lost (kWordsPerDoc words + 1 DOCEND per thread).
+  EXPECT(slot.index->offset == static_cast<size_t>(kThreads * (kWordsPerDoc + 1)));
+
+  // Every assigned docId is unique and in [0, kThreads).
+  bool seen[kThreads] = {};
+  for (int i = 0; i < kThreads; ++i)
+  {
+    EXPECT(args[i].docId < static_cast<uint32_t>(kThreads));
+    EXPECT(!seen[args[i].docId]);
+    seen[args[i].docId] = true;
+  }
+
+  // All position records were written.
+  PostingList* token = slot.index->getBucket("token");
+  EXPECT(token != nullptr);
+  EXPECT(token->positions.size() == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  // All term-frequency increments were recorded.
+  size_t totalFreq = 0;
+  for (size_t i = 0; i < token->postings.size(); ++i)
+    totalFreq += token->postings[i].termFreq;
+  EXPECT(totalFreq == static_cast<size_t>(kThreads * kWordsPerDoc));
+
+  delete slot.index;
+  pthread_mutex_destroy(&slot.mutex);
+}
+
 } // namespace
 
 int main()
@@ -260,5 +359,6 @@ int main()
   testIndexIngestAcrossDocuments();
   testIndexDocumentTokenization();
   testSerializationHeaderAndSkipPointers();
+  testConcurrentIngest();
   return 0;
 }

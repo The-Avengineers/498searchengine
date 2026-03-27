@@ -2,9 +2,17 @@
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/frontier.h"
 #include "../../include/avengine/crawler/logger.h"
+#include "../../include/avengine/crawler/robots_helper.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
+#include "../index.h"
+#include "avengine/avengine_lib/string.h"
+#include "avengine/avengine_lib/string_slice.h"
 #include <csignal>
+#include <fcntl.h>
+#include <fstream>
+#include <signal.h>
+#include <unistd.h>
 
 using namespace avengine;
 using namespace avengine::crawler;
@@ -13,7 +21,10 @@ using namespace avengine::crawler;
 
 namespace
 {
-volatile std::sig_atomic_t gStopRequested = 0;
+
+// For final checkpointing when we run control C.
+volatile sig_atomic_t gStopRequested = 0;
+const Utf8 kRobotsUserAgent[] = "Avengineers-Crawler";
 
 void handleStopSignal(int)
 {
@@ -25,18 +36,68 @@ bool stopRequested()
   return gStopRequested != 0;
 }
 
+// Ensure that the host is valid before we add to the frontier.
 bool hasValidHost(URLNormalizer& normalizer, const string& url)
 {
   URL parsed = normalizer.parseURL(url);
   return parsed.host.size() > 0;
 }
 
+// Making sure every URL contains "HTTPS" to maintain consistency
+string https_url_helper(URLNormalizer& normalizer, const string& url)
+{
+  string normalized = normalizer.normalizeIndividual(url);
+  if (normalized.size() == 0)
+  {
+    return string();
+  }
+
+  URL parsed = normalizer.parseURL(normalized);
+  if (parsed.host.size() == 0)
+  {
+    return string();
+  }
+
+  parsed.protocol = "https";
+  if (parsed.port == "80" || parsed.port == "443")
+  {
+    parsed.port = "";
+  }
+  return normalizer.URLtoString(parsed);
+}
+
+// Populates the seeds vector with URLs in the file
+void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* path)
+{
+  std::ifstream in(path);
+  if (!in.is_open())
+  {
+    return;
+  }
+
+  char line[1024];
+  while (in.getline(line, sizeof(line)))
+  {
+    if (line[0] == '\0')
+    {
+      continue;
+    }
+
+    string normalized = https_url_helper(normalizer, line);
+    if (normalized.size() == 0)
+    {
+      continue;
+    }
+    seeds.pushBack(normalized);
+  }
+}
 } // namespace
 
 int main()
 {
-  std::signal(SIGINT, handleStopSignal);
-  std::signal(SIGTERM, handleStopSignal);
+  signal(SIGINT, handleStopSignal);
+  signal(SIGTERM, handleStopSignal);
+  signal(SIGPIPE, SIG_IGN);
 
   // Crawler Components
   frontier theFrontier;
@@ -46,20 +107,10 @@ int main()
   CrawlLogger crawlLogger("crawl_log.csv");
 
   // ── Seed URLs ──
-  // normalize seed URLs with URLNormalizer (normalizeIndividual)
   vector<string> seeds;
-  seeds.pushBack("https://en.wikipedia.org/wiki/Main_Page");
-  seeds.pushBack("https://news.ycombinator.com/");
-  seeds.pushBack("https://www.bbc.com/news");
-  seeds.pushBack("https://www.nasa.gov/");
-  seeds.pushBack("https://www.cdc.gov/");
-  seeds.pushBack("https://www.gutenberg.org/");
-  seeds.pushBack("https://openlibrary.org/");
-  seeds.pushBack("https://www.loc.gov/");
-  seeds.pushBack("https://arxiv.org/");
-  seeds.pushBack("https://www.w3.org/");
+  fill_seeds(seeds, normalizer, "seed_list.txt");
 
-  // Filter domains of the seed list                      KINDA DONE (needs testing + blocked list)
+  // Filter domains of the seed list
   vector<string> filteredSeeds;
   for (size_t i = 0; i < seeds.size(); ++i)
   {
@@ -72,9 +123,13 @@ int main()
   // Seed URLs to URLFrontier
   theFrontier.seed(filteredSeeds);
 
+  // Crawling metadata.
   size_t processedCount = 0;
+  size_t indexedCount = 0;
+  size_t nextCount = 1000;
   size_t checkpointInterval = 100;
   const string checkpointPath = "frontier_checkpoint.bin";
+  Robots_Agent robotsPolicyManager(kRobotsUserAgent);
 
   // ── Main crawl loop ──
   while (theFrontier.size() > 0 && !stopRequested())
@@ -87,64 +142,88 @@ int main()
       break;
     }
 
+    // For each URL in the batch
     for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
     {
       const urlEntry& entry = batch[i];
       processedCount++;
 
-      // RobotsParser.isAllowed()                                             NOT DONE
-      // if (!robotsParser.isAllowed(entry.url)) continue;
+      string crawlUrl = https_url_helper(normalizer, entry.url);
+      if (crawlUrl.size() == 0 || !hasValidHost(normalizer, crawlUrl))
+      {
+        crawlLogger.log(entry.url, "SKIP, INVALID URL");
+        continue;
+      }
 
-      // GET request using the fetcher                                        KINDA DONE (needs
-      // testing)
-      auto result = theFetcher.fetch(entry.url);
+      if (!robotsPolicyManager.allow(crawlUrl, normalizer, theFetcher, crawlLogger))
+      {
+        continue;
+      }
+
+      // Fetch the page content
+      auto result = theFetcher.fetch(crawlUrl);
       if (!result.hasValue())
       {
         string msg = "FAILED FETCHING: ";
         msg += result.error().msg;
-        crawlLogger.log(entry.url, msg.cstr());
+        crawlLogger.log(crawlUrl, msg.cstr());
         continue;
       }
-      // ensure html text
       fetchResponse resp = result.value();
 
-      // check to ensure status == 200
+      // Ensure status == 200.
       if (resp.statusCode != 200)
       {
-        crawlLogger.log(entry.url, "SKIP, BAD RESP", resp.statusCode);
+        crawlLogger.log(crawlUrl, "SKIP, BAD RESP", resp.statusCode);
         continue;
       }
-
+      // Ensure content type is HTML (TODO ADD PDF PARSING).
       if (!fetcher::isHtmlContentType(resp.headers))
       {
-        crawlLogger.log(entry.url, "SKIP, NON-HTML CONTENT");
+        crawlLogger.log(crawlUrl, "SKIP, NON-HTML CONTENT");
+        continue;
+      }
+      // Log 200 code and the size of the page.
+      crawlLogger.log(crawlUrl, "OK, Code 200", resp.body.size());
+
+      // Call the constructor to parse the HTML.
+      HtmlParser parser(resp.body.cstr(), resp.body.size());
+      if (parser.rejected)
+      {
+        crawlLogger.log(crawlUrl, "SKIP, TOO MUCH NON-ASCII");
         continue;
       }
 
-      crawlLogger.log(entry.url, "OK, Code 200", resp.body.size());
+      // Index the document.
+      DocumentMetadata documentMetadata = DocumentMetadata{
+          .url = crawlUrl,
+          .title = parser.fullTitle,
+          // TODO: Wire in ranker
+          .input = 0,
+      };
+      indexDocument(documentMetadata, parser.words);
+      ++indexedCount;
 
-      // Call the constructor to parse the HTML                             KINDA DONE (TEST)
-      HtmlParser parser(resp.body.cstr(), resp.body.size());
-
-      // Indexer.index(url, content)  give indexer content                    NOT DONE
-      // indexer.index(entry.url, parser.words, parser.titleWords);
-
-      // for each extracted link:
+      // For each link from the parsed HTML page.
       for (size_t j = 0; j < parser.links.size(); ++j)
       {
-        string baseURL = entry.url;
+        string baseURL = crawlUrl;
         if (parser.base.size() > 0)
         {
-          // <base href> can be relative or malformed; resolve against fetched URL.
-          string resolvedBase = normalizer.normalize(entry.url, parser.base);
+          // Ensure URL is correct before we add it to the frontier.
+          string parserBase = parser.base.toString();
+          string resolvedBase = normalizer.normalize(crawlUrl, parserBase);
+          resolvedBase = https_url_helper(normalizer, resolvedBase);
           if (resolvedBase.size() > 0)
           {
             baseURL = resolvedBase;
           }
         }
 
-        // normalize the domain
-        string normalized = normalizer.normalize(baseURL, parser.links[j].URL);
+        // Normalize the domain of the URL.
+        string linkUrl = parser.links[j].URL.toString();
+        string normalized = normalizer.normalize(baseURL, linkUrl);
+        normalized = https_url_helper(normalizer, normalized);
         if (normalized.size() == 0)
         {
           continue;
@@ -157,13 +236,13 @@ int main()
           continue;
         }
 
-        // filter the domain
+        // Filter the domain
         if (filter.isBlocked(normalized))
         {
           continue;
         }
 
-        // if BloomFilter says unseen then add to the frontier
+        // If the URL is not in our bloom filter then add to the frontier.
         if (!theFrontier.alreadySeen(normalized))
         {
           theFrontier.add(normalized, entry.depth + 1);
@@ -171,7 +250,7 @@ int main()
       }
     }
 
-    // checkpoint
+    // Checkpoint all of our progress and log stats.
     if (processedCount >= checkpointInterval)
     {
       checkpointInterval += 100;
@@ -190,6 +269,8 @@ int main()
   {
     crawlLogger.log("DONE, FINAL CHECKPOINT", processedCount, theFrontier.seenCount());
   }
+
+  cleanUpIndexer();
 
   return 0;
 }

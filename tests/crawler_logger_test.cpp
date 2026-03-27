@@ -35,6 +35,7 @@ int main()
   logger.log("https://example.com/b", "HTTP_STATUS", 404);
   logger.log("https://example.com/c", "OK", static_cast<size_t>(123));
   logger.log("CHECKPOINT", 7, 11, 13);
+  // logger.logIndexStats(1000, 2048, 77);
   logger.log("DONE", 9, 17);
 
   // open file

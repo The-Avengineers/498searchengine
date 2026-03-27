@@ -1,10 +1,10 @@
 #pragma once
 
+#include "avengine/HashTable.h"
+#include "avengine/string.h"
 #include "avengine/vector.h"
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 
 namespace avengine
 {
@@ -27,12 +27,8 @@ struct FieldDecorator
 struct PostingBlobHeader
 {
   uint64_t documentFrequency = 0;
-  uint64_t normalCollectionFrequency = 0;
-  uint64_t titleCollectionFrequency = 0;
-  uint64_t anchorCollectionFrequency = 0;
-  uint64_t normalSectionCount = 0;
-  uint64_t titleSectionCount = 0;
-  uint64_t anchorSectionCount = 0;
+  uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
 };
 
 struct WordAttributes
@@ -138,8 +134,6 @@ public:
 
   Post* Next() override;
   Post* Seek(Location target) override;
-  Location GetStartLocation() const override;
-  Location GetEndLocation() const override;
   unsigned GetNumberOfOccurrences() const override;
   unsigned GetDocumentCount() const;
 
@@ -251,23 +245,24 @@ private:
 class Dictionary
 {
 public:
+  Dictionary();
+
   void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
   void AddOccurrence(const char* token, Location location);
 
-  ISRWord* OpenIsr(const char* token) const;
-  ISREndDoc* OpenEndDocIsr() const;
+  [[nodiscard]] ISRWord* OpenIsr(const char* token) const;
+  [[nodiscard]] ISREndDoc* OpenEndDocIsr() const;
   size_t GetNumberOfWords() const;
   size_t GetNumberOfUniqueWords() const;
   size_t GetNumberOfDocuments() const;
 
 private:
   vector<DocumentInfo> documents_;
-  std::unordered_map<std::string, vector<Location>> termLocations_;
+  HashTable<string, vector<Location>> termLocations_;
   size_t totalWords_ = 0;
+  size_t uniqueWords_ = 0;
 };
 
-// Incremental reader for one posting field stream. This is the low-level
-// primitive underneath higher-level ISRs.
 class IndexFieldStreamReader
 {
 public:

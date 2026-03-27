@@ -36,7 +36,7 @@ public:
   {
     if (num_elements > 0)
     {
-      Data = new T[num_elements];
+      Data = new T[num_elements]();
     }
   }
 
@@ -411,6 +411,112 @@ public:
     }
 
     return result;
+  }
+
+  // REQUIRES: *this and other are sorted ascending and T supports < and ==
+  // MODIFIES: Nothing
+  // EFFECTS: Returns the deduplicated intersection of *this and other
+  vector setIntersection(const vector& other) const
+  {
+    vector out;
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < Size && j < other.Size)
+    {
+      if (Data[i] == other.Data[j])
+      {
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
+        ++i;
+        ++j;
+      }
+      else if (Data[i] < other.Data[j])
+      {
+        ++i;
+      }
+      else
+      {
+        ++j;
+      }
+    }
+
+    return out;
+  }
+
+  // REQUIRES: *this and other are sorted ascending and T supports < and ==
+  // MODIFIES: Nothing
+  // EFFECTS: Returns the deduplicated union of *this and other. Duplicate
+  //          values in either input are tolerated, and the output keeps one
+  //          copy of each distinct value.
+  vector setUnion(const vector& other) const
+  {
+    vector out;
+    out.reserve(Size + other.Size);
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < Size || j < other.Size)
+    {
+      if (j >= other.Size || (i < Size && Data[i] < other.Data[j]))
+      {
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
+        ++i;
+      }
+      else if (i >= Size || other.Data[j] < Data[i])
+      {
+        if (out.empty() || out.back() != other.Data[j])
+        {
+          out.pushBack(other.Data[j]);
+        }
+        ++j;
+      }
+      else
+      {
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
+        ++i;
+        ++j;
+      }
+    }
+
+    return out;
+  }
+
+  // REQUIRES: *this and other are sorted ascending and T supports < and ==
+  // MODIFIES: Nothing
+  // EFFECTS: Returns the deduplicated set difference of *this and other
+  vector setDifference(const vector& other) const
+  {
+    vector out;
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < Size)
+    {
+      while (j < other.Size && other.Data[j] < Data[i])
+      {
+        ++j;
+      }
+
+      if (j >= other.Size || Data[i] != other.Data[j])
+      {
+        if (out.empty() || out.back() != Data[i])
+        {
+          out.pushBack(Data[i]);
+        }
+      }
+      ++i;
+    }
+
+    return out;
   }
 
 private:

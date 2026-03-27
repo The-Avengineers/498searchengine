@@ -5,8 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <unistd.h>
 
 namespace
 {
@@ -25,6 +23,7 @@ void fail(const char* expr, int line)
 
 using avengine::Ranker;
 using avengine::string;
+using avengine::urlEntry;
 using avengine::vector;
 
 bool nearlyEqual(double a, double b, double eps = 1e-9)
@@ -32,15 +31,26 @@ bool nearlyEqual(double a, double b, double eps = 1e-9)
   return std::fabs(a - b) <= eps;
 }
 
+urlEntry makeEntry(const char* url, const char* domain = "", unsigned int depth = 0)
+{
+  urlEntry entry;
+  entry.url = url;
+  entry.domain = domain;
+  entry.depth = static_cast<int>(depth);
+  return entry;
+}
+
 class ConstantStrategy : public Ranker::Strategy
 {
 public:
   explicit ConstantStrategy(double value) : Value(value) {}
 
-  double Score(const string& url, const vector<vector<size_t>>& term_positions) const override
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const override
   {
-    (void)url;
+    (void)entry;
     (void)term_positions;
+    (void)signals;
     return Value;
   }
 
@@ -51,57 +61,47 @@ private:
 class UrlLengthStrategy : public Ranker::Strategy
 {
 public:
-  double Score(const string& url, const vector<vector<size_t>>& term_positions) const override
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const override
   {
     (void)term_positions;
-    return static_cast<double>(url.size());
+    (void)signals;
+    return static_cast<double>(entry.url.size());
   }
 };
-
-string writeTempHtml(const char* html)
-{
-  char pathTemplate[] = "/tmp/ranker_title_test_XXXXXX.html";
-  const int fd = mkstemps(pathTemplate, 5);
-  EXPECT(fd >= 0);
-  close(fd);
-
-  std::ofstream out(pathTemplate, std::ios::binary);
-  out.write(html, static_cast<std::streamsize>(std::strlen(html)));
-  out.close();
-  return string(pathTemplate);
-}
 
 void testRankerMethods()
 {
   Ranker ranker;
   vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
 
   // Empty strategy list should produce zero score.
-  EXPECT(nearlyEqual(ranker.Score("https://a.com", positions), 0.0));
+  EXPECT(nearlyEqual(ranker.Score(makeEntry("https://a.com"), positions, signals), 0.0));
 
   // Add and combine weighted strategies.
   ConstantStrategy one(1.0);
   ConstantStrategy two(2.0);
   ranker.AddStrategy(&one, 0.5);
   ranker.AddStrategy(&two, 2.0);
-  EXPECT(nearlyEqual(ranker.Score("https://a.com", positions), 4.5));
+  EXPECT(nearlyEqual(ranker.Score(makeEntry("https://a.com"), positions, signals), 4.5));
 
   // nullptr strategy returns 0.0 by current implementation.
   ranker.AddStrategy(nullptr, 1.0);
-  EXPECT(nearlyEqual(ranker.Score("https://a.com", positions), 0.0));
+  EXPECT(nearlyEqual(ranker.Score(makeEntry("https://a.com"), positions, signals), 0.0));
 
   ranker.ClearStrategies();
-  EXPECT(nearlyEqual(ranker.Score("https://a.com", positions), 0.0));
+  EXPECT(nearlyEqual(ranker.Score(makeEntry("https://a.com"), positions, signals), 0.0));
 
   // Consider() + TopResults(): keep top 10 in descending score order.
   UrlLengthStrategy len;
   ranker.AddStrategy(&len, 1.0);
   for (int i = 0; i < 12; ++i)
   {
-    string url("https://example.com/");
+    urlEntry entry = makeEntry("https://example.com/");
     for (int j = 0; j < i; ++j)
-      url.pushBack('x');
-    ranker.Consider(url, positions);
+      entry.url.pushBack('x');
+    ranker.Consider(entry, positions, signals);
   }
 
   const vector<Ranker::RankedResult>& top = ranker.TopResults();
@@ -117,99 +117,169 @@ void testDomainStrat()
 {
   DomainStrat strat;
   vector<vector<size_t>> positions;
-  EXPECT(nearlyEqual(strat.Score("https://university.edu/page", positions), 1.0));
-  EXPECT(nearlyEqual(strat.Score("https://agency.gov/home", positions), 1.0));
-  EXPECT(nearlyEqual(strat.Score("https://example.com", positions), 0.0));
+  Ranker::RankSignals signals;
+  // top tier
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://university.edu/page", "university.edu"), positions, signals),
+      1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://agency.gov/home", "agency.gov"), positions, signals), 1.0));
+  // top tier (.org moved here)
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://charity.org/about", "charity.org"), positions, signals), 1.0));
+  // mid tier
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("https://example.com", "example.com"), positions, signals), 0.6));
+  // low tier
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("https://site.xyz", "site.xyz"), positions, signals), 0.3));
 }
 
 void testShortURLStrat()
 {
   ShortURLStrat strat;
   vector<vector<size_t>> positions;
-  EXPECT(nearlyEqual(strat.Score("", positions), 0.0));
-  EXPECT(nearlyEqual(strat.Score("abcd", positions), 0.25));
+  Ranker::RankSignals signals;
+  // empty url
+  EXPECT(nearlyEqual(strat.Score(makeEntry(""), positions, signals), 1.0));
+  // short url (len 20 <= 40)
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/"), positions, signals), 1.0));
+  // mid-range url (len 80, midpoint of [40,120]) => score = (120-80)/(120-40) = 0.5
+  const char* mid_url =
+      "https://example.com/some/path/to/a/page/that/is/eighty/characters/in/total/xxxxx";
+  EXPECT(std::strlen(mid_url) == 80);
+  EXPECT(nearlyEqual(strat.Score(makeEntry(mid_url), positions, signals), 0.5));
+  // very long url (>= 120)
+  const char* long_url =
+      "https://example.com/very/long/path/to/a/page/that/exceeds/one/hundred/and/"
+      "twenty/characters/in/total/definitely/over/the/threshold/yes";
+  EXPECT(std::strlen(long_url) >= 120);
+  EXPECT(nearlyEqual(strat.Score(makeEntry(long_url), positions, signals), 0.0));
 }
 
 void testShortTitleStrat()
 {
   ShortTitleStrat strat;
   vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
 
-  string shortTitle =
-      writeTempHtml("<html><head><title>one two three</title></head><body></body></html>");
-  string longTitle = writeTempHtml(
-      "<html><head><title>1 2 3 4 5 6 7 8 9 10 11</title></head><body></body></html>");
-
-  EXPECT(nearlyEqual(strat.Score(shortTitle, positions), 1.0));
-  EXPECT(nearlyEqual(strat.Score(longTitle, positions), 0.0));
-  EXPECT(nearlyEqual(strat.Score("/tmp/path/does/not/exist/ranker_test.html", positions), 0.0));
-
-  EXPECT(unlink(shortTitle.cstr()) == 0);
-  EXPECT(unlink(longTitle.cstr()) == 0);
+  // short title (3 words <= 5)
+  signals.title_word_count = 3;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 1.0));
+  // long title (16 words >= 15)
+  signals.title_word_count = 16;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 0.0));
+  // mid-range title (10 words) => (15 - 10) / (15 - 5) = 0.5
+  signals.title_word_count = 10;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 0.5));
+  // zero words
+  signals.title_word_count = 0;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), positions, signals), 1.0));
 }
 
 void testExactPhraseMatch()
 {
   ExactPhraseMatch strat;
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{}), 1.0));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{2}}), 1.0));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{10}, {11}}), 1.0));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{10}, {15}}), 0.0));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{10}, {}}), 0.0));
+  Ranker::RankSignals signals;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, signals), 1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{2}}, signals), 1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {11}}, signals),
+                     1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals),
+                     0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {}}, signals),
+                     0.0));
 }
 
 void testCorrectOrdering()
 {
   CorrectOrdering strat;
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{}), 0.0));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{4}}), 1.0));
+  Ranker::RankSignals signals;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, signals), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{4}}, signals), 1.0));
 
   // Perfect 3-term ordered run with no slack.
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{1}, {2}, {3}}), 1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {2}, {3}}, signals), 1.0));
 
   // Only a 2-term ordered run exists.
-  const double partial = strat.Score("unused", vector<vector<size_t>>{{3}, {1}, {2}});
+  const double partial =
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {1}, {2}}, signals);
   EXPECT(partial > 0.0 && partial < 1.0);
 
   // No forward ordering among any adjacent terms.
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{{3}, {2}, {1}}), 0.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {2}, {1}}, signals), 0.0));
 }
 
 void testUrlDepth()
 {
   UrlDepth strat;
   vector<vector<size_t>> positions;
-  EXPECT(nearlyEqual(strat.Score("", positions), 0.0));
-  EXPECT(nearlyEqual(strat.Score("https://example.com/a/b", positions), 0.25));
+  Ranker::RankSignals signals;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 0), positions, signals),
+                     0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/a/b", "", 4), positions, signals),
+                     0.25));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/root", "", 0), positions, signals),
+                     0.0));
 }
 
-void testHttpsMatch()
+void testOutlinkCount()
 {
-  HttpsMatch strat;
-  Ranker::Strategy& asBase = strat;
+  OutlinkCount strat;
   vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
 
-  EXPECT(nearlyEqual(asBase.Score("https://secure.example.com", positions), 1.0));
-  EXPECT(nearlyEqual(asBase.Score("http://plain.example.com", positions), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com"), positions, signals), 0.0));
+
+  signals.outlink_count = 3;
+  const double small = strat.Score(makeEntry("https://example.com"), positions, signals);
+  EXPECT(small > 0.0 && small < 1.0);
+
+  signals.outlink_count = 32;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com"), positions, signals), 1.0));
+
+  signals.outlink_count = 64;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com"), positions, signals), 1.0));
 }
 
 void testQueryOccurrence()
 {
   QueryOccurrence strat(vector<string>{"foo", "bar"});
   vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
 
-  EXPECT(nearlyEqual(strat.Score("https://example.com/foobar", positions), 1.0));
-  const double separated = strat.Score("https://example.com/foo___bar", positions);
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("https://example.com/foobar"), positions, signals), 1.0));
+  const double separated =
+      strat.Score(makeEntry("https://example.com/foo___bar"), positions, signals);
   EXPECT(separated > 0.0 && separated < 1.0);
-  EXPECT(nearlyEqual(strat.Score("https://example.com/baz", positions), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/baz"), positions, signals), 0.0));
 }
 
 void testEarlyQueryTermMatch()
 {
   EarlyQueryTermMatch strat;
-  const double score = strat.Score("unused", vector<vector<size_t>>{{0}, {2}});
-  EXPECT(nearlyEqual(score, 0.75));
-  EXPECT(nearlyEqual(strat.Score("unused", vector<vector<size_t>>{}), 0.0));
+  Ranker::RankSignals no_title_signals;
+  const double body_score =
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, no_title_signals);
+  EXPECT(nearlyEqual(body_score, 0.75));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, no_title_signals),
+                     0.0));
+
+  vector<vector<size_t>> partial_title_positions = {{1}, {}};
+  Ranker::RankSignals partial_title_signals;
+  partial_title_signals.title_term_positions = &partial_title_positions;
+  const double partial =
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, partial_title_signals);
+  EXPECT(nearlyEqual(partial, 0.875));
+
+  vector<vector<size_t>> full_title_positions = {{1}, {3}};
+  Ranker::RankSignals full_title_signals;
+  full_title_signals.title_term_positions = &full_title_positions;
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, full_title_signals), 1.0));
 }
 } // namespace
 
@@ -222,7 +292,7 @@ int main()
   testExactPhraseMatch();
   testCorrectOrdering();
   testUrlDepth();
-  testHttpsMatch();
+  testOutlinkCount();
   testQueryOccurrence();
   testEarlyQueryTermMatch();
   return 0;
