@@ -6,6 +6,10 @@
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
 #include "../index.h"
+#include "avengine/avengine_lib/condition_variable.h"
+#include "avengine/avengine_lib/deque.h"
+#include "avengine/avengine_lib/mutex.h"
+#include "avengine/avengine_lib/thread.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include <csignal>
@@ -91,6 +95,185 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
     seeds.pushBack(normalized);
   }
 }
+
+struct globalCrawlerState
+{
+  frontier* theFrontier;
+  domainFilter* filter;
+  CrawlLogger* crawlLogger;
+  Robots_Agent* robotsAgent;
+  mutex frontierMu;
+  mutex robotsMu;
+  mutex queueMu;
+  mutex countMu;
+  condition_variable queueCV;
+  condition_variable batchDoneCV;
+  deque<urlEntry> q;
+  size_t inFlight;
+  bool shuttingDown;
+  size_t* processedCount;
+  size_t* indexedCount;
+
+  globalCrawlerState()
+      : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), 
+      robotsAgent(nullptr), q(), inFlight(0), shuttingDown(false), 
+      processedCount(nullptr), indexedCount(nullptr)
+  {}
+};
+
+struct threadArgs
+{
+  globalCrawlerState* state;
+};
+
+void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNormalizer& normalizer,
+                       fetcher& theFetcher)
+{
+
+  state.countMu.lock();
+  ++(*state.processedCount);
+  state.countMu.unlock();
+
+  string crawlUrl = https_url_helper(normalizer, entry.url);
+
+  if (crawlUrl.size() == 0 || !hasValidHost(normalizer, crawlUrl))
+  {
+    state.crawlLogger->log(entry.url, "SKIP, INVALID URL");
+    return;
+  }
+
+  state.robotsMu.lock();
+  const bool allowed = state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
+  state.robotsMu.unlock();
+
+  if (!allowed)
+  {
+    return;
+  }
+
+  auto result = theFetcher.fetch(crawlUrl);
+  if (!result.hasValue())
+  {
+    string msg = "FAILED FETCHING: ";
+    msg += result.error().msg;
+    state.crawlLogger->log(crawlUrl, msg.cstr());
+    return;
+  }
+  fetchResponse resp = result.value();
+
+  if (resp.statusCode != 200)
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, BAD RESP", resp.statusCode);
+    return;
+  }
+
+  if (!fetcher::isHtmlContentType(resp.headers))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, NON-HTML CONTENT");
+    return;
+  }
+  state.crawlLogger->log(crawlUrl, "OK, Code 200", resp.body.size());
+
+  HtmlParser parser(resp.body.cstr(), resp.body.size());
+  if (parser.rejected)
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, TOO MUCH NON-ASCII");
+    return;
+  }
+
+  // TODO: add ranker to this
+  DocumentMetadata documentMetadata = DocumentMetadata{
+      .url = crawlUrl,
+      .title = parser.fullTitle,
+      .input = 0,
+  };
+  indexDocument(documentMetadata, parser.words);
+
+  state.countMu.lock();
+  ++(*state.indexedCount);
+  state.countMu.unlock();
+
+  for (size_t j = 0; j < parser.links.size(); ++j)
+  {
+    string baseURL = crawlUrl;
+    if (parser.base.size() > 0)
+    {
+      string parserBase = parser.base.toString();
+      string resolvedBase = normalizer.normalize(crawlUrl, parserBase);
+      resolvedBase = https_url_helper(normalizer, resolvedBase);
+      if (resolvedBase.size() > 0)
+      {
+        baseURL = resolvedBase;
+      }
+    }
+
+    string linkUrl = parser.links[j].URL.toString();
+    string normalized = normalizer.normalize(baseURL, linkUrl);
+    normalized = https_url_helper(normalizer, normalized);
+    if (normalized.size() == 0)
+    {
+      continue;
+    }
+
+    if (!hasValidHost(normalizer, normalized))
+    {
+      state.crawlLogger->log(normalized, "SKIP, INVALID NORMALIZED URL");
+      continue;
+    }
+
+    if (state.filter->isBlocked(normalized))
+    {
+      continue;
+    }
+
+    state.frontierMu.lock();
+    state.theFrontier->add(normalized, entry.depth + 1);
+    state.frontierMu.unlock();
+  }
+}
+
+void* crawlBatchWorker(void* raw)
+{
+  threadArgs* args = static_cast<threadArgs*>(raw);
+  globalCrawlerState& state = *args->state;
+  URLNormalizer normalizer;
+  fetcher theFetcher;
+
+  while (true)
+  {
+    state.queueMu.lock();
+    while (state.q.empty() && !state.shuttingDown)
+    {
+      state.queueCV.wait(state.queueMu);
+    }
+
+    if (state.shuttingDown && state.q.empty())
+    {
+      state.queueMu.unlock();
+      break;
+    }
+
+    urlEntry entry = state.q.front();
+    state.q.popFront();
+    ++state.inFlight;
+    state.queueMu.unlock();
+
+    if (!stopRequested())
+    {
+      processBatchEntry(entry, state, normalizer, theFetcher);
+    }
+
+    state.queueMu.lock();
+    --state.inFlight;
+    if (state.q.empty() && state.inFlight == 0)
+    {
+      state.batchDoneCV.signal();
+    }
+    state.queueMu.unlock();
+  }
+
+  return nullptr;
+}
 } // namespace
 
 int main()
@@ -101,7 +284,6 @@ int main()
 
   // Crawler Components
   frontier theFrontier;
-  fetcher theFetcher;
   URLNormalizer normalizer;
   domainFilter filter;
   CrawlLogger crawlLogger("crawl_log.csv");
@@ -123,153 +305,126 @@ int main()
   // Seed URLs to URLFrontier
   theFrontier.seed(filteredSeeds);
 
-  // Crawling metadata.
+  // Crawling metadata
   size_t processedCount = 0;
   size_t indexedCount = 0;
-  size_t nextCount = 1000;
   size_t checkpointInterval = 100;
   const string checkpointPath = "frontier_checkpoint.bin";
-  Robots_Agent robotsPolicyManager(kRobotsUserAgent);
+  Robots_Agent robotsAgent(kRobotsUserAgent);
+
+  globalCrawlerState workerState;
+  workerState.theFrontier = &theFrontier;
+  workerState.filter = &filter;
+  workerState.crawlLogger = &crawlLogger;
+  workerState.robotsAgent = &robotsAgent;
+  workerState.processedCount = &processedCount;
+  workerState.indexedCount = &indexedCount;
+
+  size_t workerCount = 8; // MAKE BIGGER
+  thread* workers = new thread[workerCount];
+  threadArgs* threadArgs = new threadArgs[workerCount];
+  size_t startedWorkers = 0;
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    threadArgs[i].state = &workerState;
+    if (workers[i].start(crawlBatchWorker, &threadArgs[i]))
+    {
+      ++startedWorkers;
+    }
+  }
+  fetcher fallbackFetcher;
 
   resumeIndexer();
 
   // ── Main crawl loop ──
-  while (theFrontier.size() > 0 && !stopRequested())
+  while (!stopRequested())
   {
-    // Grab batch: sample 100, sort by depth, return top 10
-    vector<urlEntry> batch = theFrontier.nextBatch(100, 10);
+    workerState.frontierMu.lock();
+    const size_t frontierSize = theFrontier.size();
+    workerState.frontierMu.unlock();
+    if (frontierSize == 0)
+    {
+      break;
+    }
+
+    workerState.frontierMu.lock();
+    vector<urlEntry> batch = theFrontier.nextBatch(100, 10); // MAKE BIGGER
+    workerState.frontierMu.unlock();
 
     if (batch.size() == 0)
     {
       break;
     }
 
-    // For each URL in the batch
-    for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
+    if (startedWorkers == 0) // For single threaded
     {
-      const urlEntry& entry = batch[i];
-      processedCount++;
-
-      string crawlUrl = https_url_helper(normalizer, entry.url);
-      if (crawlUrl.size() == 0 || !hasValidHost(normalizer, crawlUrl))
+      for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
       {
-        crawlLogger.log(entry.url, "SKIP, INVALID URL");
-        continue;
-      }
-
-      if (!robotsPolicyManager.allow(crawlUrl, normalizer, theFetcher, crawlLogger))
-      {
-        continue;
-      }
-
-      // Fetch the page content
-      auto result = theFetcher.fetch(crawlUrl);
-      if (!result.hasValue())
-      {
-        string msg = "FAILED FETCHING: ";
-        msg += result.error().msg;
-        crawlLogger.log(crawlUrl, msg.cstr());
-        continue;
-      }
-      fetchResponse resp = result.value();
-
-      // Ensure status == 200.
-      if (resp.statusCode != 200)
-      {
-        crawlLogger.log(crawlUrl, "SKIP, BAD RESP", resp.statusCode);
-        continue;
-      }
-      // Ensure content type is HTML (TODO ADD PDF PARSING).
-      if (!fetcher::isHtmlContentType(resp.headers))
-      {
-        crawlLogger.log(crawlUrl, "SKIP, NON-HTML CONTENT");
-        continue;
-      }
-      // Log 200 code and the size of the page.
-      crawlLogger.log(crawlUrl, "OK, Code 200", resp.body.size());
-
-      // Call the constructor to parse the HTML.
-      HtmlParser parser(resp.body.cstr(), resp.body.size());
-      if (parser.rejected)
-      {
-        crawlLogger.log(crawlUrl, "SKIP, TOO MUCH NON-ASCII");
-        continue;
-      }
-
-      // Index the document.
-      DocumentMetadata documentMetadata = DocumentMetadata{
-          .url = crawlUrl,
-          .title = parser.fullTitle,
-          // TODO: Wire in ranker
-          .input = 0,
-      };
-      indexDocument(documentMetadata, parser.words);
-      ++indexedCount;
-
-      // For each link from the parsed HTML page.
-      for (size_t j = 0; j < parser.links.size(); ++j)
-      {
-        string baseURL = crawlUrl;
-        if (parser.base.size() > 0)
-        {
-          // Ensure URL is correct before we add it to the frontier.
-          string parserBase = parser.base.toString();
-          string resolvedBase = normalizer.normalize(crawlUrl, parserBase);
-          resolvedBase = https_url_helper(normalizer, resolvedBase);
-          if (resolvedBase.size() > 0)
-          {
-            baseURL = resolvedBase;
-          }
-        }
-
-        // Normalize the domain of the URL.
-        string linkUrl = parser.links[j].URL.toString();
-        string normalized = normalizer.normalize(baseURL, linkUrl);
-        normalized = https_url_helper(normalizer, normalized);
-        if (normalized.size() == 0)
-        {
-          continue;
-        }
-
-        // Guard against malformed normalized URLs (e.g. empty host).
-        if (!hasValidHost(normalizer, normalized))
-        {
-          crawlLogger.log(normalized, "SKIP, INVALID NORMALIZED URL");
-          continue;
-        }
-
-        // Filter the domain
-        if (filter.isBlocked(normalized))
-        {
-          continue;
-        }
-
-        // If the URL is not in our bloom filter then add to the frontier.
-        if (!theFrontier.alreadySeen(normalized))
-        {
-          theFrontier.add(normalized, entry.depth + 1);
-        }
+        processBatchEntry(batch[i], workerState, normalizer, fallbackFetcher);
       }
     }
+    else
+    {
+      workerState.queueMu.lock();
+      for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
+      {
+        workerState.q.pushBack(batch[i]);
+      }
+      workerState.queueCV.broadcast();
+      while (!workerState.q.empty() || workerState.inFlight > 0)
+      {
+        workerState.batchDoneCV.wait(workerState.queueMu);
+      }
+      workerState.queueMu.unlock();
+    }
+
+    workerState.countMu.lock();
+    const size_t processedSnapshot = processedCount;
+    workerState.countMu.unlock();
 
     // Checkpoint all of our progress and log stats.
-    if (processedCount >= checkpointInterval)
+    if (processedSnapshot >= checkpointInterval)
     {
       checkpointInterval += 100;
+      workerState.frontierMu.lock();
       theFrontier.saveCheckpoint(checkpointPath);
-      crawlLogger.log("CHECKPOINT", processedCount, theFrontier.seenCount(), theFrontier.size());
+      const size_t seenSnapshot = theFrontier.seenCount();
+      const size_t frontierSnapshot = theFrontier.size();
+      workerState.frontierMu.unlock();
+      crawlLogger.log("CHECKPOINT", processedSnapshot, seenSnapshot, frontierSnapshot);
     }
   }
 
+  workerState.queueMu.lock();
+  workerState.shuttingDown = true;
+  workerState.queueCV.broadcast();
+  workerState.queueMu.unlock();
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    if (workers[i].joinable())
+    {
+      workers[i].join();
+    }
+  }
+  delete[] workers;
+  delete[] threadArgs;
+
+  workerState.countMu.lock();
+  const size_t processedSnapshot = processedCount;
+  workerState.countMu.unlock();
+
   // Final checkpoint
+  workerState.frontierMu.lock();
   theFrontier.saveCheckpoint(checkpointPath);
+  const size_t seenSnapshot = theFrontier.seenCount();
+  workerState.frontierMu.unlock();
   if (stopRequested())
   {
-    crawlLogger.log("DONE, SIGNAL STOP", processedCount, theFrontier.seenCount());
+    crawlLogger.log("DONE, SIGNAL STOP", processedSnapshot, seenSnapshot);
   }
   else
   {
-    crawlLogger.log("DONE, FINAL CHECKPOINT", processedCount, theFrontier.seenCount());
+    crawlLogger.log("DONE, FINAL CHECKPOINT", processedSnapshot, seenSnapshot);
   }
 
   cleanUpIndexer();
