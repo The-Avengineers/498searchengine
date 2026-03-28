@@ -37,6 +37,7 @@ add_library(
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
   src/indexer/indexer.cpp
+  src/indexer/anchor_indexer.cpp
   src/index_stream_reader.cpp
   src/ranker/ranker.cpp
   src/search/index_shard_source.cpp
