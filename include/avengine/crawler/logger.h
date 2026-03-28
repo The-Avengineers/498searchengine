@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../avengine_lib/lock_guard.h"
+#include "../avengine_lib/mutex.h"
 #include "../avengine_lib/string.h"
 #include <ctime>
 #include <fstream>
@@ -12,54 +14,28 @@ namespace crawler
 class CrawlLogger
 {
 public:
-  // File path for the logger
   CrawlLogger(const char* path);
   ~CrawlLogger();
 
-  // NOTE, ALL log overloads have the same functionality essentially
-
-  // Requires URL and a Message
-  // Modifys the logger by appending a message
-  // Returns nothing
-  // Used when fetch failed
-  void log(const string& url, const char* msg);
-
-  // Requires a URL, message, and an http status code
-  // Modifys the logger by appending a message
-  // Returns nothing
-  // used for http responses
-  void log(const string& url, const char* msg, int statusCode);
-
-  // Requires a URL, message, and and the number of bytes recieved
-  // Modifys the logger by appending a message
-  // Returns nothing
-  // Used for a successful fetch
-  void log(const string& url, const char* msg, size_t bytes);
-
-  // Requires the crawlCount
-  // Modifys the logger by appending a message
-  // Returns nothing
-  // Used for periodic checkpointing
-  void log(const char* event, size_t count, size_t seenCount, size_t listSize);
-
-  // Requires the crawl count and seen count
-  // Modifys the logger by appending a message
-  // Returns nothing
-  // Used for when the crawl is done
-  void log(const char* event, size_t count, size_t seenCount);
-
-  // Requires indexed URL count, index memory bytes, and frontier list size.
-  // Modifies the logger by appending a periodic indexing stats message.
-  // Returns nothing
-  // Used for the crawler
-  // void logIndexStats(size_t indexedCount, size_t indexBytes, size_t frontierSize);
+  // Writes a timestamp followed by each argument as a comma-separated field.
+  // Arguments are streamed as-is — the caller is responsible for ensuring that
+  // string values do not contain commas or newlines that would corrupt the CSV.
+  template <typename... Args> void log(Args&&... args)
+  {
+    lock_guard<mutex> guard(logMutex);
+    if (!logFile.is_open())
+    {
+      return;
+    }
+    writeTimestamp();
+    ((logFile << ',' << std::forward<Args>(args)), ...);
+    logFile << std::endl;
+  }
 
 private:
   std::ofstream logFile;
+  mutex logMutex;
 
-  // Requires. nothing
-  // Modifys the log file
-  // returns nothing
   void writeTimestamp();
 };
 
