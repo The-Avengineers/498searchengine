@@ -12,9 +12,9 @@
 namespace
 {
 using avengine::string;
+using avengine::vector;
 using avengine::search::SearchResponse;
 using avengine::search::SearchService;
-using avengine::vector;
 
 void fail(const char* expr, int line)
 {

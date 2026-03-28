@@ -197,7 +197,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
 int main(int argc, char** argv)
 {
   const int port = argc > 1 ? std::atoi(argv[1]) : 8080;
-  const avengine::string indexDirectory = argc > 2 ? avengine::string(argv[2]) : avengine::string(".");
+  const avengine::string indexDirectory =
+      argc > 2 ? avengine::string(argv[2]) : avengine::string(".");
   const avengine::search::SearchService service(indexDirectory);
 
   const int serverFd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);

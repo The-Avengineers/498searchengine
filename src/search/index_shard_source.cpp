@@ -100,8 +100,8 @@ bool IndexShardSource::Load(const string& path)
     return false;
   }
 
-  data_ = static_cast<uint8_t*>(mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ,
-                                     MAP_PRIVATE, fd, 0));
+  data_ = static_cast<uint8_t*>(
+      mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0));
   close(fd);
   if (data_ == MAP_FAILED)
   {
@@ -220,8 +220,8 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWordsPlusOne)
       continue;
 
     terms_.pushBack({string(reinterpret_cast<const char*>(termPtr)), entry});
-    inferredStringBytes = std::max(inferredStringBytes, static_cast<size_t>(entry.stringOffset) +
-                                                            length + 1u);
+    inferredStringBytes =
+        std::max(inferredStringBytes, static_cast<size_t>(entry.stringOffset) + length + 1u);
   }
 
   if (terms_.size() + 1u == expectedTerms)
@@ -293,8 +293,7 @@ bool IndexShardSource::ParseDocumentMetadata()
 
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     documents_.pushBack({static_cast<uint32_t>(docId), start, end,
-                         static_cast<uint32_t>(title.size()),
-                         static_cast<uint32_t>(url.size())});
+                         static_cast<uint32_t>(title.size()), static_cast<uint32_t>(url.size())});
     documentUrls_.pushBack(url);
     documentTitles_.pushBack(title);
     start = end + 1;
