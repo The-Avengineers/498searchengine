@@ -108,7 +108,7 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
     {
       string msg = "ROBOTS FETCH FAILED: ";
       msg += result.error().msg;
-      crawlLogger.log(robotsUrl, msg.cstr());
+      crawlLogger.log(msg.cstr(), robotsUrl);
     }
     else
     {
@@ -176,7 +176,7 @@ bool Robots_Agent::allow(const string& crawlUrl, URLNormalizer& normalizer, fetc
 
   if (!allowed)
   {
-    crawlLogger.log(crawlUrl, "SKIP, ROBOTS DISALLOW");
+    crawlLogger.log("SKIP, ROBOTS DISALLOW", crawlUrl);
     return false;
   }
   // dont lock hold during sleep

@@ -31,9 +31,9 @@ int main()
 
   // Log stuff
   avengine::crawler::CrawlLogger logger(pathTemplate);
-  logger.log("https://example.com/a", "FETCH_FAIL");
-  logger.log("https://example.com/b", "HTTP_STATUS", 404);
-  logger.log("https://example.com/c", "OK", static_cast<size_t>(123));
+  logger.log("FETCH_FAIL", "https://example.com/a");
+  logger.log("HTTP_STATUS", "https://example.com/b", 404);
+  logger.log("OK", "https://example.com/c", static_cast<size_t>(123));
   logger.log("CHECKPOINT", 7, 11, 13);
   // logger.logIndexStats(1000, 2048, 77);
   logger.log("DONE", 9, 17);
@@ -66,8 +66,8 @@ int main()
 
   // Reopen same file to verify append mode.
   avengine::crawler::CrawlLogger appendLogger(pathTemplate);
-  appendLogger.log("https://example.com/d", "APPEND_OK");
-  appendLogger.log("https://example.com/e", "APPEND_OK_2");
+  appendLogger.log("APPEND_OK", "https://example.com/d");
+  appendLogger.log("APPEND_OK_2", "https://example.com/e");
 
   // Verify append works
   fp = fopen(pathTemplate, "rb");
@@ -90,7 +90,7 @@ int main()
 
   // Invalid path shouldn;t crash
   avengine::crawler::CrawlLogger badLogger("/this/path/does/not/exist/crawl_log.csv");
-  badLogger.log("https://example.com/e", "NO_CRASH");
+  badLogger.log("NO_CRASH", "https://example.com/e");
   badLogger.log("CHECKPOINT", 1, 2, 3);
 
   EXPECT(unlink(pathTemplate) == 0);
