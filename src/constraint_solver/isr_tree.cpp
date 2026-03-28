@@ -6,8 +6,7 @@ namespace avengine
 {
 namespace constraint_solver
 {
-ISROr::ISROr(const vector<ISR*>& terms)
-    : Terms(terms)
+ISROr::ISROr(const vector<ISR*>& terms) : Terms(terms)
 {
   RefreshCurrentFromChildren();
 }

@@ -269,8 +269,7 @@ Location ISREndDoc::GetDocumentStart() const
   return doc.start;
 }
 
-ISROr::ISROr(const vector<ISR*>& terms)
-    : Terms(terms)
+ISROr::ISROr(const vector<ISR*>& terms) : Terms(terms)
 {
   RefreshCurrentFromChildren();
 }
