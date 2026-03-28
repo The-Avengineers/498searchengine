@@ -36,6 +36,8 @@ add_library(avengine
   src/indexer/indexer.cpp
   src/index_stream_reader.cpp
   src/ranker/ranker.cpp
+  src/search/index_shard_source.cpp
+  src/search/search_service.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
   src/crawler/url_normalizer.cpp
