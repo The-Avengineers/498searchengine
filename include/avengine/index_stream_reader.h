@@ -115,7 +115,6 @@ public:
   virtual Post* Seek(Location target) = 0;
   virtual Location GetStartLocation() const;
   virtual Location GetEndLocation() const;
-  virtual unsigned GetNumberOfOccurrences() const = 0;
 
 protected:
   void ClearCurrent();
@@ -134,7 +133,6 @@ public:
 
   Post* Next() override;
   Post* Seek(Location target) override;
-  unsigned GetNumberOfOccurrences() const override;
   unsigned GetDocumentCount() const;
 
 protected:
@@ -170,10 +168,8 @@ public:
   Post* Seek(Location target) override;
   Post* Next() override;
   Post* NextDocument();
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
 
 private:
   Post* RefreshCurrentFromChildren();
@@ -191,10 +187,8 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
   ISREndDoc* DocumentEnd = nullptr;
 
 private:
@@ -212,10 +206,8 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
   ISREndDoc* DocumentEnd = nullptr;
 };
 
@@ -227,7 +219,6 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Contained;
   vector<ISR*> Excluded;

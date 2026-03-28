@@ -67,7 +67,6 @@ TEST_CASE("Dictionary ISR factory methods return owned heap objects")
   REQUIRE(endDoc != nullptr);
   REQUIRE(word->Seek(1) != nullptr);
   REQUIRE(endDoc->Seek(1) != nullptr);
-  CHECK(word->GetNumberOfOccurrences() == 1u);
   CHECK(endDoc->GetCurrentDocumentId() == 0u);
 
   delete word;

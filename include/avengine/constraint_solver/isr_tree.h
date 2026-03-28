@@ -17,10 +17,8 @@ public:
   Post* Seek(Location target) override;
   Post* Next() override;
   Post* NextDocument();
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
 
 private:
   Post* RefreshCurrentFromChildren();
@@ -28,7 +26,6 @@ private:
   unsigned nearestTerm_ = 0;
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
-  unsigned occurrenceCount_ = 0;
 };
 
 class ISRAnd : public ISR
@@ -39,10 +36,8 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
-  unsigned NumberOfTerms = 0;
   ISREndDoc* DocumentEnd = nullptr;
 
 private:
@@ -51,7 +46,6 @@ private:
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
   Location currentDocumentEnd_ = 0;
-  unsigned occurrenceCount_ = 0;
 };
 
 class ISRPhrase : public ISR
@@ -62,13 +56,9 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Terms;
   ISREndDoc* DocumentEnd = nullptr;
-
-private:
-  unsigned occurrenceCount_ = 0;
 };
 
 class ISRAndNot : public ISR
@@ -79,7 +69,6 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
-  unsigned GetNumberOfOccurrences() const override;
 
   vector<ISR*> Required;
   vector<ISR*> Excluded;
@@ -91,7 +80,6 @@ private:
   Location nearestStartLocation_ = 0;
   Location nearestEndLocation_ = 0;
   Location currentDocumentEnd_ = 0;
-  unsigned occurrenceCount_ = 0;
 };
 
 } // namespace constraint_solver

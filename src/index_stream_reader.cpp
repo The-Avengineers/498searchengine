@@ -203,11 +203,6 @@ Post* ISRWord::Seek(Location target)
   return SetCurrentFromIndex(foundIndex);
 }
 
-unsigned ISRWord::GetNumberOfOccurrences() const
-{
-  return static_cast<unsigned>(occurrences_.size());
-}
-
 unsigned ISRWord::GetDocumentCount() const
 {
   return documentCount_;
@@ -275,7 +270,7 @@ Location ISREndDoc::GetDocumentStart() const
 }
 
 ISROr::ISROr(const vector<ISR*>& terms)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
+    : Terms(terms)
 {
   RefreshCurrentFromChildren();
 }
@@ -353,13 +348,8 @@ Post* ISROr::NextDocument()
   return Seek(GetEndLocation() + 1);
 }
 
-unsigned ISROr::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
-}
-
 ISRAnd::ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
+    : Terms(terms), DocumentEnd(documentEnd)
 {
 }
 
@@ -459,13 +449,8 @@ Post* ISRAnd::Next()
   return Seek(nearestStartLocation_ + 1);
 }
 
-unsigned ISRAnd::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
-}
-
 ISRPhrase::ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
+    : Terms(terms), DocumentEnd(documentEnd)
 {
 }
 
@@ -554,11 +539,6 @@ Post* ISRPhrase::Next()
     return nullptr;
 
   return Seek(GetStartLocation() + 1);
-}
-
-unsigned ISRPhrase::GetNumberOfOccurrences() const
-{
-  return NumberOfTerms;
 }
 
 ISRContainer::ISRContainer(const vector<ISR*>& contained, const vector<ISR*>& excluded,
@@ -680,11 +660,6 @@ Post* ISRContainer::Next()
     return nullptr;
 
   return Seek(GetStartLocation() + 1);
-}
-
-unsigned ISRContainer::GetNumberOfOccurrences() const
-{
-  return CountContained;
 }
 
 Dictionary::Dictionary() : termLocations_(strings_equal, hashString, 256) {}
