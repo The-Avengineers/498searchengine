@@ -5,13 +5,13 @@
 #include "../../include/avengine/crawler/robots_helper.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
 #include "../../include/avengine/html_parser/HtmlParser.h"
-#include "../index.h"
 #include "avengine/avengine_lib/condition_variable.h"
 #include "avengine/avengine_lib/deque.h"
 #include "avengine/avengine_lib/mutex.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/avengine_lib/thread.h"
+#include <avengine/indexer/indexer.h>
 #include <csignal>
 #include <fcntl.h>
 #include <fstream>

@@ -1,9 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
-#include "../src/index.h"
-
 #include <avengine/index_stream_reader.h>
+#include <avengine/indexer/indexer.h>
 
 #include <cstdlib>
 #include <cstring>
