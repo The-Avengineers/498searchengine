@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(avengine LANGUAGES CXX)
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 include(CTest)
@@ -48,7 +49,7 @@ target_include_directories(avengine
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
 
 # Example for usage
 # NOTE: not filled yet unsure end compilation

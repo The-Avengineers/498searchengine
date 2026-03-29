@@ -115,7 +115,6 @@ public:
   virtual Post* Seek(Location target) = 0;
   virtual Location GetStartLocation() const;
   virtual Location GetEndLocation() const;
-  virtual unsigned GetNumberOfOccurrences() const = 0;
 
 protected:
   void ClearCurrent();
@@ -134,7 +133,6 @@ public:
 
   Post* Next() override;
   Post* Seek(Location target) override;
-  unsigned GetNumberOfOccurrences() const override;
   unsigned GetDocumentCount() const;
 
 protected:
@@ -161,6 +159,80 @@ public:
   Location GetDocumentStart() const;
 };
 
+class ISROr : public ISR
+{
+public:
+  ISROr() = default;
+  explicit ISROr(const vector<ISR*>& terms);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+  Post* NextDocument();
+
+  vector<ISR*> Terms;
+
+private:
+  Post* RefreshCurrentFromChildren();
+
+  unsigned nearestTerm_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
+class ISRAnd : public ISR
+{
+public:
+  ISRAnd() = default;
+  ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+
+  vector<ISR*> Terms;
+  ISREndDoc* DocumentEnd = nullptr;
+
+private:
+  unsigned nearestTerm_ = 0;
+  unsigned farthestTerm_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
+class ISRPhrase : public ISR
+{
+public:
+  ISRPhrase() = default;
+  explicit ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd = nullptr);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+
+  vector<ISR*> Terms;
+  ISREndDoc* DocumentEnd = nullptr;
+};
+
+class ISRContainer : public ISR
+{
+public:
+  ISRContainer() = default;
+  ISRContainer(const vector<ISR*>& contained, const vector<ISR*>& excluded, ISREndDoc* endDoc);
+
+  Post* Seek(Location target) override;
+  Post* Next() override;
+
+  vector<ISR*> Contained;
+  vector<ISR*> Excluded;
+  ISREndDoc* EndDoc = nullptr;
+  unsigned CountContained = 0;
+  unsigned CountExcluded = 0;
+
+private:
+  unsigned nearestContained_ = 0;
+  unsigned farthestContained_ = 0;
+  Location nearestStartLocation_ = 0;
+  Location nearestEndLocation_ = 0;
+};
+
 class Dictionary
 {
 public:
@@ -169,11 +241,7 @@ public:
   void AddDocument(Location endLocation, uint32_t titleLength = 0, uint32_t urlLength = 0);
   void AddOccurrence(const char* token, Location location);
 
-  // Returns a heap-allocated ISRWord. The caller owns the result and must
-  // delete it unless ownership is immediately transferred to another owner.
   [[nodiscard]] ISRWord* OpenIsr(const char* token) const;
-  // Returns a heap-allocated ISREndDoc. The caller owns the result and must
-  // delete it unless ownership is immediately transferred to another owner.
   [[nodiscard]] ISREndDoc* OpenEndDocIsr() const;
   size_t GetNumberOfWords() const;
   size_t GetNumberOfUniqueWords() const;
@@ -186,8 +254,6 @@ private:
   size_t uniqueWords_ = 0;
 };
 
-// Incremental reader for one posting field stream. This is the low-level
-// primitive underneath higher-level ISRs.
 class IndexFieldStreamReader
 {
 public:

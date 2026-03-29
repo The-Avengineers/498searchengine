@@ -67,7 +67,6 @@ TEST_CASE("Dictionary ISR factory methods return owned heap objects")
   REQUIRE(endDoc != nullptr);
   REQUIRE(word->Seek(1) != nullptr);
   REQUIRE(endDoc->Seek(1) != nullptr);
-  CHECK(word->GetNumberOfOccurrences() == 1u);
   CHECK(endDoc->GetCurrentDocumentId() == 0u);
 
   delete word;
@@ -138,12 +137,10 @@ TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
 {
   avengine::vector<uint8_t> stream;
 
-  // one v2 section: [position_index=2][abs_pos=7][byte_offset=3]
   appendVarU32(stream, 2u);
   appendVarU32(stream, 7u);
   appendVarU32(stream, 3u);
 
-  // positions: 4, 10, 15
   appendVarU32(stream, 4u);
   appendVarU32(stream, 6u);
   appendVarU32(stream, 5u);
@@ -168,8 +165,6 @@ TEST_CASE("IndexFieldStreamReader decodes v3 decorators and position deltas")
 {
   avengine::vector<uint8_t> stream;
 
-  // two v3 decorators:
-  // [type=1][payload=2 bytes: AA BB], [type=3][payload=1 byte: 01]
   appendVarU32(stream, 1u);
   appendVarU32(stream, 2u);
   stream.pushBack(0xAAu);
@@ -178,7 +173,6 @@ TEST_CASE("IndexFieldStreamReader decodes v3 decorators and position deltas")
   appendVarU32(stream, 1u);
   stream.pushBack(0x01u);
 
-  // positions: 1, 4, 11
   appendVarU32(stream, 1u);
   appendVarU32(stream, 3u);
   appendVarU32(stream, 7u);

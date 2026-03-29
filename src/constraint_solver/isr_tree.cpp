@@ -6,22 +6,9 @@ namespace avengine
 {
 namespace constraint_solver
 {
-namespace
+ISROr::ISROr(const vector<ISR*>& terms) : Terms(terms)
 {
-static unsigned count_occurrences(ISR* stream)
-{
-  unsigned count = 0;
-  for (Post* post = stream->Seek(1); post; post = stream->Next())
-    count++;
-  return count;
-}
-} // namespace
-
-ISROr::ISROr(const vector<ISR*>& terms)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size()))
-{
-  occurrenceCount_ = count_occurrences(this);
-  Seek(1);
+  RefreshCurrentFromChildren();
 }
 
 Post* ISROr::RefreshCurrentFromChildren()
@@ -97,16 +84,9 @@ Post* ISROr::NextDocument()
   return Seek(GetEndLocation() + 1);
 }
 
-unsigned ISROr::GetNumberOfOccurrences() const
-{
-  return occurrenceCount_;
-}
-
 ISRAnd::ISRAnd(const vector<ISR*>& terms, ISREndDoc* documentEnd)
-    : Terms(terms), NumberOfTerms(static_cast<unsigned>(terms.size())), DocumentEnd(documentEnd)
+    : Terms(terms), DocumentEnd(documentEnd)
 {
-  occurrenceCount_ = count_occurrences(this);
-  Seek(1);
 }
 
 Post* ISRAnd::Seek(Location target)
@@ -210,16 +190,9 @@ Post* ISRAnd::Next()
   return Seek(currentDocumentEnd_ + 1);
 }
 
-unsigned ISRAnd::GetNumberOfOccurrences() const
-{
-  return occurrenceCount_;
-}
-
 ISRPhrase::ISRPhrase(const vector<ISR*>& terms, ISREndDoc* documentEnd)
     : Terms(terms), DocumentEnd(documentEnd)
 {
-  occurrenceCount_ = count_occurrences(this);
-  Seek(1);
 }
 
 Post* ISRPhrase::Seek(Location target)
@@ -309,16 +282,9 @@ Post* ISRPhrase::Next()
   return Seek(GetStartLocation() + 1);
 }
 
-unsigned ISRPhrase::GetNumberOfOccurrences() const
-{
-  return occurrenceCount_;
-}
-
 ISRAndNot::ISRAndNot(const vector<ISR*>& required, const vector<ISR*>& excluded, ISREndDoc* endDoc)
     : Required(required), Excluded(excluded), EndDoc(endDoc)
 {
-  occurrenceCount_ = count_occurrences(this);
-  Seek(1);
 }
 
 Post* ISRAndNot::Seek(Location target)
@@ -437,11 +403,6 @@ Post* ISRAndNot::Next()
     return nullptr;
 
   return Seek(currentDocumentEnd_ + 1);
-}
-
-unsigned ISRAndNot::GetNumberOfOccurrences() const
-{
-  return occurrenceCount_;
 }
 
 } // namespace constraint_solver
