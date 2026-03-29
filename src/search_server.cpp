@@ -115,7 +115,8 @@ string MakeJsonResponse(const search::SearchResponse& response)
   return body;
 }
 
-void SendResponse(int clientFd, int statusCode, const char* statusText, const string& body)
+void SendResponse(int clientFd, int statusCode, const char* statusText,
+                  const string& body)
 {
   string headers("HTTP/1.1 ");
   search::AppendUnsigned(headers, static_cast<size_t>(statusCode));
@@ -139,13 +140,15 @@ void HandleClient(int clientFd, const search::SearchService& service)
   const string request(buffer);
   const size_t lineEnd = request.find("\r\n");
   const size_t methodEnd = FindChar(request, ' ');
-  const size_t targetEnd = FindChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
+  const size_t targetEnd =
+      FindChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
 
   if (methodEnd == string::npos || targetEnd == string::npos || methodEnd >= lineEnd ||
       targetEnd > lineEnd || !StartsWith(request, "GET "))
   {
-    SendResponse(clientFd, 405, "Method Not Allowed",
-                 string("{\"query\":\"\",\"errors\":[{\"message\":\"GET only\"}],\"results\":[]}"));
+    SendResponse(
+        clientFd, 405, "Method Not Allowed",
+        string("{\"query\":\"\",\"errors\":[{\"message\":\"GET only\"}],\"results\":[]}"));
     return;
   }
 
@@ -179,7 +182,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
       if (key == string("q"))
         query = DecodeQueryValue(value);
       else if (key == string("limit") && value.size() != 0)
-        limit = search::ClampSearchLimit(static_cast<size_t>(strtoul(value.cstr(), nullptr, 10)));
+        limit = search::ClampSearchLimit(
+            static_cast<size_t>(strtoul(value.cstr(), nullptr, 10)));
 
       if (next == target.size())
         break;

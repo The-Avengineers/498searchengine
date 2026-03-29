@@ -55,7 +55,8 @@ size_t cstrLenSafe(const uint8_t* start, const uint8_t* end)
   return static_cast<size_t>(cursor - start);
 }
 
-string readLengthPrefixedString(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
+string readLengthPrefixedString(const uint8_t* begin, const uint8_t* end,
+                                const uint8_t** next)
 {
   const uint8_t* afterLength = nullptr;
   const uint32_t length = readVarU32(begin, end, &afterLength);
@@ -111,7 +112,8 @@ bool IndexShardSource::Load(const string& path)
 
   fileSize_ = static_cast<size_t>(st.st_size);
   const uint64_t uniqueWordsPlusOne = readU64LE(data_ + 8);
-  if (uniqueWordsPlusOne == 0 || !ParseDictionary(uniqueWordsPlusOne) || !ParseDocumentMetadata())
+  if (uniqueWordsPlusOne == 0 || !ParseDictionary(uniqueWordsPlusOne) ||
+      !ParseDocumentMetadata())
   {
     Reset();
     return false;
@@ -245,7 +247,8 @@ bool IndexShardSource::ParseDocumentMetadata()
   const uint8_t* postingBegin = nullptr;
   const uint8_t* postingEnd = nullptr;
   uint64_t documentFrequency = 0;
-  if (!FindPostingBounds(string("DOCUMENT_END"), &postingBegin, &postingEnd, &documentFrequency))
+  if (!FindPostingBounds(string("DOCUMENT_END"), &postingBegin, &postingEnd,
+                         &documentFrequency))
     return false;
 
   PostingBlobHeader header = {};
@@ -291,7 +294,8 @@ bool IndexShardSource::ParseDocumentMetadata()
       return false;
     cursor = next + sizeof(uint64_t);
 
-    const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
+    const Location end =
+        docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     const uint32_t titleLength = static_cast<uint32_t>(title.size());
     const uint32_t urlLength = static_cast<uint32_t>(url.size());
     documents_.pushBack({static_cast<uint32_t>(docId), start, end, titleLength, urlLength});
@@ -304,7 +308,8 @@ bool IndexShardSource::ParseDocumentMetadata()
 }
 
 bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** begin,
-                                         const uint8_t** end, uint64_t* documentFrequency) const
+                                         const uint8_t** end,
+                                         uint64_t* documentFrequency) const
 {
   const ParsedTerm* found = nullptr;
   for (size_t i = 0; i < terms_.size(); ++i)
@@ -326,7 +331,8 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
     }
   }
 
-  const size_t startOffset = postingsStart_ + static_cast<size_t>(found->Entry.postingOffset);
+  const size_t startOffset =
+      postingsStart_ + static_cast<size_t>(found->Entry.postingOffset);
   const size_t endOffset = postingsStart_ + static_cast<size_t>(nextPostingOffset);
   if (startOffset + 24u > endOffset || endOffset > fileSize_)
     return false;
