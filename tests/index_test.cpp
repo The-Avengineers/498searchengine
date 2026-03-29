@@ -1,5 +1,4 @@
-#include "../src/index.h"
-
+#include <avengine/indexer/indexer.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>

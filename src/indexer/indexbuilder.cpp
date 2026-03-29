@@ -1,7 +1,7 @@
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/avengine_lib/vector.h"
-#include "index.h"
+#include <avengine/indexer/indexer.h>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>

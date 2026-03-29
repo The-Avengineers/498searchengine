@@ -33,7 +33,7 @@ add_library(avengine
   src/crawler/robots_helper.cpp
   src/html_parser/HtmlParser.cpp
   src/html_parser/HtmlTags.cpp
-  src/index.cpp
+  src/indexer/indexer.cpp
   src/index_stream_reader.cpp
   src/parser.cpp
   src/ranker/ranker.cpp
@@ -57,12 +57,12 @@ add_executable(vector_demo examples/vector_demo.cpp)
 target_link_libraries(vector_demo PRIVATE avengine)
 
 # Simple tool for building index from text files.
-add_executable(index_builder src/index_builder.cpp)
+add_executable(index_builder src/indexer/indexbuilder.cpp)
 target_link_libraries(index_builder PRIVATE avengine)
 target_include_directories(index_builder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Minimal index inspection tool.
-add_executable(index_reader src/index_reader.cpp)
+add_executable(index_reader src/indexer/indexreader.cpp)
 target_include_directories(index_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Helper tool for comparing probing strategies at different load factors.
