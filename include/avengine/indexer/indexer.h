@@ -1,6 +1,7 @@
 #pragma once
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
+#include "avengine/codec.h"
 #include "avengine/unordered_map.h"
 #include "avengine/vector.h"
 #include <cstddef>
@@ -43,9 +44,6 @@ struct PostingList
   avengine::vector<Posting> postings;
   avengine::vector<uint32_t> positions;
 };
-
-void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value);
-void append_uint64(avengine::vector<uint8_t>& out, uint64_t value);
 
 struct DocumentMetadata
 {

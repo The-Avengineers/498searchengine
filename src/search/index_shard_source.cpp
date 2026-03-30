@@ -1,3 +1,4 @@
+#include <avengine/codec.h>
 #include <avengine/search/index_shard_source.h>
 
 #include <avengine/search/search_common.h>
@@ -16,35 +17,6 @@ namespace search
 namespace
 {
 
-uint64_t readU64LE(const uint8_t* ptr)
-{
-  uint64_t value = 0;
-  for (int i = 0; i < 8; ++i)
-    value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
-  return value;
-}
-
-uint32_t readVarU32(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
-{
-  uint32_t result = 0;
-  uint32_t shift = 0;
-
-  while (begin < end && shift < 35)
-  {
-    const uint8_t byte = *begin++;
-    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
-    if ((byte & 0x80u) == 0u)
-    {
-      *next = begin;
-      return result;
-    }
-    shift += 7;
-  }
-
-  *next = nullptr;
-  return 0;
-}
-
 size_t cstrLenSafe(const uint8_t* start, const uint8_t* end)
 {
   const uint8_t* cursor = start;
@@ -53,23 +25,6 @@ size_t cstrLenSafe(const uint8_t* start, const uint8_t* end)
   if (cursor == end)
     return string::npos;
   return static_cast<size_t>(cursor - start);
-}
-
-string readLengthPrefixedString(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
-{
-  const uint8_t* afterLength = nullptr;
-  const uint32_t length = readVarU32(begin, end, &afterLength);
-  if (!afterLength || afterLength + length > end)
-  {
-    *next = nullptr;
-    return string();
-  }
-
-  string out;
-  for (uint32_t i = 0; i < length; ++i)
-    out.pushBack(static_cast<char>(afterLength[i]));
-  *next = afterLength + length;
-  return out;
 }
 
 } // namespace
@@ -110,7 +65,8 @@ bool IndexShardSource::Load(const string& path)
   }
 
   fileSize_ = static_cast<size_t>(st.st_size);
-  const uint64_t uniqueWordsPlusOne = readU64LE(data_ + 8);
+  // fileSize_ >= 16 guaranteed by the check above, so this read is always safe.
+  const uint64_t uniqueWordsPlusOne = Reader(data_ + 8, fileSize_ - 8u).readU64();
   if (uniqueWordsPlusOne == 0 || !ParseDictionary(uniqueWordsPlusOne) || !ParseDocumentMetadata())
   {
     Reset();
@@ -166,27 +122,19 @@ ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
 
   // This keeps the shard loader cheap: we only decode the posting lists the query actually asks
   // for, and we leave any smarter caching for the next slice.
+  Reader r(cursor, static_cast<size_t>(postingEnd - cursor));
   for (uint64_t i = 0; i < header.skipCount; ++i)
   {
     for (int field = 0; field < 3; ++field)
-    {
-      const uint8_t* next = nullptr;
-      readVarU32(cursor, postingEnd, &next);
-      if (!next)
-        return nullptr;
-      cursor = next;
-    }
+      r.readVarU32();
   }
 
   vector<Location> positions;
   uint32_t absolutePosition = 0;
   for (uint64_t i = 0; i < header.collectionFrequency; ++i)
   {
-    const uint8_t* next = nullptr;
-    absolutePosition += readVarU32(cursor, postingEnd, &next);
-    if (!next)
-      return nullptr;
-    cursor = next;
+    const uint32_t delta = r.readVarU32();
+    absolutePosition += delta;
     positions.pushBack(static_cast<Location>(absolutePosition + 1u));
   }
 
@@ -215,7 +163,10 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWordsPlusOne)
   for (uint64_t slot = 0; slot < tableSlots; ++slot)
   {
     const size_t offset = static_cast<size_t>(16u + (slot * 16u));
-    const DictEntry entry = {readU64LE(data_ + offset), readU64LE(data_ + offset + 8u)};
+    Reader slotReader(data_ + offset, 16u);
+    const uint64_t strOff = slotReader.readU64();
+    const uint64_t postOff = slotReader.readU64();
+    const DictEntry entry = {strOff, postOff};
     if (entry.stringOffset == 0 && entry.postingOffset == 0)
       continue;
     if (dictionaryBytes + entry.stringOffset >= fileSize_)
@@ -285,43 +236,28 @@ bool IndexShardSource::ParseDocumentMetadata()
   if (!parsePostingBlobHeader(postingBegin, postingEnd, &header, &cursor))
     return false;
 
+  Reader r(cursor, static_cast<size_t>(postingEnd - cursor));
   vector<Location> boundaries;
   for (uint64_t i = 0; i < header.skipCount; ++i)
   {
     for (int field = 0; field < 3; ++field)
-    {
-      const uint8_t* next = nullptr;
-      readVarU32(cursor, postingEnd, &next);
-      if (!next)
-        return false;
-      cursor = next;
-    }
+      r.readVarU32();
   }
 
   uint32_t absolutePosition = 0;
   for (uint64_t i = 0; i < header.collectionFrequency; ++i)
   {
-    const uint8_t* next = nullptr;
-    absolutePosition += readVarU32(cursor, postingEnd, &next);
-    if (!next)
-      return false;
-    cursor = next;
+    const uint32_t delta = r.readVarU32();
+    absolutePosition += delta;
     boundaries.pushBack(static_cast<Location>(absolutePosition));
   }
 
   Location start = 1;
   for (uint64_t docId = 0; docId < documentFrequency; ++docId)
   {
-    const uint8_t* next = nullptr;
-    const string url = readLengthPrefixedString(cursor, postingEnd, &next);
-    if (!next)
-      return false;
-    cursor = next;
-
-    const string title = readLengthPrefixedString(cursor, postingEnd, &next);
-    if (!next || next + sizeof(uint64_t) > postingEnd)
-      return false;
-    cursor = next + sizeof(uint64_t);
+    const avengine::string url = r.readString();
+    const avengine::string title = r.readString();
+    r.skip(sizeof(uint64_t));
 
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     const uint32_t titleLength = static_cast<uint32_t>(title.size());
@@ -348,7 +284,10 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
     return false;
 
   if (documentFrequency)
-    *documentFrequency = readU64LE(data_ + startOffset);
+  {
+    // startOffset + 24 <= endOffset is guaranteed above, so 8 bytes are always available.
+    *documentFrequency = Reader(data_ + startOffset, 8u).readU64();
+  }
   *begin = data_ + startOffset;
   *end = data_ + endOffset;
   return true;

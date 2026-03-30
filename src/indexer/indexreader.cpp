@@ -1,4 +1,5 @@
 #include "avengine/avengine_lib/string.h"
+#include "avengine/codec.h"
 #include "avengine/string.h"
 #include <cctype>
 #include <cstdint>
@@ -28,56 +29,6 @@ struct DocInfo
   avengine::string title;
   avengine::string url;
 };
-
-static uint64_t read_u64_le(const uint8_t* ptr)
-{
-  uint64_t value = 0;
-  for (int i = 0; i < 8; i++)
-    value |= static_cast<uint64_t>(ptr[i]) << (8 * i);
-  return value;
-}
-
-static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
-{
-  uint32_t result = 0;
-  uint32_t shift = 0;
-
-  while (begin < end && shift < 35)
-  {
-    uint8_t byte = *begin++;
-    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
-    if ((byte & 0x80u) == 0u)
-    {
-      *next = begin;
-      return result;
-    }
-    shift += 7;
-  }
-
-  *next = nullptr;
-  return 0;
-}
-
-// Reads a varint-length-prefixed string (as written by append_string in index.cpp):
-//   varint(len) followed by len raw bytes (no null terminator).
-// Advances *next past the consumed bytes.
-// On failure (truncated data) sets *next = nullptr and returns an empty string.
-static avengine::string read_length_prefixed_string(const uint8_t* begin, const uint8_t* end,
-                                                    const uint8_t** next)
-{
-  const uint8_t* after_len = nullptr;
-  uint32_t len = read_var_u32(begin, end, &after_len);
-  if (!after_len || after_len + len > end)
-  {
-    *next = nullptr;
-    return avengine::string();
-  }
-  avengine::string result;
-  for (uint32_t i = 0; i < len; i++)
-    result.pushBack(static_cast<char>(after_len[i]));
-  *next = after_len + len;
-  return result;
-}
 
 static size_t cstr_len_safe(const uint8_t* start, const uint8_t* end)
 {
@@ -175,28 +126,20 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
     return false;
   }
 
-  const uint8_t* posting = data + startOff;
-  const uint8_t* postingEnd = data + endOff;
+  avengine::Reader r(data + startOff, endOff - startOff);
 
-  uint64_t docFreq = read_u64_le(posting);
-  uint64_t collFreq = read_u64_le(posting + 8);
-  uint64_t skipCount = read_u64_le(posting + 16);
-  const uint8_t* cursor = posting + 24;
+  auto docFreq_r = r.readU64();
+  auto collFreq_r = r.readU64();
+  auto skipCount_r = r.readU64();
+  const uint64_t docFreq = docFreq_r;
+  const uint64_t collFreq = collFreq_r;
+  const uint64_t skipCount = skipCount_r;
 
   // Consume the skip-pointer stream (3 varints per entry).
   for (uint64_t i = 0; i < skipCount; i++)
   {
     for (int field = 0; field < 3; field++)
-    {
-      const uint8_t* next = nullptr;
-      read_var_u32(cursor, postingEnd, &next);
-      if (!next)
-      {
-        std::fprintf(stderr, "Warning: Truncated skip pointer stream in DOCUMENT_END.\n");
-        return false;
-      }
-      cursor = next;
-    }
+      r.readVarU32();
   }
 
   // Decode exactly collFreq position deltas to obtain per-document boundary positions.
@@ -206,14 +149,7 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
     uint64_t pos = 0;
     for (uint64_t i = 0; i < collFreq; i++)
     {
-      const uint8_t* next = nullptr;
-      uint32_t delta = read_var_u32(cursor, postingEnd, &next);
-      if (!next)
-      {
-        std::fprintf(stderr, "Warning: Truncated position stream in DOCUMENT_END.\n");
-        return false;
-      }
-      cursor = next;
+      const uint32_t delta = r.readVarU32();
       pos += delta;
       boundaryPositions.pushBack(pos);
     }
@@ -222,36 +158,9 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
   // Read per-document metadata: url (discarded), title (kept), 8-byte RankingInput (skipped).
   for (uint64_t i = 0; i < docFreq; i++)
   {
-    // URL — read and discard.
-    const uint8_t* next = nullptr;
-    avengine::string url = read_length_prefixed_string(cursor, postingEnd, &next);
-    if (!next)
-    {
-      std::fprintf(stderr, "Warning: Truncated URL in DOCUMENT_END metadata at doc %llu.\n",
-                   static_cast<unsigned long long>(i));
-      return false;
-    }
-    cursor = next;
-
-    // Title — keep.
-    avengine::string title = read_length_prefixed_string(cursor, postingEnd, &next);
-    if (!next)
-    {
-      std::fprintf(stderr, "Warning: Truncated title in DOCUMENT_END metadata at doc %llu.\n",
-                   static_cast<unsigned long long>(i));
-      return false;
-    }
-    cursor = next;
-
-    // RankingInput — 8 bytes, skip.
-    if (cursor + 8 > postingEnd)
-    {
-      std::fprintf(stderr,
-                   "Warning: Truncated RankingInput in DOCUMENT_END metadata at doc %llu.\n",
-                   static_cast<unsigned long long>(i));
-      return false;
-    }
-    cursor += 8;
+    const avengine::string url = r.readString();
+    const avengine::string title = r.readString();
+    r.skip(8);
 
     uint64_t endPos = (i < boundaryPositions.size()) ? boundaryPositions[i] : UINT64_MAX;
     docInfos.pushBack({endPos, title, url});
@@ -323,8 +232,11 @@ int main(int argc, char** argv)
   }
 
   // Header: [document_count u64][unique_words_plus_one u64]
-  const uint64_t documentCount = read_u64_le(data);
-  const uint64_t uniqueWordsPlusOne = read_u64_le(data + 8);
+  avengine::Reader fileHeaderReader(data, 16);
+  auto documentCount_r = fileHeaderReader.readU64();
+  auto uniqueWordsPlusOne_r = fileHeaderReader.readU64();
+  const uint64_t documentCount = documentCount_r;
+  const uint64_t uniqueWordsPlusOne = uniqueWordsPlusOne_r;
   const uint64_t tableSlots = uniqueWordsPlusOne * 2;
   const uint64_t dictionaryBytes = 16 + tableSlots * 16;
 
@@ -340,7 +252,10 @@ int main(int argc, char** argv)
   for (uint64_t i = 0; i < tableSlots; i++)
   {
     size_t offset = static_cast<size_t>(16 + i * 16);
-    entries.pushBack({read_u64_le(data + offset), read_u64_le(data + offset + 8)});
+    avengine::Reader slotReader(data + offset, 16);
+    auto strOff = slotReader.readU64();
+    auto postOff = slotReader.readU64();
+    entries.pushBack({strOff, postOff});
   }
 
   const uint8_t* stringStart = data + dictionaryBytes;
@@ -444,33 +359,21 @@ int main(int argc, char** argv)
   }
 
   // Per posting-list header: [doc_freq u64][collection_freq u64][skip_count u64].
-  const uint8_t* posting = data + startOff;
-  uint64_t documentFrequency = read_u64_le(posting);
-  uint64_t collectionFrequency = read_u64_le(posting + 8);
-  uint64_t skipCount = read_u64_le(posting + 16);
-  const uint8_t* cursor = posting + 24;
-  const uint8_t* postingEnd = data + endOff;
+  avengine::Reader postReader(data + startOff, endOff - startOff);
+
+  auto documentFrequency_r = postReader.readU64();
+  auto collectionFrequency_r = postReader.readU64();
+  auto skipCount_r = postReader.readU64();
+  const uint64_t documentFrequency = documentFrequency_r;
+  const uint64_t collectionFrequency = collectionFrequency_r;
+  const uint64_t skipCount = skipCount_r;
 
   avengine::vector<ParsedSkipPointer> parsedSkips;
   for (uint64_t i = 0; i < skipCount; i++)
   {
-    const uint8_t* next = nullptr;
-
-    uint32_t positionIndex = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      break;
-    cursor = next;
-
-    uint32_t positionValue = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      break;
-    cursor = next;
-
-    uint32_t byteOffset = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      break;
-    cursor = next;
-
+    const uint32_t positionIndex = postReader.readVarU32();
+    const uint32_t positionValue = postReader.readVarU32();
+    const uint32_t byteOffset = postReader.readVarU32();
     parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
   }
 
@@ -499,13 +402,9 @@ int main(int argc, char** argv)
   uint64_t pos64 = 0;
 
   std::printf("Positions:\n");
-  while (cursor < postingEnd)
+  while (!postReader.empty())
   {
-    const uint8_t* next = nullptr;
-    uint32_t delta = read_var_u32(cursor, postingEnd, &next);
-    if (!next)
-      break;
-    cursor = next;
+    const uint32_t delta = postReader.readVarU32();
     pos64 += delta;
 
     const char* title = "(unknown)";
