@@ -104,6 +104,19 @@ private:
   vector<RankedResult> Top10;
 };
 
+class ConstantScoreStrategy : public Ranker::Strategy
+{
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const override
+  {
+    (void)entry;
+    (void)term_positions;
+    (void)signals;
+    return 1.0;
+  }
+};
+
 } // namespace avengine
 
 #endif /* RANKER_H_ */

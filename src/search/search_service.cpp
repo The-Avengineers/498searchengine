@@ -1,5 +1,6 @@
 #include <avengine/search/search_service.h>
 
+#include <avengine/ranker/ranker.h>
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
 
@@ -47,6 +48,8 @@ vector<string> DiscoverShardPaths(const string& directory)
   }
 
   closedir(dir);
+  // without sorting, the same query could return different top 
+  // results across runs just because shard enumeration changed
   std::sort(paths.begin(), paths.end());
   return paths;
 }
@@ -74,6 +77,12 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
     return response;
   }
 
+  Ranker ranker;
+  ConstantScoreStrategy constantScore;
+  ranker.AddStrategy(&constantScore, 1.0);
+  const vector<vector<size_t>> termPositions;
+  const Ranker::RankSignals signals = {};
+
   const vector<string> shardPaths = DiscoverShardPaths(indexDirectory_);
   for (const string& shardPath : shardPaths)
   {
@@ -86,9 +95,11 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
     for (size_t i = 0; i < solved.Matches.size() && response.Results.size() < response.Limit; ++i)
     {
       const auto& match = solved.Matches[i];
-      // TODO: This is the deliberate stub seam for the next batch. Right now solver decides the
-      // set, and every surviving page ties until the ranker gets wired in.
-      response.Results.pushBack({match.Url, shard.GetDocumentTitle(match.DocId), 1.0});
+      urlEntry entry = {};
+      entry.url = match.Url;
+      // trivial ranker
+      const double score = ranker.Score(entry, termPositions, signals);
+      response.Results.pushBack({match.Url, shard.GetDocumentTitle(match.DocId), score});
     }
   }
 
