@@ -1,4 +1,5 @@
 #include <avengine/avengine_lib/vector.h>
+#include <avengine/codec.h>
 #include <avengine/indexer/indexer.h>
 #include <cassert>
 #include <cctype>
@@ -44,37 +45,6 @@ void PostingList::ingest(uint32_t docId, size_t offset)
   positions.pushBack(offset);
 }
 
-void append_var_uint32(avengine::vector<uint8_t>& out, uint32_t value)
-{
-  while (value >= 0x80u)
-  {
-    out.pushBack(static_cast<uint8_t>((value & 0x7Fu) | 0x80u));
-    value >>= 7;
-  }
-  out.pushBack(static_cast<uint8_t>(value));
-}
-
-static void append_bytes(avengine::vector<uint8_t>& out, const void* data, size_t size)
-{
-  const uint8_t* bytes = static_cast<const uint8_t*>(data);
-  for (size_t i = 0; i < size; i++)
-  {
-    out.pushBack(bytes[i]);
-  }
-}
-
-void append_uint64(avengine::vector<uint8_t>& out, uint64_t value)
-{
-  append_bytes(out, &value, sizeof(uint64_t));
-}
-
-static void append_string(avengine::vector<uint8_t>& out, const avengine::string& str)
-{
-  const size_t len = str.size();
-  append_var_uint32(out, static_cast<uint32_t>(len));
-  append_bytes(out, str.begin(), len);
-}
-
 struct SkipPointer
 {
   uint32_t positionIndex;
@@ -110,9 +80,9 @@ static void encodePostingList(const PostingList& pl,
                               const avengine::vector<DocumentMetadata>& docMetadata,
                               avengine::vector<uint8_t>& out)
 {
-  avengine::vector<uint8_t> deltaBuffer;
+  avengine::Writer deltaWriter;
   avengine::vector<SkipPointer> skipPointers;
-  avengine::vector<uint8_t> skipBuffer;
+  avengine::Writer skipWriter;
 
   const uint64_t collectionFrequency = pl.positions.size();
   const uint32_t skipStride =
@@ -127,21 +97,21 @@ static void encodePostingList(const PostingList& pl,
     {
       skipPointers.pushBack({.positionIndex = i,
                              .positionValue = position,
-                             .byteOffset = static_cast<uint32_t>(deltaBuffer.size())});
+                             .byteOffset = static_cast<uint32_t>(deltaWriter.size())});
     }
-    append_var_uint32(deltaBuffer, position - lastPosition);
+    deltaWriter.writeVarU32(position - lastPosition);
     lastPosition = position;
   }
 
   for (const SkipPointer& skip : skipPointers)
   {
-    append_var_uint32(skipBuffer, skip.positionIndex);
-    append_var_uint32(skipBuffer, skip.positionValue);
-    append_var_uint32(skipBuffer, skip.byteOffset);
+    skipWriter.writeVarU32(skip.positionIndex);
+    skipWriter.writeVarU32(skip.positionValue);
+    skipWriter.writeVarU32(skip.byteOffset);
   }
 
   // For DOCUMENT_END, serialize document metadata inline in posting order.
-  avengine::vector<uint8_t> metadataBuffer;
+  avengine::Writer metaWriter;
   if (pl.word == avengine::string(DOCEND_TOKEN))
   {
     // DOCUMENT_END stores one entry per doc. Its position deltas encode term counts,
@@ -151,20 +121,21 @@ static void encodePostingList(const PostingList& pl,
       assert(posting.docId < docMetadata.size());
       const DocumentMetadata& doc = docMetadata[posting.docId];
 
-      append_string(metadataBuffer, doc.url);
-      append_string(metadataBuffer, doc.title);
-      append_bytes(metadataBuffer, reinterpret_cast<const uint8_t*>(&doc.input), sizeof(doc.input));
+      metaWriter.writeString(doc.url);
+      metaWriter.writeString(doc.title);
+      metaWriter.writeBytes(reinterpret_cast<const uint8_t*>(&doc.input), sizeof(doc.input));
     }
   }
 
   // Header: [doc_frequency u64][collection_frequency u64][skip_count u64].
-  out.clear();
-  append_uint64(out, pl.postings.size());
-  append_uint64(out, collectionFrequency);
-  append_uint64(out, skipPointers.size());
-  append_bytes(out, skipBuffer.begin(), skipBuffer.size());
-  append_bytes(out, deltaBuffer.begin(), deltaBuffer.size());
-  append_bytes(out, metadataBuffer.begin(), metadataBuffer.size());
+  avengine::Writer outWriter;
+  outWriter.writeU64(pl.postings.size());
+  outWriter.writeU64(collectionFrequency);
+  outWriter.writeU64(skipPointers.size());
+  outWriter.writeBytes(skipWriter.data(), skipWriter.size());
+  outWriter.writeBytes(deltaWriter.data(), deltaWriter.size());
+  outWriter.writeBytes(metaWriter.data(), metaWriter.size());
+  out = outWriter.release();
 }
 
 void Index::buildStringTable(avengine::vector<uint64_t>& dict, avengine::vector<char>& stringBuffer)

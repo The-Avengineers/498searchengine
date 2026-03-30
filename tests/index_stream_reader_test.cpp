@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
+#include <avengine/codec.h>
 #include <avengine/index_stream_reader.h>
 #include <avengine/indexer/indexer.h>
 
@@ -10,47 +11,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace
-{
-void appendVarU32(avengine::vector<uint8_t>& out, uint32_t value)
-{
-  while (value >= 0x80u)
-  {
-    out.pushBack(static_cast<uint8_t>((value & 0x7Fu) | 0x80u));
-    value >>= 7;
-  }
-  out.pushBack(static_cast<uint8_t>(value));
-}
-
-void appendU64LE(avengine::vector<uint8_t>& out, uint64_t value)
-{
-  for (int i = 0; i < 8; i++)
-    out.pushBack(static_cast<uint8_t>((value >> (i * 8)) & 0xFFu));
-}
-
-uint64_t readU64LE(const uint8_t* ptr)
-{
-  uint64_t value = 0;
-  for (int i = 0; i < 8; i++)
-    value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
-  return value;
-}
-} // namespace
-
 TEST_CASE("parsePostingBlobHeader parses 24-byte header")
 {
-  avengine::vector<uint8_t> bytes;
-  appendU64LE(bytes, 11u);
-  appendU64LE(bytes, 12u);
-  appendU64LE(bytes, 3u);
+  avengine::Writer w;
+  w.writeU64(11u);
+  w.writeU64(12u);
+  w.writeU64(3u);
 
   avengine::PostingBlobHeader header = {};
   const uint8_t* fields = nullptr;
-  REQUIRE(avengine::parsePostingBlobHeader(bytes.begin(), bytes.end(), &header, &fields));
+  REQUIRE(avengine::parsePostingBlobHeader(w.data(), w.data() + w.size(), &header, &fields));
   CHECK(header.documentFrequency == 11u);
   CHECK(header.collectionFrequency == 12u);
   CHECK(header.skipCount == 3u);
-  CHECK(fields == bytes.begin() + 24);
+  CHECK(fields == w.data() + 24);
 }
 
 TEST_CASE("Dictionary ISR factory methods return owned heap objects")
@@ -111,9 +85,12 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   CHECK(close(readFd) == 0);
   CHECK(unlink(pathTemplate) == 0);
 
-  REQUIRE(readU64LE(bytes) == 1u);
-  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
-  REQUIRE(uniqueWordsPlusOne == 3u);
+  avengine::Reader fileHeader(bytes, 16u);
+  auto dcVal = fileHeader.readU64();
+  auto uwVal = fileHeader.readU64();
+  REQUIRE(dcVal == 1u);
+  REQUIRE(uwVal == 3u);
+  const uint64_t uniqueWordsPlusOne = uwVal;
 
   const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
   const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
@@ -134,18 +111,17 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
 
 TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
 {
-  avengine::vector<uint8_t> stream;
+  avengine::Writer w;
+  w.writeVarU32(2u);
+  w.writeVarU32(7u);
+  w.writeVarU32(3u);
 
-  appendVarU32(stream, 2u);
-  appendVarU32(stream, 7u);
-  appendVarU32(stream, 3u);
-
-  appendVarU32(stream, 4u);
-  appendVarU32(stream, 6u);
-  appendVarU32(stream, 5u);
+  w.writeVarU32(4u);
+  w.writeVarU32(6u);
+  w.writeVarU32(5u);
 
   avengine::IndexFieldStreamReader reader;
-  REQUIRE(avengine::IndexFieldStreamReader::init(stream.begin(), stream.end(), 1u, 3u,
+  REQUIRE(avengine::IndexFieldStreamReader::init(w.data(), w.data() + w.size(), 1u, 3u,
                                                  avengine::FieldStreamEncoding::V2_SKIP_POINTERS,
                                                  &reader));
 
@@ -162,23 +138,22 @@ TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
 
 TEST_CASE("IndexFieldStreamReader decodes v3 decorators and position deltas")
 {
-  avengine::vector<uint8_t> stream;
+  avengine::Writer w;
+  w.writeVarU32(1u);
+  w.writeVarU32(2u);
+  w.writeBytes("\xAA\xBB", 2);
+  w.writeVarU32(3u);
+  w.writeVarU32(1u);
+  w.writeBytes("\x01", 1);
 
-  appendVarU32(stream, 1u);
-  appendVarU32(stream, 2u);
-  stream.pushBack(0xAAu);
-  stream.pushBack(0xBBu);
-  appendVarU32(stream, 3u);
-  appendVarU32(stream, 1u);
-  stream.pushBack(0x01u);
-
-  appendVarU32(stream, 1u);
-  appendVarU32(stream, 3u);
-  appendVarU32(stream, 7u);
+  w.writeVarU32(1u);
+  w.writeVarU32(3u);
+  w.writeVarU32(7u);
 
   avengine::IndexFieldStreamReader reader;
-  REQUIRE(avengine::IndexFieldStreamReader::init(
-      stream.begin(), stream.end(), 2u, 3u, avengine::FieldStreamEncoding::V3_DECORATORS, &reader));
+  REQUIRE(avengine::IndexFieldStreamReader::init(w.data(), w.data() + w.size(), 2u, 3u,
+                                                 avengine::FieldStreamEncoding::V3_DECORATORS,
+                                                 &reader));
 
   REQUIRE(reader.decorators().size() == 2u);
   CHECK(reader.decorators()[0].type == 1u);
