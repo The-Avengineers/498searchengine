@@ -1,6 +1,14 @@
 # Social Media
+# We should put goods subreddits on the seed list
+old.reddit.com
 youtube.com
+news.ycombinator.com
+lobste.rs
+knowyourmeme.com
+dev.to
 medium.com
+substack.com
+quora.com
 
 # News & Publishing
 nytimes.com
@@ -11,10 +19,32 @@ nist.gov
 forbes.com
 reuters.com
 weather.com
+apnews.com
+wsj.com
+ft.com
+economist.com
+wired.com
+techcrunch.com
+arstechnica.com
+theverge.com
+bloomberg.com
+npr.org
+pbs.org
+theatlantic.com
+scientificamerican.com
+newscientist.com
+vox.com
+politico.com
+slate.com
+reason.com
+www.mlive.com
 
 # Education, Research & Reference
+www.britannica.com
 wikipedia.org
 wikimedia.org
+wiktionary.org
+plato.stanford.edu
 archive.org
 mit.edu
 w3.org
@@ -23,7 +53,36 @@ doi.org
 springer.com
 researchgate.net
 sciencedirect.com
+pubmed.ncbi.nlm.nih.gov
+arxiv.org
+nature.com
+jstor.org
+britannica.com
+gutenberg.org
+openlibrary.org
+standardebooks.org
+www.neh.gov
+lwn.net
+www.nationalgeographic.com
+extension.okstate.edu
+khanacademy.org
+coursera.org
+edx.org
+ocw.mit.edu
+loc.gov
 nasa.gov
+ncbi.nlm.nih.gov
+plos.org
+ssrn.com
+philpapers.org
+scholarpedia.org
+mathworld.wolfram.com
+encyclopediaofmath.org
+merriam-webster.com
+etymonline.com
+stanford.edu
+harvard.edu
+berkeley.edu
 
 # Software Documentation
 mozilla.org
@@ -33,6 +92,44 @@ ubuntu.com
 github.com
 openai.com
 wordpress.org
+stackoverflow.com
+developer.mozilla.org
+python.org
+docker.com
+kubernetes.io
+nodejs.org
+ruby-lang.org
+golang.org
+rust-lang.org
+devdocs.io
+en.cppreference.com
+wiki.archlinux.org
+wiki.nixos.org
+www.kernel.org
+git-scm.com
+gnu.org
+debian.org
+freebsd.org
+php.net
+perl.org
+haskell.org
+swift.org
+scala-lang.org
+docs.python.org
+man7.org
+tldp.org
+postgresql.org
+sqlite.org
+redis.io
+npmjs.com
+pypi.org
+crates.io
+gitlab.com
+ietf.org
+rfc-editor.org
+linuxfoundation.org
+llvm.org
+clang.llvm.org
 
 # E-Commerce
 amazon.com
@@ -41,10 +138,92 @@ etsy.com
  nasa.gov
  reuters.com
 paypal.com
+newegg.com
+walmart.com
+bestbuy.com
+annarbor.craigslist.org
 
 # Reference & Media
 imdb.com
+goodreads.com
+musicbrainz.org
+discogs.com
+rottentomatoes.com
+metacritic.com
+bandcamp.com
+last.fm
+genius.com
 
 # Government & Legal
-nih.gov
+congress.gov
+whitehouse.gov
+www.un.org/en/
+www.ohchr.org
+law.cornell.edu
+justia.com
+supremecourt.gov
+data.gov
+census.gov
+irs.gov
+epa.gov
+usda.gov
 nist.gov
+noaa.gov
+nih.gov
+nsf.gov
+federalreserve.gov
+sec.gov
+state.gov
+www.a2gov.org
+www.michigan.org
+www.michigan.gov
+www.michigandaily.com
+
+# Sports
+espn.com
+nba.com
+nfl.com
+mlb.com
+olympics.com
+fifa.com
+
+# Finance
+investopedia.com
+marketwatch.com
+nasdaq.com
+
+# Online Gaming
+steamcommunity.com
+store.steampowered.com
+www.gog.com/en/
+
+# Medicine
+www.cdc.gov
+www.mayoclinic.org
+my.clevelandclinic.org
+www.fda.gov
+www.who.int
+medlineplus.gov
+webmd.com
+healthline.com
+medscape.com
+drugs.com
+
+# Cooking
+www.kingarthurbaking.com
+www.bettycrocker.com
+www.foodnetwork.com
+allrecipes.com
+seriouseats.com
+epicurious.com
+bonappetit.com
+thekitchn.com
+
+# Travel
+tripadvisor.com
+lonelyplanet.com
+
+# Information Search
+umich.edu
+aadl.org
+www.theride.org
