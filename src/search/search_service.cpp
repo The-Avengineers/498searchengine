@@ -198,15 +198,14 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
       if (docInfo)
         signals.title_word_count = docInfo->titleLength;
 
-      ranker.Consider(entry, shard->GetDocumentTitle(match.DocId),
-                      matchPositions[i].termPositions, signals);
+      ranker.Consider(entry, shard->GetDocumentTitle(match.DocId), matchPositions[i].termPositions,
+                      signals);
     }
   }
 
   const auto& topResults = ranker.TopResults();
   for (size_t i = 0; i < topResults.size() && i < response.Limit; ++i)
-    response.Results.pushBack(
-        {topResults[i].entry.url, topResults[i].title, topResults[i].score});
+    response.Results.pushBack({topResults[i].entry.url, topResults[i].title, topResults[i].score});
 
   constraint_solver::DestroyQueryTree(parsed.Root);
   response.TookMs = static_cast<size_t>(((clock() - start) * 1000) / CLOCKS_PER_SEC);
