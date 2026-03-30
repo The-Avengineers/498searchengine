@@ -1,34 +1,50 @@
+# Social Media
 youtube.com
-amazon.com
-wikipedia.org
-github.com
-wordpress.org
-nginx.org
-mozilla.org
-apache.org
-archive.org
-nih.gov
-nytimes.com
-paypal.com
-cnn.com
-w3.org
 medium.com
+
+# News & Publishing
+nytimes.com
+bbc.com
+cnn.com
 theguardian.com
 nist.gov
 forbes.com
-creativecommons.org
-bbc.com
-ebay.com
+reuters.com
 weather.com
+
+# Education, Research & Reference
+wikipedia.org
+wikimedia.org
+archive.org
+mit.edu
+w3.org
+creativecommons.org
+doi.org
+springer.com
 researchgate.net
 sciencedirect.com
-ubuntu.com
-mit.edu
-doi.org
-imdb.com
-openai.com
-wikimedia.org
-springer.com
-etsy.com
 nasa.gov
-reuters.com
+
+# Software Documentation
+mozilla.org
+nginx.org
+apache.org
+ubuntu.com
+github.com
+openai.com
+wordpress.org
+
+# E-Commerce
+amazon.com
+ebay.com
+etsy.com
+ nasa.gov
+ reuters.com
+paypal.com
+
+# Reference & Media
+imdb.com
+
+# Government & Legal
+nih.gov
+nist.gov
