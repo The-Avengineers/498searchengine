@@ -35,6 +35,7 @@ fetcher::~fetcher()
 #define USER_AGENT "Avengineers-Crawler/1.0 marundel@umich.edu"
 #define MAX_REDIRECTS 5
 #define CONNECT_TIMEOUT_MS 8000
+#define READ_TIMEOUT_S 10
 
 static inline char lowerAscii(char c)
 {
@@ -532,6 +533,11 @@ expected<fetchResponse, error> fetcher::fetchHttp(const string& host, const stri
     return expected<fetchResponse, error>::error({"send failed"});
   }
 
+  struct timeval tvHttp;
+  tvHttp.tv_sec = READ_TIMEOUT_S;
+  tvHttp.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvHttp, sizeof(tvHttp));
+
   // Receive response
   string raw;
   char buffer[4096];
@@ -542,6 +548,13 @@ expected<fetchResponse, error> fetcher::fetchHttp(const string& host, const stri
     {
       raw.pushBack(buffer[i]);
     }
+  }
+
+  if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+  {
+    close(fd);
+    freeaddrinfo(address);
+    return expected<fetchResponse, error>::error({"read timeout"});
   }
 
   close(fd);
@@ -620,6 +633,11 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
     return expected<fetchResponse, error>::error({"SSL send failed"});
   }
 
+  struct timeval tvSsl;
+  tvSsl.tv_sec = READ_TIMEOUT_S;
+  tvSsl.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvSsl, sizeof(tvSsl));
+
   // Receive response
   string raw;
   char buffer[4096];
@@ -629,6 +647,19 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
     for (int i = 0; i < bytes; ++i)
     {
       raw.pushBack(buffer[i]);
+    }
+  }
+
+  if (bytes < 0)
+  {
+    int sslErr = SSL_get_error(ssl, bytes);
+    if (sslErr == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK))
+    {
+      SSL_shutdown(ssl);
+      SSL_free(ssl);
+      close(fd);
+      freeaddrinfo(address);
+      return expected<fetchResponse, error>::error({"read timeout"});
     }
   }
 
