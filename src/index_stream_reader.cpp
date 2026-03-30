@@ -1,4 +1,5 @@
 #include "avengine/index_stream_reader.h"
+#include "avengine/codec.h"
 
 #include <limits>
 
@@ -6,43 +7,6 @@ namespace avengine
 {
 namespace
 {
-static uint64_t read_u64_le(const uint8_t* ptr)
-{
-  uint64_t value = 0;
-  for (int i = 0; i < 8; i++)
-    value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
-  return value;
-}
-
-static uint32_t read_var_u32(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
-{
-  uint32_t result = 0;
-  uint32_t shift = 0;
-
-  while (begin < end && shift < 35)
-  {
-    const uint8_t byte = *begin++;
-    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
-    if ((byte & 0x80u) == 0u)
-    {
-      *next = begin;
-      return result;
-    }
-    shift += 7;
-  }
-
-  *next = nullptr;
-  return 0;
-}
-
-static bool skip_bytes(const uint8_t** cursor, const uint8_t* end, uint32_t count)
-{
-  if (count > static_cast<uint32_t>(end - *cursor))
-    return false;
-
-  *cursor += count;
-  return true;
-}
 
 static bool find_document_for_location(const vector<DocumentInfo>& documents, Location location,
                                        DocumentInfo* out, size_t* outIndex = nullptr)
@@ -751,10 +715,14 @@ bool parsePostingBlobHeader(const uint8_t* begin, const uint8_t* end, PostingBlo
   if (begin + 24 > end)
     return false;
 
-  out->documentFrequency = read_u64_le(begin);
-  out->collectionFrequency = read_u64_le(begin + 8);
-  out->skipCount = read_u64_le(begin + 16);
-  *fieldStreamsBegin = begin + 24;
+  Reader r(begin, static_cast<size_t>(end - begin));
+  auto docFreq = r.readU64();
+  auto collFreq = r.readU64();
+  auto skipCount = r.readU64();
+  out->documentFrequency = docFreq;
+  out->collectionFrequency = collFreq;
+  out->skipCount = skipCount;
+  *fieldStreamsBegin = r.cursor();
   return true;
 }
 
@@ -765,57 +733,34 @@ bool IndexFieldStreamReader::init(const uint8_t* begin, const uint8_t* end, uint
   if (!begin || !end || !out || begin > end)
     return false;
 
-  out->cursor_ = begin;
   out->end_ = end;
   out->remainingPositions_ = positionCount;
   out->currentPosition_ = 0;
   out->decorators_.clear();
 
-  const uint8_t* cursor = begin;
-  const uint8_t* next = nullptr;
+  Reader r(begin, static_cast<size_t>(end - begin));
 
   if (encoding == FieldStreamEncoding::V2_SKIP_POINTERS)
   {
     for (uint64_t i = 0; i < sectionCount; i++)
     {
-      (void)read_var_u32(cursor, end, &next);
-      if (!next)
-        return false;
-      cursor = next;
-
-      (void)read_var_u32(cursor, end, &next);
-      if (!next)
-        return false;
-      cursor = next;
-
-      (void)read_var_u32(cursor, end, &next);
-      if (!next)
-        return false;
-      cursor = next;
+      r.readVarU32();
+      r.readVarU32();
+      r.readVarU32();
     }
   }
   else
   {
     for (uint64_t i = 0; i < sectionCount; i++)
     {
-      const uint32_t type = read_var_u32(cursor, end, &next);
-      if (!next)
-        return false;
-      cursor = next;
-
-      const uint32_t payloadBytes = read_var_u32(cursor, end, &next);
-      if (!next)
-        return false;
-      cursor = next;
-
-      if (!skip_bytes(&cursor, end, payloadBytes))
-        return false;
-
+      const uint32_t type = r.readVarU32();
+      const uint32_t payloadBytes = r.readVarU32();
+      r.skip(static_cast<size_t>(payloadBytes));
       out->decorators_.pushBack({type, payloadBytes});
     }
   }
 
-  out->cursor_ = cursor;
+  out->cursor_ = r.cursor();
   return true;
 }
 
@@ -824,12 +769,9 @@ bool IndexFieldStreamReader::nextPosition(uint32_t* absolutePosition)
   if (!absolutePosition || remainingPositions_ == 0)
     return false;
 
-  const uint8_t* next = nullptr;
-  const uint32_t delta = read_var_u32(cursor_, end_, &next);
-  if (!next)
-    return false;
-
-  cursor_ = next;
+  Reader r(cursor_, static_cast<size_t>(end_ - cursor_));
+  const uint32_t delta = r.readVarU32();
+  cursor_ = r.cursor();
   currentPosition_ += delta;
   remainingPositions_--;
   *absolutePosition = currentPosition_;

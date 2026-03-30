@@ -1,3 +1,4 @@
+#include <avengine/codec.h>
 #include <avengine/indexer/indexer.h>
 #include <cstdint>
 #include <cstdio>
@@ -24,64 +25,43 @@ void fail(const char* expr, int line)
       fail(#expr, __LINE__);                                                                       \
   } while (false)
 
-uint64_t readU64LE(const uint8_t* ptr)
-{
-  uint64_t value = 0;
-  for (int i = 0; i < 8; ++i)
-  {
-    value |= static_cast<uint64_t>(ptr[i]) << (i * 8);
-  }
-  return value;
-}
-
-uint32_t readVarU32(const uint8_t*& cursor, const uint8_t* end)
-{
-  uint32_t result = 0;
-  uint32_t shift = 0;
-
-  while (cursor < end && shift < 35)
-  {
-    const uint8_t byte = *cursor++;
-    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
-    if ((byte & 0x80u) == 0)
-      return result;
-    shift += 7;
-  }
-
-  fail("valid varint stream", __LINE__);
-  return 0;
-}
-
 void testEncodingHelpers()
 {
-  avengine::vector<uint8_t> buf;
-
-  append_var_uint32(buf, 0u);
-  EXPECT(buf.size() == 1);
-  EXPECT(buf[0] == 0x00);
-
-  buf.clear();
-  append_var_uint32(buf, 127u);
-  EXPECT(buf.size() == 1);
-  EXPECT(buf[0] == 0x7F);
-
-  buf.clear();
-  append_var_uint32(buf, 128u);
-  EXPECT(buf.size() == 2);
-  EXPECT(buf[0] == 0x80);
-  EXPECT(buf[1] == 0x01);
-
-  buf.clear();
-  append_var_uint32(buf, 300u);
-  EXPECT(buf.size() == 2);
-  EXPECT(buf[0] == 0xAC);
-  EXPECT(buf[1] == 0x02);
-
-  buf.clear();
-  const uint64_t expected = 0x0123456789ABCDEFULL;
-  append_uint64(buf, expected);
-  EXPECT(buf.size() == 8);
-  EXPECT(readU64LE(buf.begin()) == expected);
+  {
+    avengine::Writer w;
+    w.writeVarU32(0u);
+    EXPECT(w.size() == 1);
+    EXPECT(w.data()[0] == 0x00);
+  }
+  {
+    avengine::Writer w;
+    w.writeVarU32(127u);
+    EXPECT(w.size() == 1);
+    EXPECT(w.data()[0] == 0x7F);
+  }
+  {
+    avengine::Writer w;
+    w.writeVarU32(128u);
+    EXPECT(w.size() == 2);
+    EXPECT(w.data()[0] == 0x80);
+    EXPECT(w.data()[1] == 0x01);
+  }
+  {
+    avengine::Writer w;
+    w.writeVarU32(300u);
+    EXPECT(w.size() == 2);
+    EXPECT(w.data()[0] == 0xAC);
+    EXPECT(w.data()[1] == 0x02);
+  }
+  {
+    const uint64_t expected = 0x0123456789ABCDEFULL;
+    avengine::Writer w;
+    w.writeU64(expected);
+    EXPECT(w.size() == 8);
+    avengine::Reader r(w.data(), w.size());
+    auto v = r.readU64();
+    EXPECT(v == expected);
+  }
 }
 
 void testPostingListIngest()
@@ -230,9 +210,12 @@ void testSerializationHeaderAndSkipPointers()
   EXPECT(close(readFd) == 0);
   EXPECT(unlink(pathTemplate) == 0);
 
-  EXPECT(readU64LE(bytes) == 1u);
-  const uint64_t uniqueWordsPlusOne = readU64LE(bytes + 8);
-  EXPECT(uniqueWordsPlusOne == 3u); // alpha + DOCEND_TOKEN + 1
+  avengine::Reader fileHeader(bytes, 16u);
+  auto docCountVal = fileHeader.readU64();
+  auto uniqueWordsVal = fileHeader.readU64();
+  EXPECT(docCountVal == 1u);
+  EXPECT(uniqueWordsVal == 3u);
+  const uint64_t uniqueWordsPlusOne = uniqueWordsVal; // alpha + DOCEND_TOKEN + 1
 
   const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
   // String table: alpha\0 (6 bytes) then DOCUMENT_END\0 (13 bytes) — in hashmap bucket order.
@@ -250,34 +233,43 @@ void testSerializationHeaderAndSkipPointers()
 
   EXPECT(fileSize >= postingsStart + alphaPostingSize + 24u);
 
-  const uint8_t* posting = bytes + postingsStart;
-  EXPECT(readU64LE(posting) == 1u);
-  EXPECT(readU64LE(posting + 8) == 10u);
-  EXPECT(readU64LE(posting + 16) == 3u);
-
-  const uint8_t* cursor = posting + 24u;
-  const uint8_t* end = bytes + fileSize;
-
-  EXPECT(readVarU32(cursor, end) == 3u);
-  EXPECT(readVarU32(cursor, end) == 3u);
-  EXPECT(readVarU32(cursor, end) == 3u);
-
-  EXPECT(readVarU32(cursor, end) == 6u);
-  EXPECT(readVarU32(cursor, end) == 6u);
-  EXPECT(readVarU32(cursor, end) == 6u);
-
-  EXPECT(readVarU32(cursor, end) == 9u);
-  EXPECT(readVarU32(cursor, end) == 9u);
-  EXPECT(readVarU32(cursor, end) == 9u);
-
-  EXPECT(readVarU32(cursor, end) == 0u);
-  for (int i = 0; i < 9; ++i)
+  avengine::Reader postReader(bytes + postingsStart, fileSize - postingsStart);
   {
-    EXPECT(readVarU32(cursor, end) == 1u);
+    auto v = postReader.readU64();
+    EXPECT(v == 1u);
+  }
+  {
+    auto v = postReader.readU64();
+    EXPECT(v == 10u);
+  }
+  {
+    auto v = postReader.readU64();
+    EXPECT(v == 3u);
   }
 
+  // Helper to read one varint and check its value.
+  auto checkVar = [&](uint32_t expected_val)
+  {
+    auto v = postReader.readVarU32();
+    EXPECT(v == expected_val);
+  };
+
+  checkVar(3u);
+  checkVar(3u);
+  checkVar(3u); // skip pointer 0
+  checkVar(6u);
+  checkVar(6u);
+  checkVar(6u); // skip pointer 1
+  checkVar(9u);
+  checkVar(9u);
+  checkVar(9u); // skip pointer 2
+
+  checkVar(0u); // first position delta
+  for (int i = 0; i < 9; ++i)
+    checkVar(1u); // remaining position deltas
+
   // alpha is the first posting; DOCUMENT_END follows it in the file.
-  EXPECT(cursor == bytes + postingsStart + alphaPostingSize);
+  EXPECT(postReader.cursor() == bytes + postingsStart + alphaPostingSize);
   std::free(bytes);
 }
 

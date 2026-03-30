@@ -19,6 +19,7 @@ include(CTest)
 
 add_library(
   avengine
+  src/codec.cpp
   src/Common.cpp
   src/constraint_solver/constraint_solver.cpp
   src/constraint_solver/isr_tree.cpp
@@ -58,6 +59,7 @@ target_include_directories(index_builder
 
 # Minimal index inspection tool.
 add_executable(index_reader src/indexer/indexreader.cpp)
+target_link_libraries(index_reader PRIVATE avengine)
 target_include_directories(index_reader
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
