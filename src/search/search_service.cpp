@@ -48,7 +48,7 @@ vector<string> DiscoverShardPaths(const string& directory)
   }
 
   closedir(dir);
-  // without sorting, the same query could return different top 
+  // without sorting, the same query could return different top
   // results across runs just because shard enumeration changed
   std::sort(paths.begin(), paths.end());
   return paths;
