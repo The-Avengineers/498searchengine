@@ -144,6 +144,13 @@ string IndexShardSource::GetDocumentTitle(uint32_t docId) const
   return documentTitles_[docId];
 }
 
+const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
+{
+  if (docId >= documents_.size())
+    return nullptr;
+  return &documents_[docId];
+}
+
 ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
 {
   const uint8_t* postingBegin = nullptr;

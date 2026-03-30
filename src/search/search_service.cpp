@@ -54,9 +54,64 @@ vector<string> DiscoverShardPaths(const string& directory)
   return paths;
 }
 
+struct MatchPositions
+{
+  vector<vector<size_t>> termPositions; // termPositions[termIdx] = locations in document
+};
+
+void CollectQueryTerms(const constraint_solver::QueryNode* node, vector<string>& terms)
+{
+  if (!node)
+    return;
+
+  using constraint_solver::QueryNodeKind;
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Term:
+    terms.pushBack(node->Value);
+    break;
+  case QueryNodeKind::Phrase:
+    for (const string& t : node->PhraseTerms)
+      terms.pushBack(t);
+    break;
+  case QueryNodeKind::Conjunction:
+    for (const constraint_solver::QueryNode* child : node->RequiredChildren)
+      CollectQueryTerms(child, terms);
+    break;
+  case QueryNodeKind::Or:
+    for (const constraint_solver::QueryNode* child : node->Children)
+      CollectQueryTerms(child, terms);
+    break;
+  default:
+    break;
+  }
+}
+
 } // namespace
 
-SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory) {}
+SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
+{
+  LoadShards();
+}
+
+SearchService::~SearchService()
+{
+  for (IndexShardSource* shard : shards_)
+    delete shard;
+}
+
+void SearchService::LoadShards()
+{
+  const vector<string> paths = DiscoverShardPaths(indexDirectory_);
+  for (const string& path : paths)
+  {
+    IndexShardSource* shard = new IndexShardSource(path);
+    if (shard->IsLoaded())
+      shards_.pushBack(shard);
+    else
+      delete shard;
+  }
+}
 
 SearchResponse SearchService::Search(const string& query, size_t limit) const
 {
@@ -77,31 +132,81 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
     return response;
   }
 
-  Ranker ranker;
-  ConstantScoreStrategy constantScore;
-  ranker.AddStrategy(&constantScore, 1.0);
-  const vector<vector<size_t>> termPositions;
-  const Ranker::RankSignals signals = {};
+  // Extract query terms from the AST for position collection
+  vector<string> queryTerms;
+  CollectQueryTerms(parsed.Root, queryTerms);
 
-  const vector<string> shardPaths = DiscoverShardPaths(indexDirectory_);
-  for (const string& shardPath : shardPaths)
+  Ranker ranker;
+  ranker.AddStrategy(&defaultStrategy_, 1.0);
+
+  for (const IndexShardSource* shard : shards_)
   {
-    IndexShardSource shard(shardPath);
-    if (!shard.IsLoaded())
+    const auto solved = solver_.SolveParsed(parsed.Root, *shard);
+    response.TotalHits += solved.Matches.size();
+
+    if (solved.Matches.empty())
       continue;
 
-    const auto solved = solver_.SolveParsed(parsed.Root, shard);
-    response.TotalHits += solved.Matches.size();
-    for (size_t i = 0; i < solved.Matches.size() && response.Results.size() < response.Limit; ++i)
+    // Build per-match term position vectors by walking each term ISR once
+    vector<MatchPositions> matchPositions;
+    for (size_t i = 0; i < solved.Matches.size(); ++i)
+    {
+      MatchPositions mp;
+      for (size_t t = 0; t < queryTerms.size(); ++t)
+        mp.termPositions.pushBack(vector<size_t>());
+      matchPositions.pushBack(mp);
+    }
+
+    for (size_t t = 0; t < queryTerms.size(); ++t)
+    {
+      ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
+      if (!isr)
+        continue;
+
+      size_t matchIdx = 0;
+      for (Post* p = isr->Seek(1); p && matchIdx < solved.Matches.size(); p = isr->Next())
+      {
+        const Attributes attrs = p->GetAttributes();
+        if (attrs.kind != Attributes::Kind::WORD)
+          continue;
+
+        const uint32_t docId = attrs.Word.documentId;
+
+        // Advance past matches with smaller docIds
+        while (matchIdx < solved.Matches.size() && solved.Matches[matchIdx].DocId < docId)
+          ++matchIdx;
+
+        if (matchIdx >= solved.Matches.size())
+          break;
+
+        if (solved.Matches[matchIdx].DocId == docId)
+          matchPositions[matchIdx].termPositions[t].pushBack(p->GetStartLocation());
+      }
+      delete isr;
+    }
+
+    // Score each match with real ISR-derived data
+    for (size_t i = 0; i < solved.Matches.size(); ++i)
     {
       const auto& match = solved.Matches[i];
+      const DocumentInfo* docInfo = shard->GetDocumentInfo(match.DocId);
+
       urlEntry entry = {};
       entry.url = match.Url;
-      // trivial ranker
-      const double score = ranker.Score(entry, termPositions, signals);
-      response.Results.pushBack({match.Url, shard.GetDocumentTitle(match.DocId), score});
+
+      Ranker::RankSignals signals = {};
+      if (docInfo)
+        signals.title_word_count = docInfo->titleLength;
+
+      ranker.Consider(entry, shard->GetDocumentTitle(match.DocId),
+                      matchPositions[i].termPositions, signals);
     }
   }
+
+  const auto& topResults = ranker.TopResults();
+  for (size_t i = 0; i < topResults.size() && i < response.Limit; ++i)
+    response.Results.pushBack(
+        {topResults[i].entry.url, topResults[i].title, topResults[i].score});
 
   constraint_solver::DestroyQueryTree(parsed.Root);
   response.TookMs = static_cast<size_t>(((clock() - start) * 1000) / CLOCKS_PER_SEC);

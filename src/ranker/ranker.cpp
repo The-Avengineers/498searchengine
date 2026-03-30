@@ -21,11 +21,13 @@ void Ranker::ResetResults()
   Top10.clear();
 }
 
-void Ranker::Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+void Ranker::Consider(const urlEntry& entry, const string& title,
+                      const vector<vector<size_t>>& term_positions,
                       const RankSignals& signals) // using insertion sort to dynamically pick top10
 {
   RankedResult candidate;
   candidate.entry = entry;
+  candidate.title = title;
   candidate.score = Score(entry, term_positions, signals);
 
   size_t insert_pos = 0;

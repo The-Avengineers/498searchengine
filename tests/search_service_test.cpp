@@ -1,4 +1,4 @@
-#include "../src/index.h"
+#include <avengine/indexer/indexer.h>
 
 #include <avengine/search/search_service.h>
 

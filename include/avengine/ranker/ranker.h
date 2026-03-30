@@ -79,14 +79,15 @@ public:
   struct RankedResult
   {
     urlEntry entry;
+    string title;
     double score{0.0};
   };
 
   /**
    * Consider a URL and update the top results using insertion sort.
    */
-  void Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
-                const RankSignals& signals);
+  void Consider(const urlEntry& entry, const string& title,
+                const vector<vector<size_t>>& term_positions, const RankSignals& signals);
 
   /**
    * Return the current top results (highest score first).

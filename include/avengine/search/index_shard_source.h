@@ -24,6 +24,7 @@ public:
   string GetPath() const;
   string GetDocumentURL(uint32_t docId) const override;
   string GetDocumentTitle(uint32_t docId) const;
+  const DocumentInfo* GetDocumentInfo(uint32_t docId) const;
   ISRWord* OpenTermIsr(const string& term) const override;
   ISREndDoc* OpenEndDocIsr() const override;
 

@@ -101,7 +101,7 @@ void testRankerMethods()
     urlEntry entry = makeEntry("https://example.com/");
     for (int j = 0; j < i; ++j)
       entry.url.pushBack('x');
-    ranker.Consider(entry, positions, signals);
+    ranker.Consider(entry, string(), positions, signals);
   }
 
   const vector<Ranker::RankedResult>& top = ranker.TopResults();
