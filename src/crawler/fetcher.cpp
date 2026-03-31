@@ -135,6 +135,65 @@ static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t ad
   return true;
 }
 
+// Perform the TLS handshake with a timeout (milliseconds).
+// The socket fd must already be TCP-connected (blocking or non-blocking).
+// Returns true on success, false on error or timeout.
+static bool sslConnectWithTimeout(SSL* ssl, int fd, int timeoutMs)
+{
+  // Save current flags and switch to non-blocking so SSL_connect won't block.
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags == -1)
+  {
+    return false;
+  }
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+  {
+    return false;
+  }
+
+  bool success = false;
+  while (true)
+  {
+    int ret = SSL_connect(ssl);
+    if (ret == 1)
+    {
+      success = true;
+      break;
+    }
+
+    int err = SSL_get_error(ssl, ret);
+    int pollEvent = 0;
+    if (err == SSL_ERROR_WANT_READ)
+    {
+      pollEvent = POLLIN;
+    }
+    else if (err == SSL_ERROR_WANT_WRITE)
+    {
+      pollEvent = POLLOUT;
+    }
+    else
+    {
+      // Fatal SSL error — bail out.
+      break;
+    }
+
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = static_cast<short>(pollEvent);
+    pfd.revents = 0;
+    int pollResult = poll(&pfd, 1, timeoutMs);
+    if (pollResult <= 0)
+    {
+      // Timeout (0) or poll error (-1).
+      break;
+    }
+  }
+
+  // Restore original blocking mode.
+  fcntl(fd, F_SETFL, flags);
+  return success;
+}
+
 // Pull a single header value (trimmed) from the raw header block.
 static string getHeaderValue(const string& headers, const char* headerName)
 {
@@ -614,12 +673,12 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
   SSL_set_tlsext_host_name(ssl, host.cstr());
   SSL_set_fd(ssl, fd);
 
-  if (SSL_connect(ssl) <= 0)
+  if (!sslConnectWithTimeout(ssl, fd, CONNECT_TIMEOUT_MS))
   {
     SSL_free(ssl);
     close(fd);
     freeaddrinfo(address);
-    return expected<fetchResponse, error>::error({"SSL handshake failed"});
+    return expected<fetchResponse, error>::error({"SSL handshake failed or timed out"});
   }
 
   string request = buildRequest(host, path);
