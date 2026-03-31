@@ -4,6 +4,36 @@ namespace avengine
 {
 namespace crawler
 {
+namespace
+{
+
+bool endsWith(const string& value, const char* suffix)
+{
+  size_t suffixLen = 0;
+  while (suffix[suffixLen] != '\0')
+    ++suffixLen;
+
+  if (value.size() < suffixLen)
+    return false;
+
+  size_t offset = value.size() - suffixLen;
+  for (size_t i = 0; i < suffixLen; ++i)
+  {
+    if (value[offset + i] != suffix[i])
+      return false;
+  }
+  return true;
+}
+
+void canonicalizeRedditHost(string& host)
+{
+  if (host == "reddit.com" || endsWith(host, ".reddit.com"))
+  {
+    host = "old.reddit.com";
+  }
+}
+
+} // namespace
 
 URL URLNormalizer::parseURL(const string& url)
 {
@@ -58,6 +88,7 @@ URL URLNormalizer::parseURL(const string& url)
     result.host = host_port;
     result.port = string(""); // default port
   }
+  canonicalizeRedditHost(result.host);
 
   // Path includes query strings
   if (pos < urlSize)

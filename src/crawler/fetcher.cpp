@@ -36,6 +36,7 @@ fetcher::~fetcher()
 #define MAX_REDIRECTS 5
 #define CONNECT_TIMEOUT_MS 8000
 #define READ_TIMEOUT_S 10
+#define WRITE_TIMEOUT_S 10
 
 static inline char lowerAscii(char c)
 {
@@ -583,19 +584,28 @@ expected<fetchResponse, error> fetcher::fetchHttp(const string& host, const stri
     return expected<fetchResponse, error>::error({"connection failed"});
   }
 
+  struct timeval tvHttpRead;
+  tvHttpRead.tv_sec = READ_TIMEOUT_S;
+  tvHttpRead.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvHttpRead, sizeof(tvHttpRead));
+
+  struct timeval tvHttpWrite;
+  tvHttpWrite.tv_sec = WRITE_TIMEOUT_S;
+  tvHttpWrite.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tvHttpWrite, sizeof(tvHttpWrite));
+
   string request = buildRequest(host, path);
   ssize_t sent = send(fd, request.cstr(), request.size(), 0);
   if (sent == -1)
   {
     close(fd);
     freeaddrinfo(address);
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    {
+      return expected<fetchResponse, error>::error({"write timeout"});
+    }
     return expected<fetchResponse, error>::error({"send failed"});
   }
-
-  struct timeval tvHttp;
-  tvHttp.tv_sec = READ_TIMEOUT_S;
-  tvHttp.tv_usec = 0;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvHttp, sizeof(tvHttp));
 
   // Receive response
   string raw;
@@ -681,26 +691,38 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
     return expected<fetchResponse, error>::error({"SSL handshake failed or timed out"});
   }
 
-  string request = buildRequest(host, path);
-  ssize_t sent = SSL_write(ssl, request.cstr(), static_cast<int>(request.size()));
-  if (sent <= 0)
-  {
-    SSL_shutdown(ssl);
-    SSL_free(ssl);
-    close(fd);
-    freeaddrinfo(address);
-    return expected<fetchResponse, error>::error({"SSL send failed"});
-  }
+  struct timeval tvSslRead;
+  tvSslRead.tv_sec = READ_TIMEOUT_S;
+  tvSslRead.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvSslRead, sizeof(tvSslRead));
 
-  struct timeval tvSsl;
-  tvSsl.tv_sec = READ_TIMEOUT_S;
-  tvSsl.tv_usec = 0;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tvSsl, sizeof(tvSsl));
+  struct timeval tvSslWrite;
+  tvSslWrite.tv_sec = WRITE_TIMEOUT_S;
+  tvSslWrite.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tvSslWrite, sizeof(tvSslWrite));
 
   // Receive response
   string raw;
   char buffer[4096];
-  int bytes;
+  int bytes = 0;
+
+  string request = buildRequest(host, path);
+  ssize_t sent = SSL_write(ssl, request.cstr(), static_cast<int>(request.size()));
+  if (sent <= 0)
+  {
+    int sslErr = SSL_get_error(ssl, static_cast<int>(sent));
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+    close(fd);
+    freeaddrinfo(address);
+    if ((sslErr == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK)) ||
+        sslErr == SSL_ERROR_WANT_READ || sslErr == SSL_ERROR_WANT_WRITE)
+    {
+      return expected<fetchResponse, error>::error({"write timeout"});
+    }
+    return expected<fetchResponse, error>::error({"SSL send failed"});
+  }
+
   while ((bytes = SSL_read(ssl, buffer, sizeof(buffer))) > 0)
   {
     for (int i = 0; i < bytes; ++i)
