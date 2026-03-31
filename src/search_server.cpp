@@ -151,9 +151,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
       targetEnd > lineEnd || (!isGet && !isOptions))
   {
     SendResponse(clientFd, 405, "Method Not Allowed",
-                 string(
-                     "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
-                     "\"results\":[]}"));
+                 string("{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+                        "\"results\":[]}"));
     return;
   }
 
