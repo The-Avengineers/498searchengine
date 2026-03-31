@@ -66,6 +66,11 @@ public:
   void ClearStrategies();
 
   /**
+   * resets top 10 results list before next query
+   */
+  void ResetResults();
+
+  /**
    * Score a single URL using all strategies.
    */
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
@@ -74,14 +79,15 @@ public:
   struct RankedResult
   {
     urlEntry entry;
+    string title;
     double score{0.0};
   };
 
   /**
    * Consider a URL and update the top results using insertion sort.
    */
-  void Consider(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
-                const RankSignals& signals);
+  void Consider(const urlEntry& entry, const string& title,
+                const vector<vector<size_t>>& term_positions, const RankSignals& signals);
 
   /**
    * Return the current top results (highest score first).
@@ -97,6 +103,19 @@ private:
 
   vector<WeightedStrategy> Strategies;
   vector<RankedResult> Top10;
+};
+
+class ConstantScoreStrategy : public Ranker::Strategy
+{
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const override
+  {
+    (void)entry;
+    (void)term_positions;
+    (void)signals;
+    return 1.0;
+  }
 };
 
 } // namespace avengine

@@ -35,8 +35,9 @@ add_library(avengine
   src/html_parser/HtmlTags.cpp
   src/indexer/indexer.cpp
   src/index_stream_reader.cpp
-  src/parser.cpp
   src/ranker/ranker.cpp
+  src/search/index_shard_source.cpp
+  src/search/search_service.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
   src/crawler/url_normalizer.cpp
@@ -74,6 +75,11 @@ add_executable(crawler_main src/crawler/crawler_main.cpp)
 target_link_libraries(crawler_main PRIVATE avengine)
 target_include_directories(crawler_main PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Minimal online search server.
+add_executable(search_server src/search_server.cpp)
+target_link_libraries(search_server PRIVATE avengine)
+target_include_directories(search_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Optional warnings
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
@@ -81,6 +87,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(search_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if (BUILD_TESTING)

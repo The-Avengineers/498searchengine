@@ -32,7 +32,7 @@ public:
       if (domain.find(LowTier[i]) != avengine::string::npos)
         return 0.3;
     }
-    return 0.0;
+    return 0.15;
   }
 
 private:
@@ -238,12 +238,11 @@ public:
     }
 
     const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
-    const double length_weight = length_ratio * length_ratio;
     const size_t min_span = best_len - 1;
     const size_t slack = best_span > min_span ? (best_span - min_span) : 0;
     const double proximity = 1.0 / (1.0 + static_cast<double>(slack));
 
-    return length_weight * proximity;
+    return length_ratio * proximity;
   }
 
 private:
@@ -293,15 +292,24 @@ public:
 
 class UrlDepth : public Ranker::Strategy
 {
-  // scores pages by reciprocal crawl depth from urlEntry.
+  // piecewise linear: 1.0 for depth <= shallow_thres, linearly drops to 0.0 at deep_thres
 public:
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
   {
     (void)term_positions;
     (void)signals;
-    return entry.depth == 0 ? 0.0 : 1.0 / static_cast<double>(entry.depth);
+    const double d = static_cast<double>(entry.depth);
+    if (d <= shallow_thres)
+      return 1.0;
+    if (d >= deep_thres)
+      return 0.0;
+    return (deep_thres - d) / (deep_thres - shallow_thres);
   }
+
+private:
+  static constexpr double shallow_thres = 2.0;
+  static constexpr double deep_thres = 8.0;
 };
 
 // HttpsMatch is intentionally disabled because the crawler only indexes HTTPS URLs.
@@ -394,10 +402,9 @@ public:
     }
 
     const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
-    const double length_weight = length_ratio * length_ratio;
     const double proximity = 1.0 / (1.0 + static_cast<double>(best_gap));
 
-    return length_weight * proximity;
+    return length_ratio * proximity;
   }
 
 private:

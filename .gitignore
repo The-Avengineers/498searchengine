@@ -17,6 +17,7 @@
 *.exe
 
 data
+# Local index shards from smoke runs / manual search tests.
 *.sfi
 /build/
 .cache/
