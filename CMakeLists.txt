@@ -76,6 +76,12 @@ add_executable(probing_benchmark src/probing_benchmark.cpp)
 target_include_directories(probing_benchmark
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Offline profiling harness for parser/link-normalization/indexing throughput.
+add_executable(crawler_index_profile src/crawler_index_profile.cpp)
+target_link_libraries(crawler_index_profile PRIVATE avengine)
+target_include_directories(crawler_index_profile
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Crawler entrypoint executable.
 add_executable(crawler_main src/crawler/crawler_main.cpp)
 target_link_libraries(crawler_main PRIVATE avengine)
@@ -94,6 +100,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(anchor_processor PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(crawler_index_profile PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(search_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()

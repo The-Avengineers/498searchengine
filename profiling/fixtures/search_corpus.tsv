@@ -1,0 +1,10 @@
+apollo-notes	Apollo mission apple moon landing guidance telemetry archive and ranking notes.
+fruit-a	Fruit basket apple banana cherry orchard profile document.
+fruit-b	Banana cherry smoothie notes with ranking examples and orchard metrics.
+brown-fox	Brown fox jumps quickly past the apple crate in the crawler lab.
+distributed-search	Distributed search ranking merges shard results and keeps latency predictable.
+query-planning	Query planning for search services improves cache hits and reduces ranking noise.
+latency-notes	Latency notes discuss indexing throughput percentiles and result stability.
+frontend-flow	Frontend result rendering starts after the search api returns the ranked documents.
+banana-only	Banana inventory page for warehouse systems and crawler freshness checks.
+apple-ops	Apple operations manual for cluster rollout, crawl checkpoints, and index recovery.
