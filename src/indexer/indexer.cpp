@@ -242,8 +242,7 @@ IndexSlot globalIndex = {new Index(), PTHREAD_MUTEX_INITIALIZER};
 // BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
 // Returns the number of tokens found.
-static size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
-                           PhraseKind kind)
+size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx, PhraseKind kind)
 {
   size_t words = 0;
 
