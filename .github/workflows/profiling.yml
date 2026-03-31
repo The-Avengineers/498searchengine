@@ -1,0 +1,51 @@
+name: Profiling
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "profiling/**"
+      - ".github/workflows/profiling.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "profiling/**"
+      - ".github/workflows/profiling.yml"
+  workflow_dispatch:
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3
+
+      - name: Configure
+        run: mkdir -p artifacts
+
+      - name: Run profiling suite
+        run: |
+          CRAWLER_REPETITIONS=80 SEARCH_ITERATIONS=12 \
+            bash profiling/run_profiles.sh artifacts build
+
+      - name: Render summary
+        run: |
+          cat artifacts/profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-artifacts
+          path: artifacts/
