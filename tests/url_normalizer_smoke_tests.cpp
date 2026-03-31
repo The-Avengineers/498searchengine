@@ -166,6 +166,26 @@ TEST_CASE("normalizeIndividual - preserves non-default port")
   CHECK(n.normalizeIndividual("http://example.com:8080/path") == "http://example.com:8080/path");
 }
 
+TEST_CASE("normalizeIndividual - reddit host is canonicalized to old.reddit.com")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://new.reddit.com/r/cpp/") == "https://old.reddit.com/r/cpp");
+}
+
+TEST_CASE("normalizeIndividual - www.reddit.com canonicalizes to old.reddit.com")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://www.reddit.com/r/programming") ==
+        "https://old.reddit.com/r/programming");
+}
+
+TEST_CASE("normalizeIndividual - any reddit subdomain canonicalizes to old.reddit.com")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://np.reddit.com/r/programming") ==
+        "https://old.reddit.com/r/programming");
+}
+
 // ---------------------------------------------------------------------------
 // normalize (base + extension)
 // ---------------------------------------------------------------------------
@@ -208,6 +228,14 @@ TEST_CASE("normalize - relative path with dot-dot resolves against base")
   string base = "http://example.com/a/b/page.html";
   string ext = "../other.html";
   CHECK(n.normalize(base, ext) == "http://example.com/a/other.html");
+}
+
+TEST_CASE("normalize - reddit base keeps old.reddit.com in resolved links")
+{
+  URLNormalizer n;
+  string base = "https://www.reddit.com/r/cpp/comments/abc";
+  string ext = "/r/programming";
+  CHECK(n.normalize(base, ext) == "https://old.reddit.com/r/programming");
 }
 
 // ---------------------------------------------------------------------------
