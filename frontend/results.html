@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Search Results - Avengine</title>
     <link rel="stylesheet" href="./styles/main.css" />
+    <script defer src="./scripts/results.js"></script>
   </head>
   <body>
     <header class="results-header">
@@ -29,44 +30,9 @@
 
     <main class="results-shell">
       <section class="results-block">
-        <p class="results-count">About 42,000 results (0.31 seconds)</p>
-        <ol class="results-list">
-          <li class="result-card">
-            <a class="result-url" href="#">docs.avengine.dev/start</a>
-            <h2 class="result-title"><a href="#">Getting Started with Avengine Search</a></h2>
-            <p class="result-snippet">
-              Learn how indexing, ranking, and distributed query fanout work in the Avengine stack.
-            </p>
-          </li>
-          <li class="result-card">
-            <a class="result-url" href="#">status.avengine.dev/cluster</a>
-            <h2 class="result-title"><a href="#">Cluster Health and Node Latency Dashboard</a></h2>
-            <p class="result-snippet">
-              Live node heartbeat and response-time metrics for local and sibling machines.
-            </p>
-          </li>
-          <li class="result-card">
-            <a class="result-url" href="#">blog.avengine.dev/crawler-tuning</a>
-            <h2 class="result-title"><a href="#">Crawler Frontier Tuning Guide</a></h2>
-            <p class="result-snippet">
-              Best practices for selecting seeds, handling URL normalization, and improving crawl quality.
-            </p>
-          </li>
-          <li class="result-card">
-            <a class="result-url" href="#">api.avengine.dev/reference/search</a>
-            <h2 class="result-title"><a href="#">Search API Reference</a></h2>
-            <p class="result-snippet">
-              `GET`, `POST`, and `DELETE` endpoints, request schemas, and example JSON payloads.
-            </p>
-          </li>
-          <li class="result-card">
-            <a class="result-url" href="#">research.avengine.dev/distributed-merge</a>
-            <h2 class="result-title"><a href="#">Merging Results from Distributed Nodes</a></h2>
-            <p class="result-snippet">
-              Strategies for score normalization, deduplication, and top-k merging across sibling hosts.
-            </p>
-          </li>
-        </ol>
+        <p class="results-count" id="results-count" role="status" aria-live="polite"></p>
+        <p class="results-feedback" id="results-feedback" role="alert" hidden></p>
+        <ol class="results-list" id="results-list"></ol>
       </section>
     </main>
   </body>

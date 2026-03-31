@@ -53,9 +53,11 @@ target_include_directories(avengine
 target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto Threads::Threads ZLIB::ZLIB)
 
 # Example for usage
-# NOTE: not filled yet unsure end compilation
-add_executable(vector_demo examples/vector_demo.cpp)
-target_link_libraries(vector_demo PRIVATE avengine)
+set(VECTOR_DEMO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/examples/vector_demo.cpp")
+if (EXISTS "${VECTOR_DEMO_SOURCE}")
+  add_executable(vector_demo "${VECTOR_DEMO_SOURCE}")
+  target_link_libraries(vector_demo PRIVATE avengine)
+endif()
 
 # Simple tool for building index from text files.
 add_executable(index_builder src/indexer/indexbuilder.cpp)
@@ -83,7 +85,9 @@ target_include_directories(search_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc
 # Optional warnings
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
-  target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
+  if (TARGET vector_demo)
+    target_compile_options(vector_demo PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
@@ -122,4 +126,14 @@ if (BUILD_TESTING)
 
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
+
+  find_program(NODE_EXECUTABLE NAMES node nodejs)
+  if (NODE_EXECUTABLE)
+    add_test(
+      NAME frontend_results_test
+      COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_results_test.js"
+    )
+  else()
+    message(STATUS "Skipping frontend_results_test: node runtime not found")
+  endif()
 endif()
