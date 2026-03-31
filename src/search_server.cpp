@@ -151,17 +151,16 @@ void HandleClient(int clientFd, const search::SearchService& service)
       targetEnd > lineEnd || (!isGet && !isOptions))
   {
     SendResponse(clientFd, 405, "Method Not Allowed",
-                 string("{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
-                        "\"results\":[]}"));
+                 "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+                 "\"results\":[]}");
     return;
   }
 
   const string target = CopyRange(request, methodEnd + 1, targetEnd);
   if (!StartsWith(target, "/api/search"))
   {
-    SendResponse(
-        clientFd, 404, "Not Found",
-        string("{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}"));
+    SendResponse(clientFd, 404, "Not Found",
+                 "{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}");
     return;
   }
 
