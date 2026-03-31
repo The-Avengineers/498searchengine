@@ -121,7 +121,11 @@ void SendResponse(int clientFd, int statusCode, const char* statusText, const st
   search::AppendUnsigned(headers, static_cast<size_t>(statusCode));
   headers += string(" ");
   headers += string(statusText);
-  headers += string("\r\nContent-Type: application/json\r\nContent-Length: ");
+  headers += string("\r\nContent-Type: application/json");
+  headers += string("\r\nAccess-Control-Allow-Origin: *");
+  headers += string("\r\nAccess-Control-Allow-Methods: GET, OPTIONS");
+  headers += string("\r\nAccess-Control-Allow-Headers: Accept, Content-Type");
+  headers += string("\r\nContent-Length: ");
   search::AppendUnsigned(headers, body.size());
   headers += string("\r\nConnection: close\r\n\r\n");
   headers += body;
@@ -140,12 +144,16 @@ void HandleClient(int clientFd, const search::SearchService& service)
   const size_t lineEnd = request.find("\r\n");
   const size_t methodEnd = FindChar(request, ' ');
   const size_t targetEnd = FindChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
+  const bool isGet = StartsWith(request, "GET ");
+  const bool isOptions = StartsWith(request, "OPTIONS ");
 
   if (methodEnd == string::npos || targetEnd == string::npos || methodEnd >= lineEnd ||
-      targetEnd > lineEnd || !StartsWith(request, "GET "))
+      targetEnd > lineEnd || (!isGet && !isOptions))
   {
     SendResponse(clientFd, 405, "Method Not Allowed",
-                 string("{\"query\":\"\",\"errors\":[{\"message\":\"GET only\"}],\"results\":[]}"));
+                 string(
+                     "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+                     "\"results\":[]}"));
     return;
   }
 
@@ -155,6 +163,12 @@ void HandleClient(int clientFd, const search::SearchService& service)
     SendResponse(
         clientFd, 404, "Not Found",
         string("{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}"));
+    return;
+  }
+
+  if (isOptions)
+  {
+    SendResponse(clientFd, 204, "No Content", string());
     return;
   }
 
