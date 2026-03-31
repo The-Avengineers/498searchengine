@@ -165,7 +165,8 @@ std::vector<FixtureDocument> LoadFixtures(const fs::path& fixturesDir)
   }
 
   std::sort(fixtures.begin(), fixtures.end(),
-            [](const FixtureDocument& lhs, const FixtureDocument& rhs) { return lhs.name < rhs.name; });
+            [](const FixtureDocument& lhs, const FixtureDocument& rhs)
+            { return lhs.name < rhs.name; });
 
   if (fixtures.empty())
   {
@@ -259,7 +260,8 @@ Metrics RunProfile(const Args& args, const std::vector<FixtureDocument>& fixture
 
   const auto parseIndexEnd = std::chrono::steady_clock::now();
   metrics.parseIndexMs =
-      std::chrono::duration_cast<std::chrono::milliseconds>(parseIndexEnd - parseIndexStart).count();
+      std::chrono::duration_cast<std::chrono::milliseconds>(parseIndexEnd - parseIndexStart)
+          .count();
 
   const auto serializeStart = std::chrono::steady_clock::now();
   cleanUpIndexer();
@@ -292,11 +294,12 @@ void WriteJson(const Args& args, const Metrics& metrics)
   }
 
   const double docsPerSecond =
-      metrics.totalMs > 0 ? (static_cast<double>(metrics.documentCount) * 1000.0) / metrics.totalMs : 0.0;
-  const double megabytesPerSecond =
-      metrics.totalMs > 0 ? (static_cast<double>(metrics.totalBytes) / (1024.0 * 1024.0)) * 1000.0 /
-                                metrics.totalMs
+      metrics.totalMs > 0 ? (static_cast<double>(metrics.documentCount) * 1000.0) / metrics.totalMs
                           : 0.0;
+  const double megabytesPerSecond =
+      metrics.totalMs > 0
+          ? (static_cast<double>(metrics.totalBytes) / (1024.0 * 1024.0)) * 1000.0 / metrics.totalMs
+          : 0.0;
 
   out << std::fixed << std::setprecision(3);
   out << "{\n";
