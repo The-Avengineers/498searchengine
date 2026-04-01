@@ -96,6 +96,16 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
   }
 }
 
+bool responseContainsBlockedWords(const domainFilter& filter, const HtmlParser& parser)
+{
+  return filter.containsBlockedWords(parser.titleWords) || filter.containsBlockedWords(parser.words);
+}
+
+bool anchorContainsBlockedWords(const domainFilter& filter, const Link& link)
+{
+  return filter.containsBlockedWords(link.anchorText);
+}
+
 struct globalCrawlerState
 {
   frontier* theFrontier;
@@ -138,6 +148,12 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
+  if (state.filter->isBlocked(crawlUrl))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED URL");
+    return;
+  }
+
   const bool allowed =
       state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
 
@@ -176,10 +192,16 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
+  if (responseContainsBlockedWords(*state.filter, parser))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED RESPONSE");
+    return;
+  }
+
   // TODO: add ranker to this
   DocumentMetadata documentMetadata = DocumentMetadata{
       .url = crawlUrl,
-      .title = parser.fullTitle,
+      .title = parser.rawTitle,
       .input = 0,
   };
   indexDocument(documentMetadata, parser.words);
@@ -214,8 +236,15 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       continue;
     }
 
+    if (anchorContainsBlockedWords(*state.filter, parser.links[j]))
+    {
+      state.crawlLogger->log(normalized, "SKIP, BLOCKED ANCHOR TEXT");
+      continue;
+    }
+
     if (state.filter->isBlocked(normalized))
     {
+      state.crawlLogger->log(normalized, "SKIP, BLOCKED URL");
       continue;
     }
 
