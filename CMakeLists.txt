@@ -121,4 +121,14 @@ if(BUILD_TESTING)
 
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
+
+  find_program(NODE_EXECUTABLE NAMES node nodejs)
+  if (NODE_EXECUTABLE)
+    add_test(
+      NAME frontend_results_test
+      COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/frontend_results_test.js"
+    )
+  else()
+    message(STATUS "Skipping frontend_results_test: node runtime not found")
+  endif()
 endif()

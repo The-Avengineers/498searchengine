@@ -126,6 +126,23 @@ body {
   font-size: clamp(0.83rem, 1.4vw, 0.96rem);
 }
 
+.results-feedback {
+  margin: 0 0 clamp(0.9rem, 2vh, 1.2rem);
+  padding: clamp(0.65rem, 1.7vh, 0.9rem) clamp(0.8rem, 2.1vw, 1rem);
+  border-radius: 0.7rem;
+  border: 1px solid rgba(154, 18, 40, 0.28);
+  background: rgba(185, 31, 60, 0.08);
+  color: #7a0f23;
+  font-size: clamp(0.86rem, 1.5vw, 0.95rem);
+  line-height: 1.4;
+}
+
+.results-feedback.is-info {
+  border-color: rgba(20, 123, 111, 0.28);
+  background: rgba(20, 123, 111, 0.08);
+  color: #0b584f;
+}
+
 .results-list {
   margin: 0;
   padding: 0;
@@ -188,6 +205,12 @@ body {
   font-size: clamp(0.9rem, 1.6vw, 1rem);
   line-height: 1.45;
   max-width: 75ch;
+}
+
+.result-meta {
+  margin: 0.4rem 0 0;
+  color: rgba(20, 33, 61, 0.68);
+  font-size: clamp(0.78rem, 1.3vw, 0.88rem);
 }
 
 @keyframes fade-in {
