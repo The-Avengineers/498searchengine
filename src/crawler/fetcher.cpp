@@ -52,8 +52,8 @@ static bool isRedirectStatus(int code)
   return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
 }
 
-static bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen,
-                               int timeoutMs, int* socketError)
+bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen, int timeoutMs,
+                        int* socketError)
 {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1)
