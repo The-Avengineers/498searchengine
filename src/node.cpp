@@ -5,6 +5,8 @@
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/codec.h>
 #include <avengine/crawler/fetcher.h>
+#include <avengine/crawler/frontier_message.h>
+#include <avengine/crawler/inbound_url_queue.h>
 #include <avengine/crawler/logger.h>
 #include <avengine/node.h>
 #include <cerrno>
@@ -159,7 +161,19 @@ static struct
 // raw payload bytes extracted from the framed TCP message.
 static void handleFrontierUpdate(size_t peerIndex, const avengine::vector<uint8_t>& payload)
 {
-  // TODO: Implement
+  avengine::vector<avengine::crawler::FullURLEntry> entries;
+  if (!avengine::crawler::decodeFrontierBatch(payload, entries))
+  {
+    fprintf(stderr, "[frontier_update] failed to decode payload from peer #%zu\n", peerIndex);
+    return;
+  }
+
+  printf("[frontier_update] received %zu URL(s) from peer #%zu\n", entries.size(), peerIndex);
+
+  for (size_t i = 0; i < entries.size(); ++i)
+  {
+    avengine::crawler::pushInbound(entries[i]);
+  }
 }
 
 // Dispatch an incoming message to the correct handler based on its type.

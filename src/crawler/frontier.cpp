@@ -1,4 +1,5 @@
 #include "../../include/avengine/crawler/frontier.h"
+#include "../../include/avengine/node.h"
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -137,7 +138,11 @@ void frontier::seed(const vector<string>& seedURLs)
 {
   for (size_t i = 0; i < seedURLs.size(); ++i)
   {
-    add(seedURLs[i], 0);
+    size_t owner = hashString(seedURLs[i]) % numPeers;
+    if (owner == localNodeId)
+    {
+      add(seedURLs[i], 0);
+    }
   }
 }
 

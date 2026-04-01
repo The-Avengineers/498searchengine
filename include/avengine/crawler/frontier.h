@@ -12,6 +12,12 @@ namespace avengine
 namespace crawler
 {
 
+struct FullURLEntry
+{
+  urlEntry entry;
+  string anchorText;
+};
+
 class frontier
 {
 public:

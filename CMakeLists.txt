@@ -30,6 +30,7 @@ add_library(
   src/HashBlob.cpp
   src/HashTable.cpp
   src/crawler/frontier.cpp
+  src/crawler/inbound_url_queue.cpp
   src/crawler/logger.cpp
   src/crawler/RobotsTxt.cpp
   src/crawler/robots_helper.cpp
