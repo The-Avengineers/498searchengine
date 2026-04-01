@@ -1,6 +1,8 @@
 #include "../../include/avengine/crawler/domain_filter.h"
 #include "../../include/avengine/crawler/fetcher.h"
 #include "../../include/avengine/crawler/frontier.h"
+#include "../../include/avengine/crawler/frontier_message.h"
+#include "../../include/avengine/crawler/inbound_url_queue.h"
 #include "../../include/avengine/crawler/logger.h"
 #include "../../include/avengine/crawler/robots_helper.h"
 #include "../../include/avengine/crawler/url_normalizer.h"
@@ -12,7 +14,9 @@
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/avengine_lib/thread.h"
 #include <avengine/indexer/indexer.h>
+#include <avengine/node.h>
 #include <csignal>
+#include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
 #include <signal.h>
@@ -138,6 +142,10 @@ struct globalCrawlerState
   bool shuttingDown;
   atomic_counter* processedCount;
   atomic_counter* indexedCount;
+  // Per-peer outbound URL buffers for distributed crawling.
+  // Sized to numPeers during setup; entry [localNodeId] is never used.
+  vector<vector<crawler::FullURLEntry>> outbound;
+  mutex outboundMu;
 
   globalCrawlerState()
       : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), robotsAgent(nullptr), q(),
@@ -150,6 +158,43 @@ struct threadArgs
 {
   globalCrawlerState* state;
 };
+
+// Routes a normalized URL (in a multi-peer crawl) to the correct node. If this
+// node owns the URL it is added directly to the local frontier; otherwise it
+// is enqueued in the appropriate outbound buffer so that the network-dispatch
+// thread can forward it to the owning peer.
+void routeURLToPeer(const string& normalized, int depth,
+                    const vector<string_slice>& anchorTextSlices, globalCrawlerState& state)
+{
+  size_t owner = hashString(normalized) % numPeers;
+  if (owner == localNodeId)
+  {
+    state.frontierMu.lock();
+    state.theFrontier->add(normalized, depth);
+    state.frontierMu.unlock();
+  }
+  else
+  {
+    // Join all anchor text slices into a single space-separated string.
+    string anchorText;
+    for (size_t k = 0; k < anchorTextSlices.size(); ++k)
+    {
+      if (k > 0)
+      {
+        anchorText += string(" ");
+      }
+      anchorText += anchorTextSlices[k].toString();
+    }
+    crawler::FullURLEntry outEntry;
+    outEntry.entry.url = normalized;
+    outEntry.anchorText = anchorText;
+    outEntry.entry.depth = depth;
+
+    state.outboundMu.lock();
+    state.outbound[owner].pushBack(outEntry);
+    state.outboundMu.unlock();
+  }
+}
 
 void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNormalizer& normalizer,
                        fetcher& theFetcher)
@@ -277,9 +322,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       continue;
     }
 
-    state.frontierMu.lock();
-    state.theFrontier->add(normalized, entry.depth + 1);
-    state.frontierMu.unlock();
+    routeURLToPeer(normalized, entry.depth + 1, parser.links[j].anchorText, state);
   }
 }
 
@@ -333,6 +376,23 @@ int main()
   signal(SIGTERM, handleStopSignal);
   signal(SIGPIPE, SIG_IGN);
 
+  // Read cluster configuration from environment variables.
+  {
+    const char* nodeIdEnv = getenv("NODE_ID");
+    const char* numPeersEnv = getenv("NUM_PEERS");
+    localNodeId = nodeIdEnv ? static_cast<size_t>(atoi(nodeIdEnv)) : 0;
+    numPeers = numPeersEnv ? static_cast<size_t>(atoi(numPeersEnv)) : 1;
+    if (numPeers < 1)
+    {
+      numPeers = 1;
+    }
+  }
+
+  if (numPeers > 1)
+  {
+    avengine::runNode(static_cast<uint64_t>(localNodeId), numPeers);
+  }
+
   // Crawler Components
   frontier theFrontier;
   URLNormalizer normalizer;
@@ -370,6 +430,8 @@ int main()
   workerState.robotsAgent = &robotsAgent;
   workerState.processedCount = &processedCount;
   workerState.indexedCount = &indexedCount;
+  // Pre-size per-peer outbound buffers (one slot per peer, including ourselves).
+  workerState.outbound = vector<vector<crawler::FullURLEntry>>(numPeers);
 
   size_t workerCount = 8; // MAKE BIGGER
   thread* workers = new thread[workerCount];
@@ -390,6 +452,23 @@ int main()
   // ── Main crawl loop ──
   while (!stopRequested())
   {
+    // Drain any URLs received from peer nodes into the local frontier.
+    if (numPeers > 1)
+    {
+      vector<crawler::FullURLEntry> received;
+      crawler::drainInbound(received);
+      if (!received.empty())
+      {
+        crawlLogger.log("PEER INBOUND", received.size(), "URLs received from peers");
+        workerState.frontierMu.lock();
+        for (size_t i = 0; i < received.size(); ++i)
+        {
+          theFrontier.add(received[i].entry.url, received[i].entry.depth);
+        }
+        workerState.frontierMu.unlock();
+      }
+    }
+
     workerState.frontierMu.lock();
     const size_t frontierSize = theFrontier.size();
     workerState.frontierMu.unlock();
@@ -433,6 +512,39 @@ int main()
         workerState.batchDoneCV.wait(workerState.queueMu);
       }
       workerState.queueMu.unlock();
+    }
+
+    // Flush outbound URL buffers to the responsible peer nodes.
+    if (numPeers > 1)
+    {
+      for (size_t peerId = 0; peerId < numPeers; ++peerId)
+      {
+        if (peerId == localNodeId)
+        {
+          continue;
+        }
+
+        vector<crawler::FullURLEntry> batch;
+        workerState.outboundMu.lock();
+        workerState.outbound[peerId].swap(batch);
+        workerState.outbound[peerId].clear();
+        workerState.outboundMu.unlock();
+
+        if (batch.empty())
+        {
+          continue;
+        }
+
+        vector<uint8_t> encoded = crawler::encodeFrontierBatch(batch);
+        if (avengine::sendMessage(peerId, avengine::MessageType::FRONTIER_UPDATE, encoded))
+        {
+          crawlLogger.log("PEER OUTBOUND FAILED", batch.size(), "URLs dropped to peer", peerId);
+        }
+        else
+        {
+          crawlLogger.log("PEER OUTBOUND", batch.size(), "URLs sent to peer", peerId);
+        }
+      }
     }
 
     const size_t processedSnapshot = static_cast<size_t>(processedCount.get_val());
