@@ -1,7 +1,9 @@
 #pragma once
 
+#include "avengine/avengine_lib/HashTable.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/vector.h"
+#include <algorithm>
 #include <avengine/avengine_lib/string_slice.h>
 
 namespace avengine
@@ -149,6 +151,16 @@ public:
     return bucket;
   }
 
+  const Bucket* const* getBucket(avengine::string_slice key) const
+  {
+    const Bucket* const bucket = &buckets[hashStringSlice(key) % buckets.size()];
+
+    while (*bucket && avengine::string_slice((*bucket)->key) != key)
+    {
+      bucket = &(*bucket)->nextBucket;
+    }
+  }
+
   size_t size() const
   {
     return elementCount;
@@ -197,6 +209,29 @@ public:
     Bucket** bucket = getBucket(key);
     return *bucket ? &(*bucket)->value : nullptr;
   }
-};
 
+  const T* get(avengine::string_slice key) const
+  {
+    const Bucket* const* bucket = getBucket(key);
+    return *bucket ? &(*bucket)->value : nullptr;
+  }
+
+  T& operator[](avengine::string_slice key)
+  {
+    if (static_cast<float>(elementCount) / static_cast<float>(buckets.size()) > MAX_LOAD_FACTOR)
+    {
+      rehash(buckets.size() * 2);
+    }
+
+    Bucket** bucket = getBucket(avengine::string_slice(key));
+
+    if (!*bucket)
+    {
+      *bucket = new Bucket(std::move(key), T{}, nullptr);
+      elementCount++;
+    }
+
+    return (*bucket)->value;
+  }
+};
 } // namespace avengine
