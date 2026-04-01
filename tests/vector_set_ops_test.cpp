@@ -52,5 +52,22 @@ int main()
   assert(dupDiff[0] == 1);
   assert(dupDiff[1] == 4);
 
+  vector<int> unsorted{5, 1, 4, 2, 3};
+  unsorted.sort();
+  assert(unsorted.size() == 5);
+  assert(unsorted[0] == 1);
+  assert(unsorted[1] == 2);
+  assert(unsorted[2] == 3);
+  assert(unsorted[3] == 4);
+  assert(unsorted[4] == 5);
+
+  vector<int> descending{1, 4, 2, 5, 3};
+  descending.sort([](int lhs, int rhs) { return lhs > rhs; });
+  assert(descending[0] == 5);
+  assert(descending[1] == 4);
+  assert(descending[2] == 3);
+  assert(descending[3] == 2);
+  assert(descending[4] == 1);
+
   return 0;
 }

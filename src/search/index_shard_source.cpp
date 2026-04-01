@@ -244,7 +244,32 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWordsPlusOne)
   }
 
   postingsStart_ = dictionaryBytes + inferredStringBytes;
-  return postingsStart_ <= fileSize_;
+  if (postingsStart_ > fileSize_)
+    return false;
+
+  vector<const ParsedTerm*> sortedTerms;
+  for (size_t i = 0; i < terms_.size(); ++i)
+    sortedTerms.pushBack(&terms_[i]);
+
+  sortedTerms.sort([](const ParsedTerm* lhs, const ParsedTerm* rhs)
+                   { return lhs->Entry.postingOffset < rhs->Entry.postingOffset; });
+
+  // Build the lookup once up front so the query path does not keep walking the whole shard.
+  unordered_map<PostingSpan> postingBounds(sortedTerms.size() * 2u + 1u);
+  const size_t postingsBytes = fileSize_ - postingsStart_;
+  for (size_t i = 0; i < sortedTerms.size(); ++i)
+  {
+    const ParsedTerm* current = sortedTerms[i];
+    const size_t startOffset = postingsStart_ + static_cast<size_t>(current->Entry.postingOffset);
+    const size_t endOffset =
+        i + 1 < sortedTerms.size()
+            ? postingsStart_ + static_cast<size_t>(sortedTerms[i + 1]->Entry.postingOffset)
+            : postingsStart_ + postingsBytes;
+    postingBounds.insert(current->Term, {startOffset, endOffset});
+  }
+  swap(postingBounds_, postingBounds);
+
+  return true;
 }
 
 bool IndexShardSource::ParseDocumentMetadata()
@@ -313,28 +338,12 @@ bool IndexShardSource::ParseDocumentMetadata()
 bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** begin,
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
-  const ParsedTerm* found = nullptr;
-  for (size_t i = 0; i < terms_.size(); ++i)
-  {
-    if (terms_[i].Term == term)
-      found = &terms_[i];
-  }
-
-  if (!found)
+  const PostingSpan* span = postingBounds_.get(string_slice(term.cstr()));
+  if (!span)
     return false;
 
-  uint64_t nextPostingOffset = static_cast<uint64_t>(fileSize_ - postingsStart_);
-  for (size_t i = 0; i < terms_.size(); ++i)
-  {
-    if (terms_[i].Entry.postingOffset > found->Entry.postingOffset &&
-        terms_[i].Entry.postingOffset < nextPostingOffset)
-    {
-      nextPostingOffset = terms_[i].Entry.postingOffset;
-    }
-  }
-
-  const size_t startOffset = postingsStart_ + static_cast<size_t>(found->Entry.postingOffset);
-  const size_t endOffset = postingsStart_ + static_cast<size_t>(nextPostingOffset);
+  const size_t startOffset = span->StartOffset;
+  const size_t endOffset = span->EndOffset;
   if (startOffset + 24u > endOffset || endOffset > fileSize_)
     return false;
 
@@ -349,6 +358,8 @@ void IndexShardSource::Reset()
 {
   const size_t mappedSize = fileSize_;
   terms_.clear();
+  unordered_map<PostingSpan> emptyPostingBounds;
+  swap(postingBounds_, emptyPostingBounds);
   documents_.clear();
   documentUrls_.clear();
   documentTitles_.clear();

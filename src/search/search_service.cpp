@@ -4,7 +4,6 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
 
-#include <algorithm>
 #include <ctime>
 #include <dirent.h>
 
@@ -50,7 +49,7 @@ vector<string> DiscoverShardPaths(const string& directory)
   closedir(dir);
   // without sorting, the same query could return different top
   // results across runs just because shard enumeration changed
-  std::sort(paths.begin(), paths.end());
+  paths.sort();
   return paths;
 }
 

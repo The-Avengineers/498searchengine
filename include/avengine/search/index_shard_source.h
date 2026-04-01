@@ -2,6 +2,7 @@
 
 #include <avengine/constraint_solver/isr_source.h>
 #include <avengine/index_stream_reader.h>
+#include <avengine/unordered_map.h>
 
 namespace avengine
 {
@@ -41,6 +42,12 @@ private:
     DictEntry Entry = {};
   };
 
+  struct PostingSpan
+  {
+    size_t StartOffset = 0;
+    size_t EndOffset = 0;
+  };
+
   bool ParseDictionary(uint64_t uniqueWordsPlusOne);
   bool ParseDocumentMetadata();
   bool FindPostingBounds(const string& term, const uint8_t** begin, const uint8_t** end,
@@ -52,6 +59,7 @@ private:
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
   vector<ParsedTerm> terms_;
+  unordered_map<PostingSpan> postingBounds_;
   vector<DocumentInfo> documents_;
   vector<string> documentUrls_;
   vector<string> documentTitles_;
