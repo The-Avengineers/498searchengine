@@ -2,6 +2,7 @@
 
 #include "../avengine_lib/expected.h"
 #include "../avengine_lib/string.h"
+#include <sys/socket.h>
 
 namespace avengine
 {
@@ -14,6 +15,9 @@ struct fetchResponse
   string headers;
   int statusCode;
 };
+
+bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen, int timeoutMs,
+                        int* socketError);
 
 class fetcher
 {
