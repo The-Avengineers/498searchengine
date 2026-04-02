@@ -1,9 +1,80 @@
 #include "../../include/avengine/crawler/domain_filter.h"
+#include <fstream>
 
 namespace avengine
 {
 namespace crawler
 {
+
+namespace
+{
+
+char toLower(char c)
+{
+  if (c >= 'A' && c <= 'Z')
+  {
+    return static_cast<char>(c + 32);
+  }
+  return c;
+}
+
+string normalizeBlocklistLine(const char* raw)
+{
+  if (raw[0] == '\0' || raw[0] == '#')
+  {
+    return string();
+  }
+
+  string normalized;
+  for (size_t i = 0; raw[i] != '\0'; ++i)
+  {
+    normalized.pushBack(toLower(raw[i]));
+  }
+  return normalized;
+}
+
+string lowerSlice(const string_slice& word)
+{
+  string normalized;
+  for (size_t i = 0; i < word.size(); ++i)
+  {
+    normalized.pushBack(toLower(word[i]));
+  }
+  return normalized;
+}
+
+bool endsWith(const string& value, const char* suffix)
+{
+  size_t i = 0;
+  while (suffix[i] != '\0')
+  {
+    ++i;
+  }
+
+  if (value.size() < i)
+  {
+    return false;
+  }
+
+  const size_t start = value.size() - i;
+  for (size_t j = 0; j < i; ++j)
+  {
+    if (value[start + j] != suffix[j])
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool hasBlockedTld(const string& domain)
+{
+  return endsWith(domain, ".ru") || endsWith(domain, ".su") ||  
+         endsWith(domain, ".cn") || endsWith(domain, ".jp") || 
+         endsWith(domain, ".kr") || endsWith(domain, ".kp");
+}
+
+} // namespace
 
 [[gnu::always_inline]] inline static bool compare(const string a, const string b)
 {
@@ -22,12 +93,11 @@ namespace crawler
   return h;
 }
 
-domainFilter::domainFilter() : blockSet(compare, stringHash, 256)
+domainFilter::domainFilter(const char* domainBlocklistPath, const char* wordBlocklistPath)
+    : blockSet(compare, stringHash, 256), wordSet(compare, stringHash, 256)
 {
-  // Blocklist entries should be inserted here (already lowercased).
-  // Example:
-  // auto* e = blockSet.Find("example.com", false);
-  // e->value = true;
+  loadDomainBlockSet(domainBlocklistPath);
+  loadWordBlockSet(wordBlocklistPath);
 }
 
 domainFilter::~domainFilter() {}
@@ -67,14 +137,71 @@ string domainFilter::extractDomain(const string& url) const
 
 bool domainFilter::isBlocked(const string& url) const
 {
-  // Filtering is host-based (no subdomain wildcard logic yet).
   string domain = extractDomain(url);
-  auto* t = blockSet.Find(domain);
-  if (t)
+  return blockSet.Find(domain) != nullptr || hasBlockedTld(domain);
+}
+
+bool domainFilter::containsBlockedWords(const vector<string_slice>& words) const
+{
+  for (size_t i = 0; i < words.size(); ++i)
   {
-    return true;
+    string normalized = lowerSlice(words[i]);
+    if (wordSet.Find(normalized) != nullptr)
+    {
+      return true;
+    }
   }
   return false;
+}
+
+void domainFilter::loadDomainBlockSet(const char* path)
+{
+  std::ifstream in(path);
+  if (!in.is_open())
+  {
+    return;
+  }
+
+  char line[2048];
+  while (in.getline(line, sizeof(line)))
+  {
+    string entry = normalizeBlocklistLine(line);
+    if (entry.size() == 0)
+    {
+      continue;
+    }
+
+    string domain = extractDomain(entry);
+    if (domain.size() == 0)
+    {
+      continue;
+    }
+
+    auto* blocked = blockSet.Find(domain, false);
+    blocked->value = true;
+  }
+}
+
+void domainFilter::loadWordBlockSet(const char* path)
+{
+  std::ifstream in(path);
+  if (!in.is_open())
+  {
+    return;
+  }
+
+  char line[2048];
+  while (in.getline(line, sizeof(line)))
+  {
+    string entry = normalizeBlocklistLine(line);
+    if (entry.size() == 0)
+    {
+      continue;
+    }
+
+    auto* blocked = wordSet.Find(entry, false);
+    blocked->value = true;
+  }
 }
 
 } // namespace crawler
