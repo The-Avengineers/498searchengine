@@ -13,6 +13,7 @@ namespace crawler
 class domainFilter
 {
 public:
+  domainFilter();
   domainFilter(const char* domainBlocklistPath, const char* wordBlocklistPath);
   ~domainFilter();
 
