@@ -42,6 +42,21 @@ public:
   // Returns: true if Content-Type indicates HTML
   static bool isHtmlContentType(const string& headers);
 
+  // Requires: response headers from an HTTP response
+  // Modifies: nothing
+  // Returns: true when Content-Language is missing or includes English ("en")
+  static bool isEnglishContentLanguage(const string& headers);
+
+  // Requires: HTML response body
+  // Modifies: nothing
+  // Returns: true when <html lang> is missing or indicates English ("en")
+  static bool isEnglishHtmlLang(const string& body);
+
+  // Requires: response headers from an HTTP response
+  // Modifies: nothing
+  // Returns: true when the status line is "200 OK" (reason phrase in English)
+  static bool isEnglishOkStatus(const string& headers);
+
 private:
   void* sslCtx_;
 

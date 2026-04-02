@@ -273,3 +273,81 @@ TEST_CASE("isHtmlContentType - html token in unrelated header does not count")
   string headers = "HTTP/1.1 200 OK\r\nX-Note: text/html\r\nContent-Type: text/plain\r\n\r\n";
   CHECK(fetcher::isHtmlContentType(headers) == false);
 }
+
+TEST_CASE("isEnglishContentLanguage - missing header is accepted")
+{
+  string headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
+  CHECK(fetcher::isEnglishContentLanguage(headers) == true);
+}
+
+TEST_CASE("isEnglishContentLanguage - english language tag is accepted")
+{
+  string headers = "HTTP/1.1 200 OK\r\nContent-Language: en-US\r\n\r\n";
+  CHECK(fetcher::isEnglishContentLanguage(headers) == true);
+}
+
+TEST_CASE("isEnglishContentLanguage - english among multiple tags is accepted")
+{
+  string headers = "HTTP/1.1 200 OK\r\nContent-Language: fr, en\r\n\r\n";
+  CHECK(fetcher::isEnglishContentLanguage(headers) == true);
+}
+
+TEST_CASE("isEnglishContentLanguage - non-english tags are rejected")
+{
+  string headers = "HTTP/1.1 200 OK\r\nContent-Language: fr-CA, de\r\n\r\n";
+  CHECK(fetcher::isEnglishContentLanguage(headers) == false);
+}
+
+TEST_CASE("isEnglishHtmlLang - missing html lang is accepted")
+{
+  string body = "<!doctype html><html><head></head><body>Hello</body></html>";
+  CHECK(fetcher::isEnglishHtmlLang(body) == true);
+}
+
+TEST_CASE("isEnglishHtmlLang - english html lang is accepted")
+{
+  string body = "<html lang=\"en-US\"><body>Hello</body></html>";
+  CHECK(fetcher::isEnglishHtmlLang(body) == true);
+}
+
+TEST_CASE("isEnglishHtmlLang - non-english html lang is rejected")
+{
+  string body = "<html lang='fr'><body>Bonjour</body></html>";
+  CHECK(fetcher::isEnglishHtmlLang(body) == false);
+}
+
+TEST_CASE("isEnglishHtmlLang - xml:lang is recognized")
+{
+  string body = "<html xml:lang=\"fr\"><body>Bonjour</body></html>";
+  CHECK(fetcher::isEnglishHtmlLang(body) == false);
+}
+
+TEST_CASE("isEnglishHtmlLang - xml:lang is recognized and english accepted")
+{
+  string body = "<html xml:lang=\"en\"><body>Bonjour</body></html>";
+  CHECK(fetcher::isEnglishHtmlLang(body) == false);
+}
+
+TEST_CASE("isEnglishOkStatus - accepts literal 200 OK")
+{
+  string headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
+  CHECK(fetcher::isEnglishOkStatus(headers) == true);
+}
+
+TEST_CASE("isEnglishOkStatus - accepts case-insensitive OK with whitespace")
+{
+  string headers = "HTTP/1.1 200   Ok \t\r\nContent-Type: text/html\r\n\r\n";
+  CHECK(fetcher::isEnglishOkStatus(headers) == true);
+}
+
+TEST_CASE("isEnglishOkStatus - rejects localized reason phrase for 200")
+{
+  string headers = "HTTP/1.1 200 D'accord\r\nContent-Type: text/html\r\n\r\n";
+  CHECK(fetcher::isEnglishOkStatus(headers) == false);
+}
+
+TEST_CASE("isEnglishOkStatus - rejects non-200 status lines")
+{
+  string headers = "HTTP/1.1 204 No Content\r\nContent-Type: text/html\r\n\r\n";
+  CHECK(fetcher::isEnglishOkStatus(headers) == false);
+}

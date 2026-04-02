@@ -46,6 +46,119 @@ static inline char lowerAscii(char c)
   return c;
 }
 
+static inline bool isAsciiWhitespace(char c)
+{
+  return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static inline bool isLanguageTagEnglish(const string& value, size_t start, size_t end)
+{
+  while (start < end && isAsciiWhitespace(value[start]))
+  {
+    ++start;
+  }
+  while (end > start && isAsciiWhitespace(value[end - 1]))
+  {
+    --end;
+  }
+  if (end - start < 2)
+  {
+    return false;
+  }
+
+  if (lowerAscii(value[start]) != 'e' || lowerAscii(value[start + 1]) != 'n')
+  {
+    return false;
+  }
+
+  if (end - start == 2)
+  {
+    return true;
+  }
+
+  char next = value[start + 2];
+  return next == '-' || next == '_' || next == ';';
+}
+
+static bool parseLangAttributeFromHtmlTag(const string& body, size_t attrStart, size_t tagEnd,
+                                          size_t* valueStartOut, size_t* valueEndOut)
+{
+  for (size_t i = attrStart; i < tagEnd; ++i)
+  {
+    bool boundary = (i == attrStart) || isAsciiWhitespace(body[i - 1]) || body[i - 1] == '/';
+    if (!boundary)
+    {
+      continue;
+    }
+
+    const char* candidate = nullptr;
+    size_t candidateLen = 0;
+    if (i + 4 <= tagEnd && lowerAscii(body[i]) == 'l' && lowerAscii(body[i + 1]) == 'a' &&
+        lowerAscii(body[i + 2]) == 'n' && lowerAscii(body[i + 3]) == 'g')
+    {
+      candidate = "lang";
+      candidateLen = 4;
+    }
+    else if (i + 8 <= tagEnd && lowerAscii(body[i]) == 'x' && lowerAscii(body[i + 1]) == 'm' &&
+             lowerAscii(body[i + 2]) == 'l' && body[i + 3] == ':' &&
+             lowerAscii(body[i + 4]) == 'l' && lowerAscii(body[i + 5]) == 'a' &&
+             lowerAscii(body[i + 6]) == 'n' && lowerAscii(body[i + 7]) == 'g')
+    {
+      candidate = "xml:lang";
+      candidateLen = 8;
+    }
+    if (!candidate)
+    {
+      continue;
+    }
+
+    size_t pos = i + candidateLen;
+    while (pos < tagEnd && isAsciiWhitespace(body[pos]))
+    {
+      ++pos;
+    }
+    if (pos >= tagEnd || body[pos] != '=')
+    {
+      continue;
+    }
+    ++pos;
+    while (pos < tagEnd && isAsciiWhitespace(body[pos]))
+    {
+      ++pos;
+    }
+    if (pos >= tagEnd)
+    {
+      return false;
+    }
+
+    size_t valueStart = pos;
+    size_t valueEnd = pos;
+    if (body[pos] == '"' || body[pos] == '\'')
+    {
+      char quote = body[pos];
+      valueStart = pos + 1;
+      valueEnd = valueStart;
+      while (valueEnd < tagEnd && body[valueEnd] != quote)
+      {
+        ++valueEnd;
+      }
+    }
+    else
+    {
+      valueEnd = valueStart;
+      while (valueEnd < tagEnd && !isAsciiWhitespace(body[valueEnd]) && body[valueEnd] != '>')
+      {
+        ++valueEnd;
+      }
+    }
+
+    *valueStartOut = valueStart;
+    *valueEndOut = valueEnd;
+    return true;
+  }
+  return false;
+}
+
 static bool isRedirectStatus(int code)
 {
   return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
@@ -465,6 +578,156 @@ bool fetcher::isHtmlContentType(const string& headers)
          headerValueContainsToken(headers, "content-type:", "application/xhtml+xml");
 }
 
+bool fetcher::isEnglishContentLanguage(const string& headers)
+{
+  string contentLanguage = getHeaderValue(headers, "content-language:");
+  if (contentLanguage.size() == 0)
+  {
+    return true;
+  }
+
+  size_t start = 0;
+  for (size_t i = 0; i <= contentLanguage.size(); ++i)
+  {
+    bool atDelimiter = (i == contentLanguage.size()) || (contentLanguage[i] == ',');
+    if (!atDelimiter)
+    {
+      continue;
+    }
+
+    if (isLanguageTagEnglish(contentLanguage, start, i))
+    {
+      return true;
+    }
+    start = i + 1;
+  }
+
+  return false;
+}
+
+bool fetcher::isEnglishHtmlLang(const string& body)
+{
+  const size_t scanLimit = (body.size() < 32768u) ? body.size() : 32768u;
+
+  for (size_t i = 0; i + 5 < scanLimit; ++i)
+  {
+    if (body[i] != '<')
+    {
+      continue;
+    }
+    if (lowerAscii(body[i + 1]) != 'h' || lowerAscii(body[i + 2]) != 't' ||
+        lowerAscii(body[i + 3]) != 'm' || lowerAscii(body[i + 4]) != 'l')
+    {
+      continue;
+    }
+
+    char next = body[i + 5];
+    if (!isAsciiWhitespace(next) && next != '>' && next != '/')
+    {
+      continue;
+    }
+
+    size_t tagEnd = i + 5;
+    bool inQuotes = false;
+    char quote = '\0';
+    while (tagEnd < scanLimit)
+    {
+      char ch = body[tagEnd];
+      if (!inQuotes && (ch == '"' || ch == '\''))
+      {
+        inQuotes = true;
+        quote = ch;
+      }
+      else if (inQuotes && ch == quote)
+      {
+        inQuotes = false;
+      }
+      else if (!inQuotes && ch == '>')
+      {
+        break;
+      }
+      ++tagEnd;
+    }
+
+    if (tagEnd >= scanLimit || body[tagEnd] != '>')
+    {
+      return true;
+    }
+
+    size_t valueStart = 0;
+    size_t valueEnd = 0;
+    if (!parseLangAttributeFromHtmlTag(body, i + 5, tagEnd, &valueStart, &valueEnd))
+    {
+      return true;
+    }
+
+    return isLanguageTagEnglish(body, valueStart, valueEnd);
+  }
+
+  return true;
+}
+
+bool fetcher::isEnglishOkStatus(const string& headers)
+{
+  size_t lineEnd = 0;
+  while (lineEnd < headers.size() && headers[lineEnd] != '\r' && headers[lineEnd] != '\n')
+  {
+    ++lineEnd;
+  }
+  if (lineEnd == 0)
+  {
+    return false;
+  }
+
+  size_t spacePos = 0;
+  while (spacePos < lineEnd && headers[spacePos] != ' ')
+  {
+    ++spacePos;
+  }
+  if (spacePos == lineEnd)
+  {
+    return false;
+  }
+
+  size_t codeStart = spacePos + 1;
+  while (codeStart < lineEnd && headers[codeStart] == ' ')
+  {
+    ++codeStart;
+  }
+  if (codeStart + 3 > lineEnd)
+  {
+    return false;
+  }
+
+  if (headers[codeStart] != '2' || headers[codeStart + 1] != '0' || headers[codeStart + 2] != '0')
+  {
+    return false;
+  }
+
+  size_t reasonStart = codeStart + 3;
+  while (reasonStart < lineEnd && (headers[reasonStart] == ' ' || headers[reasonStart] == '\t'))
+  {
+    ++reasonStart;
+  }
+  if (reasonStart >= lineEnd)
+  {
+    return false;
+  }
+
+  size_t reasonEnd = lineEnd;
+  while (reasonEnd > reasonStart && (headers[reasonEnd - 1] == ' ' || headers[reasonEnd - 1] == '\t'))
+  {
+    --reasonEnd;
+  }
+
+  if (reasonEnd - reasonStart != 2)
+  {
+    return false;
+  }
+
+  return lowerAscii(headers[reasonStart]) == 'o' && lowerAscii(headers[reasonStart + 1]) == 'k';
+}
+
 expected<fetchResponse, error> fetcher::fetch(const string& url)
 {
   if (!sslCtx_)
@@ -534,7 +797,8 @@ string fetcher::buildRequest(const string& host, const string& path)
   const char* p2 = " HTTP/1.1\r\nHost: ";
   // Request gzip explicitly; parser handles gzip decode after optional chunk decoding.
   const char* p3 =
-      "\r\nUser-Agent: " USER_AGENT "\r\nAccept: */*\r\nAccept-Encoding: gzip\r\nConnection: "
+      "\r\nUser-Agent: " USER_AGENT
+      "\r\nAccept: */*\r\nAccept-Language: en-US,en;q=0.9\r\nAccept-Encoding: gzip\r\nConnection: "
       "close\r\n\r\n";
 
   string req;
