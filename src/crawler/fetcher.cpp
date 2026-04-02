@@ -715,7 +715,8 @@ bool fetcher::isEnglishOkStatus(const string& headers)
   }
 
   size_t reasonEnd = lineEnd;
-  while (reasonEnd > reasonStart && (headers[reasonEnd - 1] == ' ' || headers[reasonEnd - 1] == '\t'))
+  while (reasonEnd > reasonStart &&
+         (headers[reasonEnd - 1] == ' ' || headers[reasonEnd - 1] == '\t'))
   {
     --reasonEnd;
   }
