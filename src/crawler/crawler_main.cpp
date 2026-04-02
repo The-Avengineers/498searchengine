@@ -195,9 +195,21 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
+  if (!fetcher::isEnglishContentLanguage(resp.headers))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, NON-ENGLISH CONTENT-LANGUAGE");
+    return;
+  }
+
   if (!fetcher::isHtmlContentType(resp.headers))
   {
     state.crawlLogger->log(crawlUrl, "SKIP, NON-HTML CONTENT");
+    return;
+  }
+
+  if (!fetcher::isEnglishHtmlLang(resp.body))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, NON-ENGLISH HTML LANG");
     return;
   }
   state.crawlLogger->log(crawlUrl, "OK, Code 200", resp.body.size());
