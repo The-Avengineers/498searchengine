@@ -98,7 +98,8 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
 
 bool responseContainsBlockedWords(const domainFilter& filter, const HtmlParser& parser)
 {
-  return filter.containsBlockedWords(parser.titleWords) || filter.containsBlockedWords(parser.words);
+  return filter.containsBlockedWords(parser.titleWords) ||
+         filter.containsBlockedWords(parser.words);
 }
 
 bool anchorContainsBlockedWords(const domainFilter& filter, const Link& link)
@@ -106,8 +107,8 @@ bool anchorContainsBlockedWords(const domainFilter& filter, const Link& link)
   return filter.containsBlockedWords(link.anchorText);
 }
 
-vector<urlEntry> filterBlockedBatch(const vector<urlEntry>& batch, 
-                    const domainFilter& filter, CrawlLogger& crawlLogger)
+vector<urlEntry> filterBlockedBatch(const vector<urlEntry>& batch, const domainFilter& filter,
+                                    CrawlLogger& crawlLogger)
 {
   vector<urlEntry> allowedBatch;
   for (size_t i = 0; i < batch.size(); ++i)
@@ -388,8 +389,8 @@ int main()
     workerState.frontierMu.lock();
     vector<urlEntry> batch = theFrontier.nextBatch(100, 10); // MAKE BIGGER
     workerState.frontierMu.unlock();
-    
-    if (batch.size() == 0) 
+
+    if (batch.size() == 0)
     {
       break;
     }
