@@ -93,6 +93,12 @@ bool hasBlockedTld(const string& domain)
   return h;
 }
 
+domainFilter::domainFilter() : blockSet(compare, stringHash, 256), wordSet(compare, stringHash, 256)
+{
+  loadDomainBlockSet("banned_urls.txt");
+  loadWordBlockSet("banned_words.txt");
+}
+
 domainFilter::domainFilter(const char* domainBlocklistPath, const char* wordBlocklistPath)
     : blockSet(compare, stringHash, 256), wordSet(compare, stringHash, 256)
 {
