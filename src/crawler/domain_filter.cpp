@@ -69,9 +69,8 @@ bool endsWith(const string& value, const char* suffix)
 
 bool hasBlockedTld(const string& domain)
 {
-  return endsWith(domain, ".ru") || endsWith(domain, ".su") ||  
-         endsWith(domain, ".cn") || endsWith(domain, ".jp") || 
-         endsWith(domain, ".kr") || endsWith(domain, ".kp");
+  return endsWith(domain, ".ru") || endsWith(domain, ".su") || endsWith(domain, ".cn") ||
+         endsWith(domain, ".jp") || endsWith(domain, ".kr") || endsWith(domain, ".kp");
 }
 
 } // namespace
