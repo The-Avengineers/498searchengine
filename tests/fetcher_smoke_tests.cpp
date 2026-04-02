@@ -325,7 +325,7 @@ TEST_CASE("isEnglishHtmlLang - xml:lang is recognized")
 TEST_CASE("isEnglishHtmlLang - xml:lang is recognized and english accepted")
 {
   string body = "<html xml:lang=\"en\"><body>Bonjour</body></html>";
-  CHECK(fetcher::isEnglishHtmlLang(body) == false);
+  CHECK(fetcher::isEnglishHtmlLang(body) == true);
 }
 
 TEST_CASE("isEnglishOkStatus - accepts literal 200 OK")
