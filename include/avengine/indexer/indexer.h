@@ -61,9 +61,7 @@ struct Index
   uint32_t currentDocId = 0;
 
   PostingList* getBucket(avengine::string_slice word);
-  // Probes dictionaryBuffer for hash slots, interns each term into stringBuffer,
-  // and assigns bucket->hash. dict must be zeroed and sized for the full layout.
-  void buildStringTable(avengine::vector<uint64_t>&, avengine::vector<char>& stringBuffer);
+  size_t headerSize();
 
   Index();
   ~Index();

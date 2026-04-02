@@ -139,50 +139,33 @@ static void encodePostingList(const PostingList& pl,
   out = outWriter.release();
 }
 
-void Index::buildStringTable(avengine::vector<uint64_t>& dict, avengine::vector<char>& stringBuffer)
+size_t Index::headerSize()
 {
+  size_t stringsSize = 0;
+
   map.forEach(
-      [&](const avengine::string& /*key*/, PostingList& pl)
+      [&](const avengine::string& key, PostingList& pl)
       {
-        avengine::string_slice wordSlice(pl.word);
-        size_t hash = djb2Hash(wordSlice) % (totalUniqWords * 2);
-
-        // Linear probe for an empty slot.
-        // TODO: Benchmark alternative probing strategies when querying the index.
-        while (dict[2 + hash * 2] > 0)
-        {
-          hash += 1;
-          hash %= (totalUniqWords * 2);
-        }
-
-        dict[2 + hash * 2] = stringBuffer.size();
-
-        for (size_t i = 0; i < pl.word.size(); i++)
-          stringBuffer.pushBack(pl.word[i]);
-        stringBuffer.pushBack('\0');
-
-        pl.hash = hash;
+        assert(key == pl.word);
+        stringsSize += 4 * sizeof(uint64_t);
+        stringsSize += key.size();
       });
+
+  return 5 * sizeof(uint64_t) + stringsSize;
 }
 
 bool Index::serialize(int fd)
 {
-  // TODO: We currently use an offset of zero as a sentinel to indicate an unused slot, however
-  // zero is a perfectly valid offset. We either need another sentinel or make zero impossible.
-  const size_t needed = 2 + (totalUniqWords + 1) * 2 * 2;
-  avengine::vector<uint64_t> dictionaryBuffer(needed);
+  avengine::Writer header;
 
-  // TODO: Write magic bytes to identify file format and version.
-  dictionaryBuffer[0] = documentMetadata.size();
-  dictionaryBuffer[1] = totalUniqWords + 1;
-
-  avengine::vector<char> stringBuffer;
-  buildStringTable(dictionaryBuffer, stringBuffer);
+  header.writeU64(0x8FB8EF84979FF0);
+  header.writeU64(documentMetadata.size());
+  header.writeU64(totalUniqWords);
+  header.writeU64(offset);
+  header.writeU64(sizeof(DocumentMetadata::input));
 
   // TODO: maybe fallocate?
-  if (lseek(fd, needed * sizeof(uint64_t), SEEK_SET) == (off_t)-1)
-    return true;
-  if (write(fd, stringBuffer.begin(), stringBuffer.size()) < 0)
+  if (lseek(fd, headerSize(), SEEK_SET) == (off_t)-1)
     return true;
 
   size_t postingsOffset = 0;
@@ -195,7 +178,10 @@ bool Index::serialize(int fd)
         if (ioError)
           return;
 
-        dictionaryBuffer[2 + pl.hash * 2 + 1] = postingsOffset;
+        header.writeString(pl.word);
+        header.writeU64(pl.positions.size());
+        header.writeU64(pl.postings.size());
+        header.writeU64(postingsOffset);
 
         encodePostingList(pl, documentMetadata, postingBuffer);
 
@@ -212,7 +198,8 @@ bool Index::serialize(int fd)
 
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
     return true;
-  if (write(fd, dictionaryBuffer.begin(), needed * sizeof(uint64_t)) < 0)
+
+  if (write(fd, header.data(), header.size()) < 0)
     return true;
 
   return false;
