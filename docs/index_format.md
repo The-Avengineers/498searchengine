@@ -1,25 +1,37 @@
 # Index File Format (`.sfi`)
 
-This document describes the on-disk format currently written by `src/index.cpp`.
+This document describes the on-disk format written by `src/indexer/indexer.cpp`.
 
 ## Top-Level Layout
 
-1. Dictionary header:
-   - `u64 document_count`
-   - `u64 unique_words_plus_one`
-2. Dictionary hash table:
-   - `table_slots = unique_words_plus_one * 2`
-   - each slot stores:
-     - `u64 string_offset`
-     - `u64 posting_offset`
-3. String buffer:
-   - NUL-terminated term strings
-4. Posting-list region:
-   - concatenated posting lists; dictionary `posting_offset` values are relative to this region start
+The file is split into two regions written in a two-pass style:
+
+1. **Header**: written last (seeked back to offset 0 after the postings are flushed).
+2. **Postings body**: written first, starting at `headerSize()` bytes into the file.
+
+```txt
+Index File
+├── Header
+│   ├── u64: magic  (0x008FB8EF84979FF0)
+│   ├── u64: document_count
+│   ├── u64: total_unique_words
+│   ├── u64: token_offset  (total token positions ingested)
+│   ├── u64: sizeof(DocumentMetadata::input)
+│   └── Term Table (one record per unique word, in map-iteration order):
+│       ├── u64:   word_len
+│       ├── bytes: word  (raw, not NUL-terminated; word_len bytes)
+│       ├── u64:   positions_count  (number of token positions for this term)
+│       ├── u64:   positions_count  (duplicate — see Known Issues below)
+│       └── u64:   postings_offset  (byte offset into the Postings Body)
+└── Postings Body  (starts at headerSize() bytes)
+    └── concatenated per-term posting blobs
+```
+
+All multi-byte integers are **little-endian**.
 
 ## Posting List Layout
 
-Each posting list uses:
+Each posting list blob uses:
 
 1. Fixed header:
    - `u64 document_frequency`
@@ -40,7 +52,9 @@ Each posting list uses:
 
 ## DOCUMENT_END Special Posting List
 
-The term `DOCUMENT_END` is a synthetic sentinel written at the end of every document. Its posting list has the same header structure as any other term, but appends a metadata section after the position delta stream:
+The term `DOCUMENT_END` is a synthetic sentinel written at the end of every
+document. Its posting list has the same structure as any other term, but appends
+a metadata section after the position delta stream:
 
 - For each document (in posting order):
   - `url`: varint-encoded byte length, then raw bytes (no NUL)
@@ -51,7 +65,8 @@ The position deltas for `DOCUMENT_END` encode per-document token counts.
 
 ## Field Decorators
 
-Terms in the string buffer (and index) are stored with a single-character prefix to indicate which field of the document they came from:
+Terms are stored with a single-character prefix to indicate which field of the
+document they came from:
 
 | Prefix | Field  | Example      |
 |--------|--------|--------------|
@@ -59,10 +74,6 @@ Terms in the string buffer (and index) are stored with a single-character prefix
 | `#`    | title  | `#cat`       |
 | `/`    | URL    | `/cat`       |
 
-The same word appearing in multiple fields produces separate posting lists (e.g., `"cat"`, `"#cat"`, and `"/cat"` are three independent entries). This allows query processing and ranking to weight matches by field without changing the core index structure.
-
-Decoration is applied at index-build time in `indexDocument()` (`src/index.cpp`). The `HtmlParser` already separates body words (`words`) and title words (`titleWords`); the crawler passes the document URL as the URL phrase.
-
-## Known Limitation
-
-`string_offset == 0` is used as the empty-slot sentinel in the dictionary hash table. This collides with a valid first term at offset 0 in the string buffer, making that slot ambiguous. A TODO exists in the code to either choose a different sentinel or ensure offset 0 is never valid.
+The same word appearing in multiple fields produces separate posting lists
+(e.g., `"cat"`, `"#cat"`, and `"/cat"` are three independent entries).
+Decoration is applied at index-build time in `indexDocument()`.
