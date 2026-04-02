@@ -149,6 +149,18 @@ public:
     return bucket;
   }
 
+  const Bucket* getBucket(avengine::string_slice key) const
+  {
+    const Bucket* bucket = buckets[hashStringSlice(key) % buckets.size()];
+
+    while (bucket && avengine::string_slice(bucket->key.cstr()) != key)
+    {
+      bucket = bucket->nextBucket;
+    }
+
+    return bucket;
+  }
+
   size_t size() const
   {
     return elementCount;
@@ -196,6 +208,12 @@ public:
   {
     Bucket** bucket = getBucket(key);
     return *bucket ? &(*bucket)->value : nullptr;
+  }
+
+  const T* get(avengine::string_slice key) const
+  {
+    const Bucket* bucket = getBucket(key);
+    return bucket ? &bucket->value : nullptr;
   }
 };
 

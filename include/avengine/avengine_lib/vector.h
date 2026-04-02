@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <initializer_list>
+#include <utility>
 
 namespace avengine
 {
@@ -519,7 +520,105 @@ public:
     return out;
   }
 
+  // REQUIRES: T supports operator<
+  // MODIFIES: *this
+  // EFFECTS: Sorts the vector in ascending order
+  void sort()
+  {
+    sort([](const T& lhs, const T& rhs) { return lhs < rhs; });
+  }
+
+  // REQUIRES: comp(a, b) imposes a strict weak ordering
+  // MODIFIES: *this
+  // EFFECTS: Sorts the vector using the provided comparator
+  template <typename Compare> void sort(Compare comp)
+  {
+    if (Size < 2)
+    {
+      return;
+    }
+
+    quickSort(0, Size - 1, comp);
+  }
+
 private:
+  static void swapValues(T& lhs, T& rhs)
+  {
+    T tmp = std::move(lhs);
+    lhs = std::move(rhs);
+    rhs = std::move(tmp);
+  }
+
+  template <typename Compare> void insertionSort(size_t left, size_t right, Compare comp)
+  {
+    for (size_t i = left + 1; i <= right; ++i)
+    {
+      T value = std::move(Data[i]);
+      size_t j = i;
+      while (j > left && comp(value, Data[j - 1]))
+      {
+        Data[j] = std::move(Data[j - 1]);
+        --j;
+      }
+      Data[j] = std::move(value);
+    }
+  }
+
+  template <typename Compare> void quickSort(size_t left, size_t right, Compare comp)
+  {
+    if (right <= left)
+    {
+      return;
+    }
+
+    if (right - left < 16)
+    {
+      insertionSort(left, right, comp);
+      return;
+    }
+
+    size_t i = left;
+    size_t j = right;
+    const T pivot = Data[left + ((right - left) / 2)];
+
+    while (i <= j)
+    {
+      while (comp(Data[i], pivot))
+      {
+        ++i;
+      }
+
+      while (comp(pivot, Data[j]))
+      {
+        if (j == 0)
+        {
+          break;
+        }
+        --j;
+      }
+
+      if (i <= j)
+      {
+        swapValues(Data[i], Data[j]);
+        ++i;
+        if (j == 0)
+        {
+          break;
+        }
+        --j;
+      }
+    }
+
+    if (left < j)
+    {
+      quickSort(left, j, comp);
+    }
+    if (i < right)
+    {
+      quickSort(i, right, comp);
+    }
+  }
+
   T* Data;
   size_t Size;
   size_t Capacity;
