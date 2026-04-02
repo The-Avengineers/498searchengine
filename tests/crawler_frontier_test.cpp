@@ -170,11 +170,14 @@ int main()
   int fd = mkstemp(pathTemplate);
   EXPECT(fd >= 0);
   EXPECT(close(fd) == 0);
+  avengine::string tempCheckpointPath(pathTemplate);
+  tempCheckpointPath += avengine::string(".tmp");
 
   // Empty frontier should clear any existing state on load.
   avengine::crawler::frontier emptyCheckpoint;
   avengine::expected<void, avengine::error> saveRes = emptyCheckpoint.saveCheckpoint(pathTemplate);
   EXPECT(saveRes.hasValue());
+  EXPECT(access(tempCheckpointPath.cstr(), F_OK) != 0);
 
   avengine::crawler::frontier loadedEmpty;
   loadedEmpty.add("https://stale.example/will-be-cleared", 7);
@@ -194,6 +197,7 @@ int main()
 
   saveRes = original.saveCheckpoint(pathTemplate);
   EXPECT(saveRes.hasValue());
+  EXPECT(access(tempCheckpointPath.cstr(), F_OK) != 0);
 
   avengine::crawler::frontier loaded;
   loadRes = loaded.loadCheckpoint(pathTemplate);
@@ -237,6 +241,7 @@ int main()
   overwrite.add("https://overwrite.example/new", 4);
   saveRes = overwrite.saveCheckpoint(pathTemplate);
   EXPECT(saveRes.hasValue());
+  EXPECT(access(tempCheckpointPath.cstr(), F_OK) != 0);
 
   avengine::crawler::frontier overwrittenLoaded;
   loadRes = overwrittenLoaded.loadCheckpoint(pathTemplate);
