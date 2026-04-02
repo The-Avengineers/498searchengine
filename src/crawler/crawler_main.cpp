@@ -106,6 +106,22 @@ bool anchorContainsBlockedWords(const domainFilter& filter, const Link& link)
   return filter.containsBlockedWords(link.anchorText);
 }
 
+vector<urlEntry> filterBlockedBatch(const vector<urlEntry>& batch, 
+                    const domainFilter& filter, CrawlLogger& crawlLogger)
+{
+  vector<urlEntry> allowedBatch;
+  for (size_t i = 0; i < batch.size(); ++i)
+  {
+    if (filter.isBlocked(batch[i].url))
+    {
+      crawlLogger.log(batch[i].url, "SKIP, BLOCKED URL");
+      continue;
+    }
+    allowedBatch.pushBack(batch[i]);
+  }
+  return allowedBatch;
+}
+
 struct globalCrawlerState
 {
   frontier* theFrontier;
@@ -307,7 +323,7 @@ int main()
   // Crawler Components
   frontier theFrontier;
   URLNormalizer normalizer;
-  domainFilter filter;
+  domainFilter filter("banned_urls.txt", "banned_words.txt");
   CrawlLogger crawlLogger("crawl_log.csv");
 
   // ── Seed URLs ──
@@ -372,10 +388,16 @@ int main()
     workerState.frontierMu.lock();
     vector<urlEntry> batch = theFrontier.nextBatch(100, 10); // MAKE BIGGER
     workerState.frontierMu.unlock();
+    
+    if (batch.size() == 0) 
+    {
+      break;
+    }
+    batch = filterBlockedBatch(batch, filter, crawlLogger);
 
     if (batch.size() == 0)
     {
-      break;
+      continue;
     }
 
     if (startedWorkers == 0) // For single threaded
