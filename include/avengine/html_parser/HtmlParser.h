@@ -88,6 +88,7 @@ public:
   vector<Link> links;
   string_slice base;
   string fullTitle;
+  string rawTitle;
   bool rejected;
 
 private:
@@ -716,9 +717,9 @@ public:
   // all the HTML tags and producing the list of words in body,
   // words in title, and links found on the page.
   HtmlParser(const char* buffer, size_t length)
-      : words(), titleWords(), links(), base(), fullTitle(), rejected(false), curr(buffer),
-        end(buffer + length), normalizedStorage(), curr_in_title(false), curr_in_anchor(false),
-        seen_base(false)
+      : words(), titleWords(), links(), base(), fullTitle(), rawTitle(), rejected(false),
+        curr(buffer), end(buffer + length), normalizedStorage(), curr_in_title(false),
+        curr_in_anchor(false), seen_base(false)
   {
     if (should_reject_page(buffer, length))
     {
@@ -761,6 +762,10 @@ public:
           {
             start_word_ptr = curr;
           }
+          if (curr_in_title)
+          {
+            rawTitle.pushBack(*curr);
+          }
           curr++;
         }
       }
@@ -771,6 +776,10 @@ public:
           add_to_words(start_word_ptr, curr, curr_in_title, idx);
           start_word_ptr = nullptr;
         }
+        if (curr_in_title)
+        {
+          rawTitle.pushBack(c);
+        }
         curr++;
       }
       else
@@ -778,6 +787,10 @@ public:
         if (!start_word_ptr)
         {
           start_word_ptr = curr;
+        }
+        if (curr_in_title)
+        {
+          rawTitle.pushBack(c);
         }
         curr++;
       }

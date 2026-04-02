@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <unistd.h>
 
 using avengine::error;
 using avengine::expected;
@@ -233,21 +234,28 @@ vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
 
 expected<void, error> frontier::saveCheckpoint(const string& path) const
 {
-  FILE* f = fopen(path.cstr(), "wb");
+  string tmpPath = path;
+  tmpPath += string(".tmp");
+
+  FILE* f = fopen(tmpPath.cstr(), "wb");
   if (!f)
   {
     return expected<void, error>::error(error("failed to open checkpoint file"));
   }
 
+  auto cleanupTemp = [&tmpPath]() { remove(tmpPath.cstr()); };
+
   // bloom filter
   auto res = logging_helpers::writeVal(seen.getSize(), f); // size
   if (!res.hasValue())
   {
+    cleanupTemp();
     return res;
   }
   res = logging_helpers::write(seen.data(), seen.getSize(), f); // data
   if (!res.hasValue())
   {
+    cleanupTemp();
     return res;
   }
 
@@ -255,6 +263,7 @@ expected<void, error> frontier::saveCheckpoint(const string& path) const
   res = logging_helpers::writeVal(masterList.size(), f);
   if (!res.hasValue())
   {
+    cleanupTemp();
     return res;
   }
 
@@ -266,23 +275,51 @@ expected<void, error> frontier::saveCheckpoint(const string& path) const
     res = logging_helpers::writeString(entry.url, f);
     if (!res.hasValue())
     {
+      cleanupTemp();
       return res;
     }
 
     res = logging_helpers::writeString(entry.domain, f);
     if (!res.hasValue())
     {
+      cleanupTemp();
       return res;
     }
 
     res = logging_helpers::writeVal(entry.depth, f);
     if (!res.hasValue())
     {
+      cleanupTemp();
       return res;
     }
   }
 
-  fclose(f);
+  if (fflush(f) != 0)
+  {
+    fclose(f);
+    cleanupTemp();
+    return expected<void, error>::error(error("failed to flush checkpoint file"));
+  }
+
+  if (fsync(fileno(f)) != 0)
+  {
+    fclose(f);
+    cleanupTemp();
+    return expected<void, error>::error(error("failed to sync checkpoint file"));
+  }
+
+  if (fclose(f) != 0)
+  {
+    cleanupTemp();
+    return expected<void, error>::error(error("failed to close checkpoint file"));
+  }
+
+  if (rename(tmpPath.cstr(), path.cstr()) != 0)
+  {
+    cleanupTemp();
+    return expected<void, error>::error(error("failed to replace checkpoint file"));
+  }
+
   return expected<void, error>::ok();
 }
 

@@ -62,6 +62,7 @@ int main()
   EXPECT(strEq(parser.titleWords[0], "search"));
   EXPECT(strEq(parser.titleWords[1], "engine"));
   EXPECT(strEq(parser.fullTitle, "search engine"));
+  EXPECT(strEq(parser.rawTitle, "Search Engine"));
 
   // Links and anchor text
   EXPECT(parser.links.size() == 2);
@@ -103,6 +104,7 @@ int main()
   EXPECT(strEq(parser2.titleWords[0], "upper"));
   EXPECT(strEq(parser2.titleWords[1], "title"));
   EXPECT(strEq(parser2.fullTitle, "upper title"));
+  EXPECT(strEq(parser2.rawTitle, "UPPER Title"));
 
   // Only one valid anchor link (the <A HREF=...> one).
   EXPECT(parser2.links.size() == 1);
@@ -141,6 +143,12 @@ int main()
   EXPECT(containsWord(parserUpperAccents.words, "elan"));
   EXPECT(containsWord(parserUpperAccents.words, "nino"));
 
+  // Raw title should be exact
+  const char htmlTitleRaw[] = "<html><head><title>  Hello, World!  </title></head></html>";
+  avengine::HtmlParser parserTitleRaw(htmlTitleRaw, strlen(htmlTitleRaw));
+  EXPECT(strEq(parserTitleRaw.fullTitle, "hello world"));
+  EXPECT(strEq(parserTitleRaw.rawTitle, "  Hello, World!  "));
+
   // Reject pages with too many non-ASCII bytes (>50%).
   const char html4[] = "\xE4\xB8\xAD\xE6\x96\x87\xE4\xB8\xAD\xE6\x96\x87\xE3\x81\x82\xE3\x81\x84"
                        "abc";
@@ -149,6 +157,7 @@ int main()
   EXPECT(parser4.words.size() == 0);
   EXPECT(parser4.titleWords.size() == 0);
   EXPECT(strEq(parser4.fullTitle, ""));
+  EXPECT(strEq(parser4.rawTitle, ""));
   EXPECT(parser4.links.size() == 0);
 
   // Query normalization
