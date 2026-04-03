@@ -246,6 +246,7 @@ struct globalCrawlerState
   bool shuttingDown;
   atomic_counter* processedCount;
   atomic_counter* indexedCount;
+  atomic_counter* failedCount;
   // Per-peer outbound URL buffers for distributed crawling.
   // Sized to numPeers during setup; entry [localNodeId] is never used.
   vector<vector<crawler::FullURLEntry>> outbound;
@@ -253,7 +254,7 @@ struct globalCrawlerState
 
   globalCrawlerState()
       : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), robotsAgent(nullptr), q(),
-        shuttingDown(false), processedCount(nullptr), indexedCount(nullptr)
+        shuttingDown(false), processedCount(nullptr), indexedCount(nullptr), failedCount(nullptr)
   {
   }
 };
@@ -344,6 +345,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
   auto result = theFetcher.fetch(crawlUrl);
   if (!result.hasValue())
   {
+    state.failedCount->fetch_add(1);
     string msg = "FAILED FETCHING: ";
     msg += result.error().msg;
     state.crawlLogger->log(crawlUrl, msg.cstr());
@@ -557,6 +559,7 @@ int main()
   atomic_counter processedCount(0);
   atomic_counter indexedCount(0);
   size_t checkpointInterval = CHECKPOINT_INTERVAL;
+  atomic_counter failedCount(0);
   const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsAgent(kRobotsUserAgent);
 
@@ -567,6 +570,7 @@ int main()
   workerState.robotsAgent = &robotsAgent;
   workerState.processedCount = &processedCount;
   workerState.indexedCount = &indexedCount;
+  workerState.failedCount = &failedCount;
   // Pre-size per-peer outbound buffers (one slot per peer, including ourselves).
   workerState.outbound = vector<vector<crawler::FullURLEntry>>(numPeers);
 
@@ -584,6 +588,13 @@ int main()
   fetcher fallbackFetcher;
 
   resumeIndexer();
+
+  // Tracking variables for per-second rate logging around nextBatch.
+  struct timespec crawlStartTime;
+  clock_gettime(CLOCK_MONOTONIC, &crawlStartTime);
+  struct timespec batchRateLastTime = crawlStartTime;
+  size_t batchRateLastIndexed = 0;
+  size_t batchRateLastFailed = 0;
 
   // ── Main crawl loop ──
   while (!stopRequested())
@@ -680,6 +691,24 @@ int main()
         {
           crawlLogger.log("PEER OUTBOUND", batch.size(), "URLs sent to peer", peerId);
         }
+      }
+    }
+
+    {
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      double elapsed = (now.tv_sec - batchRateLastTime.tv_sec) +
+                       (now.tv_nsec - batchRateLastTime.tv_nsec) * 1e-9;
+      if (elapsed >= 5.0)
+      {
+        size_t curIndexed = static_cast<size_t>(indexedCount.get_val());
+        size_t curFailed = static_cast<size_t>(failedCount.get_val());
+        double successRate = (curIndexed - batchRateLastIndexed) / elapsed;
+        double failRate = (curFailed - batchRateLastFailed) / elapsed;
+        crawlLogger.log("STATUS", successRate, failRate);
+        batchRateLastIndexed = curIndexed;
+        batchRateLastFailed = curFailed;
+        batchRateLastTime = now;
       }
     }
 
