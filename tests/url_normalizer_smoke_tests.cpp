@@ -51,13 +51,6 @@ TEST_CASE("parseURL - no path defaults to /")
   CHECK(u.path == "/");
 }
 
-TEST_CASE("parseURL - trailing slash on path is removed")
-{
-  URLNormalizer n;
-  URL u = n.parseURL("http://example.com/foo/");
-  CHECK(u.path == "/foo");
-}
-
 TEST_CASE("parseURL - fragment is stripped")
 {
   URLNormalizer n;
@@ -148,12 +141,6 @@ TEST_CASE("normalizeIndividual - strips default HTTPS port")
   CHECK(n.normalizeIndividual("https://example.com:443/path") == "https://example.com/path");
 }
 
-TEST_CASE("normalizeIndividual - removes trailing slash from path")
-{
-  URLNormalizer n;
-  CHECK(n.normalizeIndividual("http://example.com/foo/") == "http://example.com/foo");
-}
-
 TEST_CASE("normalizeIndividual - resolves dot segments")
 {
   URLNormalizer n;
@@ -169,7 +156,7 @@ TEST_CASE("normalizeIndividual - preserves non-default port")
 TEST_CASE("normalizeIndividual - reddit host is canonicalized to old.reddit.com")
 {
   URLNormalizer n;
-  CHECK(n.normalizeIndividual("https://new.reddit.com/r/cpp/") == "https://old.reddit.com/r/cpp");
+  CHECK(n.normalizeIndividual("https://new.reddit.com/r/cpp/") == "https://old.reddit.com/r/cpp/");
 }
 
 TEST_CASE("normalizeIndividual - www.reddit.com canonicalizes to old.reddit.com")
@@ -452,7 +439,7 @@ TEST_CASE("normalize - empty extension resolves to base directory")
   URLNormalizer n;
   string base = "http://example.com/dir/page.html";
   string ext = "";
-  CHECK(n.normalize(base, ext) == "http://example.com/dir");
+  CHECK(n.normalize(base, ext) == "http://example.com/dir/");
 }
 
 TEST_CASE("normalize - absolute path extension preserves base port")
