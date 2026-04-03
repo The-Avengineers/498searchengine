@@ -227,3 +227,54 @@ lonelyplanet.com
 umich.edu
 aadl.org
 www.theride.org
+
+# Prof
+https://nicolehamilton.com
+https://www.hamiltonlabs.com
+https://en.wikipedia.org/wiki/Hamilton_C_shell
+
+# Developer / infra
+learn.microsoft.com
+docs.aws.amazon.com
+cloud.google.com/docs
+developer.apple.com/documentation
+developers.cloudflare.com
+docs.oracle.com/en/java/
+
+# Research / reference
+scholar.google.com
+dl.acm.org
+acm.org/publications/digital-library
+usenix.org/publications
+wikidata.org
+openstreetmap.org
+
+# AI / ML
+huggingface.co/models
+huggingface.co/datasets
+huggingface.co/docs
+
+# Legal / finance / public records
+sec.gov/edgar/search/
+law.justia.com
+
+# Tech Q&A
+superuser.com
+serverfault.com
+unix.stackexchange.com
+
+# Media / consumer
+letterboxd.com
+allmusic.com
+zillow.com
+
+# Good subreddits
+old.reddit.com/r/programming/
+old.reddit.com/r/cpp/
+old.reddit.com/r/linux/
+old.reddit.com/r/sysadmin/
+old.reddit.com/r/science/
+old.reddit.com/r/explainlikeimfive/
+
+
+
