@@ -91,6 +91,32 @@ int main()
     assert(c != nullptr && *c == 3);
   }
 
+  // can insert and retrieve with the [] operator
+  {
+    avengine::unordered_map<int> map;
+    map[avengine::string_slice("a")] = 1;
+    map[avengine::string_slice("b")] = 2;
+    map[avengine::string_slice("c")] = 3;
+
+    assert(map[avengine::string_slice("a")] == 1);
+    assert(map[avengine::string_slice("b")] == 2);
+    assert(map[avengine::string_slice("c")] == 3);
+  }
+
+  // [] copies the exact slice contents even when the source is not null-terminated
+  {
+    avengine::unordered_map<int> map;
+    avengine::string keyBuffer("prefix-alpha-suffix");
+    avengine::string_slice key(keyBuffer, 7, 5);
+
+    map[key] = 17;
+
+    int* val = map.get(avengine::string_slice("alpha"));
+    assert(val != nullptr);
+    assert(*val == 17);
+    assert(map.get(avengine::string_slice("alpha-suffix")) == nullptr);
+  }
+
   // inserting > 192 entries (0.75 * 256) triggers a rehash; all values
   // remain accessible with the correct values afterward
   {

@@ -215,6 +215,24 @@ public:
     const Bucket* bucket = getBucket(key);
     return bucket ? &bucket->value : nullptr;
   }
+
+  T& operator[](avengine::string_slice key)
+  {
+    if (static_cast<float>(elementCount) / static_cast<float>(buckets.size()) > MAX_LOAD_FACTOR)
+    {
+      rehash(buckets.size() * 2);
+    }
+
+    Bucket** bucket = getBucket(key);
+
+    if (!*bucket)
+    {
+      *bucket = new Bucket(key.toString(), T{}, nullptr);
+      elementCount++;
+    }
+
+    return (*bucket)->value;
+  }
 };
 
 } // namespace avengine
