@@ -438,6 +438,8 @@ int main()
   signal(SIGTERM, handleStopSignal);
   signal(SIGPIPE, SIG_IGN);
 
+  fetcher::initSharedContext();
+
   // Read cluster configuration from environment variables.
   size_t workerCount = 128;
   {
@@ -660,6 +662,8 @@ int main()
   }
 
   cleanUpIndexer();
+
+  fetcher::cleanupSharedContext();
 
   return 0;
 }

@@ -22,6 +22,16 @@ bool connectWithTimeout(int fd, const struct sockaddr* addr, socklen_t addrLen, 
 class fetcher
 {
 public:
+  // Must be called once from the main thread before any fetcher is constructed
+  // or fetch() is called.  Creates the shared SSL_CTX so all worker threads
+  // draw TLS sessions from a single cache, enabling session resumption across
+  // connections to the same host.
+  static void initSharedContext();
+
+  // Must be called once after all fetchers have been destroyed (i.e. after
+  // all worker threads have been joined).
+  static void cleanupSharedContext();
+
   fetcher();
   ~fetcher();
 
@@ -62,8 +72,6 @@ public:
   static bool isEnglishOkStatus(const string& headers);
 
 private:
-  void* sslCtx_;
-
   // Requires: host, port (as string), path
   // Modifies: nothing persistent
   // Returns: fetchResponse on success via plain TCP
