@@ -138,7 +138,6 @@ struct globalCrawlerState
   condition_variable queueCV;
   condition_variable batchDoneCV;
   deque<urlEntry> q;
-  size_t inFlight;
   bool shuttingDown;
   atomic_counter* processedCount;
   atomic_counter* indexedCount;
@@ -149,7 +148,7 @@ struct globalCrawlerState
 
   globalCrawlerState()
       : theFrontier(nullptr), filter(nullptr), crawlLogger(nullptr), robotsAgent(nullptr), q(),
-        inFlight(0), shuttingDown(false), processedCount(nullptr), indexedCount(nullptr)
+        shuttingDown(false), processedCount(nullptr), indexedCount(nullptr)
   {
   }
 };
@@ -349,7 +348,6 @@ void* crawlBatchWorker(void* raw)
 
     urlEntry entry = state.q.front();
     state.q.popFront();
-    ++state.inFlight;
     state.queueMu.unlock();
 
     if (!stopRequested())
@@ -358,8 +356,7 @@ void* crawlBatchWorker(void* raw)
     }
 
     state.queueMu.lock();
-    --state.inFlight;
-    if (state.q.empty() && state.inFlight == 0)
+    if (state.q.empty())
     {
       state.batchDoneCV.signal();
     }
@@ -507,7 +504,7 @@ int main()
         workerState.q.pushBack(batch[i]);
       }
       workerState.queueCV.broadcast();
-      while (!workerState.q.empty() || workerState.inFlight > 0)
+      while (!workerState.q.empty())
       {
         workerState.batchDoneCV.wait(workerState.queueMu);
       }
