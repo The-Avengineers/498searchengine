@@ -99,6 +99,8 @@ enum class PhraseKind
   TITLE,
 };
 
+size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx, PhraseKind kind);
+
 // Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
 // each token into the active document. `phrases` must be a writable buffer.
 // Title terms are copied from document metadata and stored with a '#' prefix.
