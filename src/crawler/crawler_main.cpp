@@ -13,11 +13,14 @@
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/avengine_lib/thread.h"
+#include "avengine/avengine_lib/vector.h"
+#include "avengine/crawler/crawler_structs.h"
 #include <avengine/indexer/anchor_indexer.h>
 #include <avengine/indexer/indexer.h>
 #include <avengine/node.h>
 #include <csignal>
 #include <cstdlib>
+#include <ctime>
 #include <fcntl.h>
 #include <fstream>
 #include <signal.h>
@@ -232,17 +235,60 @@ vector<urlEntry> filterBlockedBatch(const vector<urlEntry>& batch, const domainF
   return allowedBatch;
 }
 
+// Same behavior as frontier::nextBatch, but minimizes time spent holding the
+// frontier list mutex by doing sorting outside the critical section.
+vector<urlEntry> nextBatchShortFrontierLock(frontier& theFrontier, mutex& frontierListMu,
+                                            size_t sampleSize, size_t batchSize)
+{
+  vector<urlEntry> batch;
+
+  frontierListMu.lock();
+  vector<urlEntry> sample = theFrontier.takeRandomSample(sampleSize);
+  frontierListMu.unlock();
+
+  if (sample.empty())
+  {
+    return batch;
+  }
+
+  // Sort sample by depth in ascending order (closer to seed first).
+  sample.sort([](const urlEntry& lhs, const urlEntry& rhs) { return lhs.depth < rhs.depth; });
+
+  const size_t actualBatchSize = (batchSize < sample.size()) ? batchSize : sample.size();
+  batch.reserve(actualBatchSize);
+  for (size_t i = 0; i < actualBatchSize; ++i)
+  {
+    batch.pushBack(sample[i]);
+  }
+
+  frontierListMu.lock();
+  theFrontier.appendBatch(sample, actualBatchSize);
+  frontierListMu.unlock();
+
+  return batch;
+}
+
 struct globalCrawlerState
 {
   frontier* theFrontier;
   domainFilter* filter;
   CrawlLogger* crawlLogger;
   Robots_Agent* robotsAgent;
-  mutex frontierMu;
+  // Split frontier synchronization to reduce contention:
+  // - seenMu guards Bloom filter deduplication
+  // - frontierListMu guards frontier masterList mutations/sampling
+  mutex seenMu;
+  mutex frontierListMu;
   mutex queueMu;
   condition_variable queueCV;
   condition_variable batchDoneCV;
   deque<urlEntry> q;
+
+  // Workers enqueue discovered local URLs here. Producer is the sole merger
+  // into frontier seen/masterList (single-writer for frontier state).
+  mutex discoveredMu;
+  deque<urlEntry> discoveredLocal;
+
   bool shuttingDown;
   atomic_counter* processedCount;
   atomic_counter* indexedCount;
@@ -264,19 +310,69 @@ struct threadArgs
   globalCrawlerState* state;
 };
 
+struct producerArgs
+{
+  globalCrawlerState* state;
+  size_t workerCount;
+};
+
+void mergeDiscoveredIntoFrontier(globalCrawlerState& state)
+{
+  vector<urlEntry> discovered;
+  state.discoveredMu.lock();
+  while (!state.discoveredLocal.empty())
+  {
+    discovered.pushBack(state.discoveredLocal.front());
+    state.discoveredLocal.popFront();
+  }
+  state.discoveredMu.unlock();
+
+  if (discovered.empty())
+  {
+    return;
+  }
+
+  vector<urlEntry> toAppend;
+  state.seenMu.lock();
+  for (size_t i = 0; i < discovered.size(); ++i)
+  {
+    const string& url = discovered[i].url;
+    if (state.theFrontier->alreadySeen(url))
+    {
+      continue;
+    }
+
+    state.theFrontier->markSeen(url);
+    toAppend.pushBack(discovered[i]);
+  }
+  state.seenMu.unlock();
+
+  if (!toAppend.empty())
+  {
+    state.frontierListMu.lock();
+    state.theFrontier->appendBatch(toAppend);
+    state.frontierListMu.unlock();
+  }
+}
+
 // Routes a normalized URL (in a multi-peer crawl) to the correct node. If this
 // node owns the URL it is added directly to the local frontier; otherwise it
 // is enqueued in the appropriate outbound buffer so that the network-dispatch
 // thread can forward it to the owning peer.
 void routeURLToPeer(const string& normalized, int depth,
-                    const vector<string_slice>& anchorTextSlices, globalCrawlerState& state)
+                    const vector<string_slice>& anchorTextSlices, globalCrawlerState& state,
+                    vector<urlEntry>& localLinks)
 {
   size_t owner = hashString(normalized) % numPeers;
   if (owner == localNodeId)
   {
-    state.frontierMu.lock();
-    state.theFrontier->add(normalized, depth);
-    state.frontierMu.unlock();
+    urlEntry entry;
+    entry.url = normalized;
+    entry.domain = state.theFrontier->extractDomain(normalized);
+    entry.depth = depth;
+
+    localLinks.pushBack(entry);
+
     saveAnchorText(normalized, anchorTextSlices);
   }
   else
@@ -303,7 +399,7 @@ void routeURLToPeer(const string& normalized, int depth,
 }
 
 void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNormalizer& normalizer,
-                       fetcher& theFetcher)
+                       fetcher& theFetcher, avengine::vector<urlEntry>& preparedURLs)
 {
 
   state.processedCount->fetch_add(1);
@@ -376,6 +472,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     state.crawlLogger->log(crawlUrl, "SKIP, NON-ENGLISH HTML LANG");
     return;
   }
+
   state.crawlLogger->log(crawlUrl, "OK, Code 200", resp.body.size());
 
   HtmlParser parser(resp.body.cstr(), resp.body.size());
@@ -404,21 +501,48 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
 
   state.indexedCount->fetch_add(1);
 
+  size_t routedLinks = 0;
+  const size_t kMaxRoutedLinksPerPage = 400;
+
+  // Resolve page-level <base> once instead of per-link.
+  string baseURL = crawlUrl;
+  if (parser.base.size() > 0)
+  {
+    string parserBase = parser.base.toString();
+    string resolvedBase = normalizer.normalize(crawlUrl, parserBase);
+    resolvedBase = https_url_helper(normalizer, resolvedBase);
+    if (resolvedBase.size() > 0)
+    {
+      baseURL = resolvedBase;
+    }
+  }
+
   for (size_t j = 0; j < parser.links.size(); ++j)
   {
-    string baseURL = crawlUrl;
-    if (parser.base.size() > 0)
+    if (routedLinks >= kMaxRoutedLinksPerPage)
     {
-      string parserBase = parser.base.toString();
-      string resolvedBase = normalizer.normalize(crawlUrl, parserBase);
-      resolvedBase = https_url_helper(normalizer, resolvedBase);
-      if (resolvedBase.size() > 0)
-      {
-        baseURL = resolvedBase;
-      }
+      break;
     }
 
-    string linkUrl = parser.links[j].URL.toString();
+    const string_slice linkUrlSlice = parser.links[j].URL;
+    if (linkUrlSlice.size() == 0)
+    {
+      continue;
+    }
+
+    // Cheap scheme/fragment pre-filter before expensive normalization.
+    if (linkUrlSlice[0] == '#')
+    {
+      continue;
+    }
+
+    if (linkUrlSlice.startsWith("javascript:") || linkUrlSlice.startsWith("mailto:") ||
+        linkUrlSlice.startsWith("tel:") || linkUrlSlice.startsWith("data:"))
+    {
+      continue;
+    }
+
+    string linkUrl = linkUrlSlice.toString();
     string normalized = normalizer.normalize(baseURL, linkUrl);
     normalized = https_url_helper(normalizer, normalized);
     if (normalized.size() == 0)
@@ -455,8 +579,97 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       continue;
     }
 
-    routeURLToPeer(normalized, entry.depth + 1, parser.links[j].anchorText, state);
+    routeURLToPeer(normalized, entry.depth + 1, parser.links[j].anchorText, state, preparedURLs);
+    ++routedLinks;
   }
+}
+
+void flushPreparedURLsToDiscovered(globalCrawlerState& state, vector<urlEntry>& preparedURLs)
+{
+  if (preparedURLs.empty())
+  {
+    return;
+  }
+
+  state.discoveredMu.lock();
+  for (size_t i = 0; i < preparedURLs.size(); ++i)
+  {
+    state.discoveredLocal.pushBack(preparedURLs[i]);
+  }
+  state.discoveredMu.unlock();
+
+  preparedURLs.clear();
+}
+
+void* crawlBatchProducer(void* raw)
+{
+  producerArgs* args = static_cast<producerArgs*>(raw);
+  globalCrawlerState& state = *args->state;
+  const size_t workerCount = args->workerCount;
+
+  while (!stopRequested())
+  {
+    state.queueMu.lock();
+    while (!state.q.empty() && !state.shuttingDown && !stopRequested())
+    {
+      state.batchDoneCV.wait(state.queueMu);
+    }
+
+    if (state.shuttingDown || stopRequested())
+    {
+      state.queueMu.unlock();
+      break;
+    }
+    state.queueMu.unlock();
+
+    mergeDiscoveredIntoFrontier(state);
+
+    size_t sampleSize = workerCount * 8 * 16;
+    if (sampleSize > 8192)
+    {
+      sampleSize = 8192;
+    }
+    size_t batchSize = workerCount * 16;
+    if (batchSize > sampleSize)
+    {
+      batchSize = sampleSize;
+    }
+
+    vector<urlEntry> batch =
+        nextBatchShortFrontierLock(*state.theFrontier, state.frontierListMu, sampleSize, batchSize);
+    batch = filterBlockedBatch(batch, *state.filter, *state.crawlLogger);
+
+    if (batch.empty())
+    {
+      usleep(1000);
+      continue;
+    }
+
+    state.queueMu.lock();
+    if (state.shuttingDown)
+    {
+      state.queueMu.unlock();
+      break;
+    }
+
+    if (state.q.empty())
+    {
+      for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
+      {
+        state.q.pushBack(batch[i]);
+      }
+      if (!state.q.empty())
+      {
+        state.queueCV.broadcast();
+      }
+    }
+    state.queueMu.unlock();
+  }
+
+  // Flush any discovered URLs left by workers before producer exits.
+  mergeDiscoveredIntoFrontier(state);
+
+  return nullptr;
 }
 
 void* crawlBatchWorker(void* raw)
@@ -465,36 +678,54 @@ void* crawlBatchWorker(void* raw)
   globalCrawlerState& state = *args->state;
   URLNormalizer normalizer;
   fetcher theFetcher;
+  avengine::vector<urlEntry> preparedURLs;
+  size_t runCount = 0;
 
   while (true)
   {
+    runCount++;
     state.queueMu.lock();
+
     while (state.q.empty() && !state.shuttingDown)
     {
+      state.batchDoneCV.signal();
       state.queueCV.wait(state.queueMu);
     }
 
     if (state.shuttingDown && state.q.empty())
     {
       state.queueMu.unlock();
+      flushPreparedURLsToDiscovered(state, preparedURLs);
       break;
+    }
+
+    if (state.q.empty())
+    {
+      state.queueMu.unlock();
+      continue;
     }
 
     urlEntry entry = state.q.front();
     state.q.popFront();
-    state.queueMu.unlock();
-
-    if (!stopRequested())
-    {
-      processBatchEntry(entry, state, normalizer, theFetcher);
-    }
-
-    state.queueMu.lock();
     if (state.q.empty())
     {
       state.batchDoneCV.signal();
     }
     state.queueMu.unlock();
+
+    if (!stopRequested())
+    {
+      processBatchEntry(entry, state, normalizer, theFetcher, preparedURLs);
+    }
+
+    // Force frequent flushes during warmup so workers quickly feed the
+    // producer/frontier and we avoid early frontier stalls.
+    if (preparedURLs.size() > 1500 || runCount < 10)
+    {
+      state.crawlLogger->log("UPDATING DISCOVERED", preparedURLs.size());
+
+      flushPreparedURLsToDiscovered(state, preparedURLs);
+    }
   }
 
   return nullptr;
@@ -585,7 +816,14 @@ int main()
       ++startedWorkers;
     }
   }
-  fetcher fallbackFetcher;
+
+  thread producerThread;
+  producerArgs producerThreadArgs = {.state = &workerState, .workerCount = workerCount};
+  bool producerStarted = false;
+  if (startedWorkers > 0)
+  {
+    producerStarted = producerThread.start(crawlBatchProducer, &producerThreadArgs);
+  }
 
   resumeIndexer();
 
@@ -607,59 +845,37 @@ int main()
       if (!received.empty())
       {
         crawlLogger.log("PEER INBOUND", received.size(), "URLs received from peers");
-        workerState.frontierMu.lock();
+
+        vector<urlEntry> toAppend;
+        workerState.seenMu.lock();
         for (size_t i = 0; i < received.size(); ++i)
         {
-          theFrontier.add(received[i].entry.url, received[i].entry.depth);
+          const string& inboundUrl = received[i].entry.url;
+          if (theFrontier.alreadySeen(inboundUrl))
+          {
+            continue;
+          }
+
+          theFrontier.markSeen(inboundUrl);
+
+          urlEntry entry;
+          entry.url = inboundUrl;
+          entry.domain = theFrontier.extractDomain(inboundUrl);
+          entry.depth = received[i].entry.depth;
+          toAppend.pushBack(entry);
         }
-        workerState.frontierMu.unlock();
+        workerState.seenMu.unlock();
+
+        if (!toAppend.empty())
+        {
+          workerState.frontierListMu.lock();
+          theFrontier.appendBatch(toAppend);
+          workerState.frontierListMu.unlock();
+        }
       }
     }
 
-    workerState.frontierMu.lock();
-    const size_t frontierSize = theFrontier.size();
-    workerState.frontierMu.unlock();
-    if (frontierSize == 0)
-    {
-      break;
-    }
-
-    workerState.frontierMu.lock();
-    vector<urlEntry> batch = theFrontier.nextBatch(workerCount * 8, workerCount);
-    workerState.frontierMu.unlock();
-
-    if (batch.size() == 0)
-    {
-      break;
-    }
-    batch = filterBlockedBatch(batch, filter, crawlLogger);
-
-    if (batch.size() == 0)
-    {
-      continue;
-    }
-
-    if (startedWorkers == 0) // For single threaded
-    {
-      for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
-      {
-        processBatchEntry(batch[i], workerState, normalizer, fallbackFetcher);
-      }
-    }
-    else
-    {
-      workerState.queueMu.lock();
-      for (size_t i = 0; i < batch.size() && !stopRequested(); ++i)
-      {
-        workerState.q.pushBack(batch[i]);
-      }
-      workerState.queueCV.broadcast();
-      while (!workerState.q.empty())
-      {
-        workerState.batchDoneCV.wait(workerState.queueMu);
-      }
-      workerState.queueMu.unlock();
-    }
+    usleep(1000);
 
     // Flush outbound URL buffers to the responsible peer nodes.
     if (numPeers > 1)
@@ -718,11 +934,13 @@ int main()
     if (processedSnapshot >= checkpointInterval)
     {
       checkpointInterval += CHECKPOINT_INTERVAL;
-      workerState.frontierMu.lock();
+      workerState.seenMu.lock();
+      workerState.frontierListMu.lock();
       theFrontier.saveCheckpoint(checkpointPath);
       const size_t seenSnapshot = theFrontier.seenCount();
       const size_t frontierSnapshot = theFrontier.size();
-      workerState.frontierMu.unlock();
+      workerState.frontierListMu.unlock();
+      workerState.seenMu.unlock();
       crawlLogger.log("CHECKPOINT", processedSnapshot, seenSnapshot, frontierSnapshot);
     }
   }
@@ -730,7 +948,14 @@ int main()
   workerState.queueMu.lock();
   workerState.shuttingDown = true;
   workerState.queueCV.broadcast();
+  workerState.batchDoneCV.broadcast();
   workerState.queueMu.unlock();
+
+  if (producerStarted && producerThread.joinable())
+  {
+    producerThread.join();
+  }
+
   for (size_t i = 0; i < workerCount; ++i)
   {
     if (workers[i].joinable())
@@ -744,10 +969,12 @@ int main()
   const size_t processedSnapshot = static_cast<size_t>(processedCount.get_val());
 
   // Final checkpoint
-  workerState.frontierMu.lock();
+  workerState.seenMu.lock();
+  workerState.frontierListMu.lock();
   theFrontier.saveCheckpoint(checkpointPath);
   const size_t seenSnapshot = theFrontier.seenCount();
-  workerState.frontierMu.unlock();
+  workerState.frontierListMu.unlock();
+  workerState.seenMu.unlock();
   if (stopRequested())
   {
     crawlLogger.log("DONE, SIGNAL STOP", processedSnapshot, seenSnapshot);

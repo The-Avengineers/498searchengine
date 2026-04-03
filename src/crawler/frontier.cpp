@@ -163,41 +163,64 @@ void frontier::add(const string& url, int depth)
   masterList.pushBack(entry);
 }
 
+vector<urlEntry> frontier::takeRandomSample(size_t sampleSize)
+{
+  vector<urlEntry> sample;
+
+  if (masterList.empty())
+  {
+    return sample;
+  }
+
+  if (masterList.size() <= sampleSize)
+  {
+    sample.swap(masterList);
+    return sample;
+  }
+
+  // Pick sampleSize random URLs.
+  size_t end = masterList.size();
+  for (size_t i = 0; i < sampleSize; ++i)
+  {
+    size_t j = rand() % end;
+    --end;
+    urlEntry tmp = masterList[j];
+    masterList[j] = masterList[end];
+    masterList[end] = tmp;
+  }
+
+  // Pop the sampled URLs off the back.
+  for (size_t i = 0; i < sampleSize; ++i)
+  {
+    sample.pushBack(masterList[masterList.size() - 1]);
+    masterList.popBack();
+  }
+
+  return sample;
+}
+
+void frontier::appendBatch(const vector<urlEntry>& entries, size_t startIndex)
+{
+  if (startIndex >= entries.size())
+  {
+    return;
+  }
+
+  masterList.reserve(masterList.size() + (entries.size() - startIndex));
+  for (size_t i = startIndex; i < entries.size(); ++i)
+  {
+    masterList.pushBack(entries[i]);
+  }
+}
+
 vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
 {
   vector<urlEntry> batch;
+  vector<urlEntry> sample = takeRandomSample(sampleSize);
 
-  if (masterList.size() == 0)
+  if (sample.empty())
   {
     return batch;
-  }
-
-  // Ensure we arent wasting work
-  vector<urlEntry> sample;
-  if (masterList.size() <= sampleSize)
-  {
-    sample = masterList;
-    masterList.clear();
-  }
-  else
-  {
-    // Pick sampleSize random URLs
-    size_t end = masterList.size();
-    for (size_t i = 0; i < sampleSize; ++i)
-    {
-      size_t j = rand() % end;
-      --end;
-      // swap to the end
-      urlEntry tmp = masterList[j];
-      masterList[j] = masterList[end];
-      masterList[end] = tmp;
-    }
-    // Pop the sample off the back of the list and add to a new list
-    for (size_t i = 0; i < sampleSize; ++i)
-    {
-      sample.pushBack(masterList[masterList.size() - 1]);
-      masterList.popBack();
-    }
   }
 
   // Insertion sort sample by depth in ascending order (closer to seed first)
@@ -213,26 +236,14 @@ vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
     sample[j] = key;
   }
 
-  // Take top batchSize
-  size_t actualBatchSize{};
-  if (batchSize < sample.size())
-  {
-    actualBatchSize = batchSize;
-  }
-  else
-  {
-    actualBatchSize = sample.size();
-  }
+  const size_t actualBatchSize = (batchSize < sample.size()) ? batchSize : sample.size();
+  batch.reserve(actualBatchSize);
   for (size_t i = 0; i < actualBatchSize; ++i)
   {
     batch.pushBack(sample[i]);
   }
 
-  // Put remaining back into master list
-  for (size_t i = actualBatchSize; i < sample.size(); ++i)
-  {
-    masterList.pushBack(sample[i]);
-  }
+  appendBatch(sample, actualBatchSize);
 
   return batch;
 }
