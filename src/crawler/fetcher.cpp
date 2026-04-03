@@ -886,14 +886,14 @@ expected<fetchResponse, error> fetcher::fetchHttp(const string& host, const stri
 
   // Receive response
   string raw;
-  char buffer[4096];
+  char buffer[65536];
   ssize_t bytes;
   while ((bytes = recv(fd, buffer, sizeof(buffer), 0)) > 0)
   {
-    for (ssize_t i = 0; i < bytes; ++i)
-    {
-      raw.pushBack(buffer[i]);
-    }
+    size_t oldSize = raw.size();
+    size_t chunkSize = static_cast<size_t>(bytes);
+    raw.resize(oldSize + chunkSize);
+    memcpy(raw.data() + oldSize, buffer, chunkSize);
   }
 
   if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
@@ -980,7 +980,7 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
 
   // Receive response
   string raw;
-  char buffer[4096];
+  char buffer[65536];
   int bytes = 0;
 
   string request = buildRequest(host, path);
@@ -1002,10 +1002,10 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
 
   while ((bytes = SSL_read(ssl, buffer, sizeof(buffer))) > 0)
   {
-    for (int i = 0; i < bytes; ++i)
-    {
-      raw.pushBack(buffer[i]);
-    }
+    size_t oldSize = raw.size();
+    size_t chunkSize = static_cast<size_t>(bytes);
+    raw.resize(oldSize + chunkSize);
+    memcpy(raw.data() + oldSize, buffer, chunkSize);
   }
 
   if (bytes < 0)
