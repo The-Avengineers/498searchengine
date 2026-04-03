@@ -94,11 +94,6 @@ URL URLNormalizer::parseURL(const string& url)
   if (pos < urlSize)
   {
     result.path = substr(localUrl, pos, urlSize);
-    if (result.path.size() > 1 && result.path[result.path.size() - 1] == '/')
-    {
-      result.path =
-          substr(result.path, 0, result.path.size() - 1); // remove trailing slash from urls
-    }
     result.path = resolveDotSegments(result.path);
   }
   else
@@ -167,6 +162,11 @@ string URLNormalizer::resolveDotSegments(const string& path)
   {
     result += "/";
     result += resolved[i];
+  }
+  // Preserve a trailing slash if the original path had one.
+  if (path[path.size() - 1] == '/')
+  {
+    result += "/";
   }
   return result;
 }
