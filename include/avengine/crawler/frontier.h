@@ -54,6 +54,14 @@ public:
   expected<void, error> saveCheckpoint(const string& path) const;
   expected<void, error> loadCheckpoint(const string& path);
 
+  // Pop up to sampleSize random entries out of the frontier.
+  // Caller handles sorting/selection policy and later appends leftovers.
+  vector<urlEntry> takeRandomSample(size_t sampleSize);
+
+  // Appends entries into the frontier master list.
+  // If startIndex is provided, appends entries[startIndex..end).
+  void appendBatch(const vector<urlEntry>& entries, size_t startIndex = 0);
+
   // stats
 
   // total number of URLS in master list
@@ -61,17 +69,17 @@ public:
   // # of URLS seen
   size_t seenCount() const;
 
+  // Requires URL
+  // Modifies Nothing
+  // Returns the domain of the URL
+  string extractDomain(const string& url) const;
+
 private:
   // Our quick checker for all of the URLs we visited
   Bloomfilter seen;
 
   // Flat list of all pending URLs
   vector<urlEntry> masterList;
-
-  // Requires URL
-  // Modifies Nothing
-  // Returns the domain of the URL
-  string extractDomain(const string& url) const;
 };
 
 } // namespace crawler
