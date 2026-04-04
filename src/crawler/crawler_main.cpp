@@ -374,14 +374,20 @@ int main()
   signal(SIGPIPE, SIG_IGN);
 
   // Read cluster configuration from environment variables.
+  size_t workerCount = 128;
   {
     const char* nodeIdEnv = getenv("NODE_ID");
     const char* numPeersEnv = getenv("NUM_PEERS");
+    const char* workerCountEnv = getenv("CRAWLER_WORKERS");
     localNodeId = nodeIdEnv ? static_cast<size_t>(atoi(nodeIdEnv)) : 0;
     numPeers = numPeersEnv ? static_cast<size_t>(atoi(numPeersEnv)) : 1;
     if (numPeers < 1)
     {
       numPeers = 1;
+    }
+    if (workerCountEnv && atoi(workerCountEnv) > 0)
+    {
+      workerCount = static_cast<size_t>(atoi(workerCountEnv));
     }
   }
 
@@ -430,7 +436,6 @@ int main()
   // Pre-size per-peer outbound buffers (one slot per peer, including ourselves).
   workerState.outbound = vector<vector<crawler::FullURLEntry>>(numPeers);
 
-  size_t workerCount = 8; // MAKE BIGGER
   thread* workers = new thread[workerCount];
   threadArgs* workerArgs = new threadArgs[workerCount];
   size_t startedWorkers = 0;
@@ -475,7 +480,7 @@ int main()
     }
 
     workerState.frontierMu.lock();
-    vector<urlEntry> batch = theFrontier.nextBatch(100, 10); // MAKE BIGGER
+    vector<urlEntry> batch = theFrontier.nextBatch(workerCount * 8, workerCount);
     workerState.frontierMu.unlock();
 
     if (batch.size() == 0)
