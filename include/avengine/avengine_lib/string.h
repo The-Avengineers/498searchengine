@@ -361,6 +361,81 @@ public:
     Data.Heap.Ptr[oldSize - 1] = '\0';
   }
 
+  // Resize
+  // REQUIRES: Nothing
+  // MODIFIES: *this
+  // EFFECTS: Sets the logical size of the string to newSize.
+  //   If newSize > size(), new characters are filled with `fill` (default '\0').
+  //   If newSize < size(), the string is truncated.
+  //   Capacity is never reduced, so a resize-down followed by a resize-up of
+  //   the same amount will not reallocate.
+  void resize(size_t newSize, char fill = '\0')
+  {
+    const size_t oldSize = size();
+
+    if (newSize == oldSize)
+    {
+      return;
+    }
+
+    if (newSize < oldSize)
+    {
+      // Truncate — never move back from heap to small for simplicity.
+      if (isSmall())
+      {
+        setSmallSize(newSize);
+      }
+      else
+      {
+        Data.Heap.Size = newSize;
+        Data.Heap.Ptr[newSize] = '\0';
+      }
+      return;
+    }
+
+    // newSize > oldSize: grow.
+
+    // Stay in small mode.
+    if (isSmall() && newSize <= SSO_CAP)
+    {
+      for (size_t i = oldSize; i < newSize; ++i)
+      {
+        Data.Small.Buffer[i] = fill;
+      }
+      setSmallSize(newSize);
+      return;
+    }
+
+    // Small -> heap.
+    if (isSmall())
+    {
+      size_t newCap = newSize;
+      char* newPtr = new char[newCap + 1];
+      for (size_t i = 0; i < oldSize; ++i)
+      {
+        newPtr[i] = Data.Small.Buffer[i];
+      }
+      for (size_t i = oldSize; i < newSize; ++i)
+      {
+        newPtr[i] = fill;
+      }
+      newPtr[newSize] = '\0';
+      Data.Heap.Ptr = newPtr;
+      Data.Heap.Size = newSize;
+      Data.Heap.CapAndTag = encodeHeapCap(newCap);
+      return;
+    }
+
+    // Heap -> larger heap.
+    reserveHeap(newSize);
+    for (size_t i = oldSize; i < newSize; ++i)
+    {
+      Data.Heap.Ptr[i] = fill;
+    }
+    Data.Heap.Size = newSize;
+    Data.Heap.Ptr[newSize] = '\0';
+  }
+
   // Equality Operator
   // REQUIRES: Nothing
   // MODIFIES: Nothing
