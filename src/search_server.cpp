@@ -72,6 +72,22 @@ void AppendJsonString(string& out, const string& value)
   out.pushBack('"');
   for (size_t i = 0; i < value.size(); ++i)
   {
+    // Handle code points less than U+001F in acortance with RFC 8259 section 7,
+    // https://datatracker.ietf.org/doc/html/rfc8259#section-7. Also see:
+    // https://stackoverflow.com/questions/78163518/replacing-carriage-returns-cr-or-line-feeds-lf-in-json#78165856
+    if (static_cast<unsigned char>(value[i]) < 0x20)
+    {
+      const unsigned char c = static_cast<unsigned char>(value[i]);
+      const char hex[] = "0123456789abcdef";
+      out.pushBack('\\');
+      out.pushBack('u');
+      out.pushBack('0');
+      out.pushBack('0');
+      out.pushBack(hex[(c >> 4) & 0xF]);
+      out.pushBack(hex[c & 0xF]);
+      continue;
+    }
+
     if (value[i] == '"' || value[i] == '\\')
       out.pushBack('\\');
     out.pushBack(value[i]);
