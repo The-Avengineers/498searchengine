@@ -553,21 +553,23 @@ string fetcher::decompressGzip(const string& compressed)
   zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(compressed.cstr()));
   zs.avail_in = static_cast<uInt>(compressed.size());
 
-  char outbuf[4096];
+  const size_t CHUNK = 32768;
   int ret;
   do
   {
-    zs.next_out = reinterpret_cast<Bytef*>(outbuf);
-    zs.avail_out = sizeof(outbuf);
+    const size_t currentSize = result.size();
+    result.resize(currentSize + CHUNK);
+    zs.next_out = reinterpret_cast<Bytef*>(result.data() + currentSize);
+    zs.avail_out = static_cast<uInt>(CHUNK);
     ret = inflate(&zs, Z_NO_FLUSH);
     if (ret != Z_OK && ret != Z_STREAM_END)
-      break;
-    size_t have = sizeof(outbuf) - zs.avail_out;
-    for (size_t i = 0; i < have; ++i)
     {
-      result.pushBack(outbuf[i]);
+      inflateEnd(&zs);
+      return string();
     }
-  } while (ret != Z_STREAM_END && zs.avail_in > 0);
+    const size_t produced = CHUNK - zs.avail_out;
+    result.resize(currentSize + produced);
+  } while (ret == Z_OK);
 
   inflateEnd(&zs);
   return result;
