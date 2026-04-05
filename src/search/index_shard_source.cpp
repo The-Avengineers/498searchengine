@@ -109,6 +109,14 @@ const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
 
 ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
 {
+  // Fast path: return ISRWord backed by cached positions if already decoded this query.
+  const vector<Location>* cached = termPositionCache_.get(string_slice(term.cstr()));
+  if (cached)
+  {
+    const uint32_t* df = termDocFreqCache_.get(string_slice(term.cstr()));
+    return new ISRWord(*cached, documents_, df ? *df : 0u);
+  }
+
   const uint8_t* postingBegin = nullptr;
   const uint8_t* postingEnd = nullptr;
   uint64_t documentFrequency = 0;
@@ -120,8 +128,6 @@ ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
   if (!parsePostingBlobHeader(postingBegin, postingEnd, &header, &cursor))
     return nullptr;
 
-  // This keeps the shard loader cheap: we only decode the posting lists the query actually asks
-  // for, and we leave any smarter caching for the next slice.
   Reader r(cursor, static_cast<size_t>(postingEnd - cursor));
   for (uint64_t i = 0; i < header.skipCount; ++i)
   {
@@ -138,7 +144,21 @@ ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
     positions.pushBack(static_cast<Location>(absolutePosition + 1u));
   }
 
-  return new ISRWord(positions, documents_, static_cast<uint32_t>(documentFrequency));
+  // Store decoded positions in the per-query cache. ISRWord copies the vector
+  // on construction, so the cache and the returned object are independent.
+  const auto df32 = static_cast<uint32_t>(documentFrequency);
+  termPositionCache_.insert(term, positions);
+  termDocFreqCache_.insert(term, df32);
+  const vector<Location>* stored = termPositionCache_.get(string_slice(term.cstr()));
+  return new ISRWord(*stored, documents_, df32);
+}
+
+void IndexShardSource::ClearTermCache() const
+{
+  unordered_map<vector<Location>> emptyPositions;
+  swap(termPositionCache_, emptyPositions);
+  unordered_map<uint32_t> emptyFreqs;
+  swap(termDocFreqCache_, emptyFreqs);
 }
 
 ISREndDoc* IndexShardSource::OpenEndDocIsr() const
