@@ -2,6 +2,7 @@
 
 #include <avengine/constraint_solver/isr_tree.h>
 
+#include <chrono>
 #include <limits>
 
 namespace avengine
@@ -141,6 +142,16 @@ ISR* BuildExecutionTree(const QueryNode* node, const IsrSource& source, IsrExecu
 }
 } // namespace
 
+void ConstraintSolver::SetExecutionTimeThresholdMs(size_t thresholdMs)
+{
+  executionTimeThresholdMs_ = thresholdMs;
+}
+
+size_t ConstraintSolver::GetExecutionTimeThresholdMs() const
+{
+  return executionTimeThresholdMs_;
+}
+
 ParseResult ConstraintSolver::ParseQuery(const string& query) const
 {
   QueryParser parser(query);
@@ -172,6 +183,17 @@ SolveResult ConstraintSolver::SolveParsed(const QueryNode* root, const IsrSource
     return result;
   }
 
+  const auto startedAt = std::chrono::steady_clock::now();
+  const auto timedOut = [this, &startedAt]()
+  {
+    if (executionTimeThresholdMs_ == 0)
+      return true;
+
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt);
+    return static_cast<size_t>(elapsed.count()) > executionTimeThresholdMs_;
+  };
+
   IsrExecutionState state;
   state.DocumentEnd = state.Own(source.OpenEndDocIsr());
   if (!state.DocumentEnd)
@@ -185,9 +207,22 @@ SolveResult ConstraintSolver::SolveParsed(const QueryNode* root, const IsrSource
     return result;
   }
 
+  if (timedOut())
+  {
+    result.TimedOut = true;
+    return result;
+  }
+
   uint32_t lastDocId = std::numeric_limits<uint32_t>::max();
   for (Post* match = executionRoot->Seek(1); match != nullptr;)
   {
+    if (timedOut())
+    {
+      result.Matches.clear();
+      result.TimedOut = true;
+      return result;
+    }
+
     const uint32_t docId = documentIdFromPost(match, state.DocumentEnd);
     if (docId != std::numeric_limits<uint32_t>::max() && docId != lastDocId)
     {
