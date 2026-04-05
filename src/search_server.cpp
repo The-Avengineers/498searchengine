@@ -2,8 +2,8 @@
 #include <avengine/search/search_service.h>
 
 #include <arpa/inet.h>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -137,7 +137,7 @@ string MakeJsonResponse(const search::SearchResponse& response)
   for (size_t i = 0; i < response.Results.size(); ++i)
   {
     if (i != 0)
-    body.pushBack(',');
+      body.pushBack(',');
     body += string("{\"url\":");
     AppendJsonString(body, response.Results[i].Url);
     body += string(",\"title\":");

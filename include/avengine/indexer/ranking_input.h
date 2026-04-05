@@ -22,8 +22,7 @@ inline RankingInput Pack(uint32_t depth, uint32_t urlLength, uint32_t titleWordC
   const uint64_t packedUrlLength = static_cast<uint64_t>(
       urlLength > detail::kUrlLengthMask ? detail::kUrlLengthMask : urlLength);
   const uint64_t packedTitleWordCount = static_cast<uint64_t>(
-      titleWordCount > detail::kTitleWordCountMask ? detail::kTitleWordCountMask
-                                                   : titleWordCount);
+      titleWordCount > detail::kTitleWordCountMask ? detail::kTitleWordCountMask : titleWordCount);
   return (packedDepth << 48u) | (packedUrlLength << 24u) | packedTitleWordCount;
 }
 

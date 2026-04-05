@@ -68,9 +68,8 @@ void writeShard(const char* path, std::initializer_list<TestDocument> docs)
     string title(doc.Title);
     index.beginDocument({.url = url,
                          .title = title,
-                         .input = ranking_input::Pack(
-                             0u, static_cast<uint32_t>(url.size()),
-                             ranking_input::CountWords(title))});
+                         .input = ranking_input::Pack(0u, static_cast<uint32_t>(url.size()),
+                                                      ranking_input::CountWords(title))});
     ingestBody(index, doc.Body);
     index.endDocument();
   }
@@ -114,9 +113,9 @@ void testRankingInputRoundTrip()
   const avengine::DocumentInfo* info = shard.GetDocumentInfo(0);
   EXPECT(info != nullptr);
 
-  const RankingInput expected = ranking_input::Pack(
-      0u, static_cast<uint32_t>(string("doc://static").size()),
-      ranking_input::CountWords(string("Static Title")));
+  const RankingInput expected =
+      ranking_input::Pack(0u, static_cast<uint32_t>(string("doc://static").size()),
+                          ranking_input::CountWords(string("Static Title")));
   EXPECT(info->rankingInput == expected);
   EXPECT(ranking_input::Depth(info->rankingInput) == 0u);
   EXPECT(ranking_input::UrlLength(info->rankingInput) == 12u);
@@ -202,15 +201,15 @@ void testPaging()
   EXPECT(page0.Page == 1u);
   EXPECT(page0.Limit == 10u);
   EXPECT(page0.Results.size() == 10u);
-  expectUrls(page0, {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03",
-                     "doc://page-04", "doc://page-05", "doc://page-06", "doc://page-07",
-                     "doc://page-08", "doc://page-09"});
+  expectUrls(page0,
+             {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03", "doc://page-04",
+              "doc://page-05", "doc://page-06", "doc://page-07", "doc://page-08", "doc://page-09"});
 
   const SearchResponse wrapper = service.Search("alpha", 10);
   EXPECT(wrapper.Page == 1u);
-  expectUrls(wrapper, {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03",
-                       "doc://page-04", "doc://page-05", "doc://page-06", "doc://page-07",
-                       "doc://page-08", "doc://page-09"});
+  expectUrls(wrapper,
+             {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03", "doc://page-04",
+              "doc://page-05", "doc://page-06", "doc://page-07", "doc://page-08", "doc://page-09"});
 
   const SearchResponse page2 = service.SearchPage("alpha", 2, 10);
   EXPECT(page2.Page == 2u);

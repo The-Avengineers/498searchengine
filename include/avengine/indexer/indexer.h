@@ -1,8 +1,8 @@
 #pragma once
-#include "avengine/indexer/ranking_input.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/codec.h"
+#include "avengine/indexer/ranking_input.h"
 #include "avengine/unordered_map.h"
 #include "avengine/vector.h"
 #include <cstddef>
