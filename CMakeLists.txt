@@ -66,6 +66,11 @@ target_link_libraries(index_reader PRIVATE avengine)
 target_include_directories(index_reader
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Offline post-crawl anchor-text index builder.
+add_executable(anchor_processor src/indexer/anchor_processor.cpp)
+target_link_libraries(anchor_processor PRIVATE avengine)
+target_include_directories(anchor_processor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Helper tool for comparing probing strategies at different load factors.
 add_executable(probing_benchmark src/probing_benchmark.cpp)
 target_include_directories(probing_benchmark
@@ -87,6 +92,7 @@ target_include_directories(search_server
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(anchor_processor PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(search_server PRIVATE -Wall -Wextra -Wpedantic)
