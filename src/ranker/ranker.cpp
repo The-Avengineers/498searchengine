@@ -3,12 +3,22 @@
 namespace avengine
 {
 
+Ranker::Ranker(size_t maxResults)
+{
+  SetMaxResults(maxResults);
+}
+
 void Ranker::AddStrategy(const Strategy* strategy, double weight)
 {
   WeightedStrategy entry;
   entry.strategy = strategy;
   entry.weight = weight;
   Strategies.pushBack(entry);
+}
+
+void Ranker::SetMaxResults(size_t maxResults)
+{
+  MaxResults_ = maxResults == 0 ? 10 : maxResults;
 }
 
 void Ranker::ClearStrategies()
@@ -18,12 +28,12 @@ void Ranker::ClearStrategies()
 
 void Ranker::ResetResults()
 {
-  Top10.clear();
+  TopResults_.clear();
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
                       const vector<vector<size_t>>& term_positions,
-                      const RankSignals& signals) // using insertion sort to dynamically pick top10
+                      const RankSignals& signals) // keep a bounded top-k with insertion sort
 {
   RankedResult candidate;
   candidate.entry = entry;
@@ -31,22 +41,25 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   candidate.score = Score(entry, term_positions, signals);
 
   size_t insert_pos = 0;
-  while (insert_pos < Top10.size() && Top10[insert_pos].score >= candidate.score)
+  while (insert_pos < TopResults_.size() && TopResults_[insert_pos].score >= candidate.score)
   {
     ++insert_pos;
   }
 
-  Top10.insert(insert_pos, candidate);
-
-  if (Top10.size() > 10)
+  if (TopResults_.size() >= MaxResults_ && insert_pos >= MaxResults_)
   {
-    Top10.popBack();
+    return;
   }
+
+  TopResults_.insert(insert_pos, candidate);
+
+  if (TopResults_.size() > MaxResults_)
+    TopResults_.popBack();
 }
 
 const vector<Ranker::RankedResult>& Ranker::TopResults() const
 {
-  return Top10;
+  return TopResults_;
 }
 
 double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,

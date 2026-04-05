@@ -93,8 +93,21 @@ void testRankerMethods()
   ranker.ClearStrategies();
   EXPECT(nearlyEqual(ranker.Score(makeEntry("https://a.com"), positions, signals), 0.0));
 
-  // Consider() + TopResults(): keep top 10 in descending score order.
   UrlLengthStrategy len;
+
+  // Custom capacity should trim the result set before it ever grows past the bound.
+  Ranker cappedRanker(3);
+  cappedRanker.AddStrategy(&len, 1.0);
+  for (int i = 0; i < 5; ++i)
+  {
+    urlEntry entry = makeEntry("https://example.com/");
+    for (int j = 0; j < i; ++j)
+      entry.url.pushBack('x');
+    cappedRanker.Consider(entry, string(), positions, signals);
+  }
+  EXPECT(cappedRanker.TopResults().size() == 3u);
+
+  // Consider() + TopResults(): keep top 10 in descending score order.
   ranker.AddStrategy(&len, 1.0);
   for (int i = 0; i < 12; ++i)
   {

@@ -140,6 +140,7 @@ async function testRendersApiResults() {
       text: async () =>
         JSON.stringify({
           query: "dog",
+          page: 1,
           limit: 10,
           total_hits: 2,
           took_ms: 12,

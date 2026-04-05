@@ -1,4 +1,5 @@
 #pragma once
+#include "avengine/indexer/ranking_input.h"
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/codec.h"
@@ -26,10 +27,6 @@ constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
 constexpr const size_t OFFSET_THRESHOLD = 40000000;
 
 constexpr const char* INDEX_DIRECTORY = ".";
-
-// The raw data needed as input to calculate the static rank (distance from seed list, length of
-// document, etc). It MUST be plain old data, no pointers.
-using RankingInput = uint64_t;
 
 struct PostingList
 {

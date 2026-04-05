@@ -3,7 +3,6 @@
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/constraint_solver/constraint_solver.h>
-#include <avengine/ranker/ranker.h>
 
 namespace avengine
 {
@@ -26,6 +25,7 @@ struct SearchHit
 struct SearchResponse
 {
   string Query;
+  size_t Page = 1;
   size_t Limit = 10;
   size_t TotalHits = 0;
   size_t TookMs = 0;
@@ -45,6 +45,7 @@ public:
   SearchService& operator=(const SearchService&) = delete;
 
   SearchResponse Search(const string& query, size_t limit = 10) const;
+  SearchResponse SearchPage(const string& query, size_t page, size_t limit = 10) const;
 
 private:
   void LoadShards();
@@ -52,7 +53,6 @@ private:
   string indexDirectory_;
   constraint_solver::ConstraintSolver solver_;
   vector<IndexShardSource*> shards_;
-  ConstantScoreStrategy defaultStrategy_;
 };
 
 } // namespace search

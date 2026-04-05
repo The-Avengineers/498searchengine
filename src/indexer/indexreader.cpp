@@ -80,7 +80,8 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
 //   [doc_freq u64][coll_freq u64][skip_count u64]
 //   [skip stream: skip_count x (posIdx varint, posVal varint, byteOff varint)]
 //   [position delta stream: coll_freq varints, delta-encoded from 0]
-//   [metadata buffer: doc_freq x (url length-prefixed, title length-prefixed, 8-byte RankingInput)]
+//   [metadata buffer: doc_freq x (url length-prefixed, title length-prefixed, optional 8-byte
+//   RankingInput)]
 //
 // Populates docInfos with one entry per document (endPosition, title), sorted ascending by
 // endPosition. Returns true on success, false if DOCUMENT_END is absent or the blob is malformed.
@@ -160,7 +161,8 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
   {
     const avengine::string url = r.readString();
     const avengine::string title = r.readString();
-    r.skip(8);
+    if (r.remaining() >= sizeof(uint64_t))
+      r.skip(sizeof(uint64_t));
 
     uint64_t endPos = (i < boundaryPositions.size()) ? boundaryPositions[i] : UINT64_MAX;
     docInfos.pushBack({endPos, title, url});

@@ -21,6 +21,8 @@ namespace avengine
 class Ranker
 {
 public:
+  explicit Ranker(size_t maxResults = 10);
+
   struct RankSignals
   {
     size_t outlink_count{0};
@@ -61,12 +63,17 @@ public:
   void AddStrategy(const Strategy* strategy, double weight = 1.0);
 
   /**
+   * Change the maximum number of retained results.
+   */
+  void SetMaxResults(size_t maxResults);
+
+  /**
    * Remove all strategies.
    */
   void ClearStrategies();
 
   /**
-   * resets top 10 results list before next query
+   * resets the retained top-k results list before next query
    */
   void ResetResults();
 
@@ -102,7 +109,8 @@ private:
   };
 
   vector<WeightedStrategy> Strategies;
-  vector<RankedResult> Top10;
+  vector<RankedResult> TopResults_;
+  size_t MaxResults_ = 10;
 };
 
 class ConstantScoreStrategy : public Ranker::Strategy

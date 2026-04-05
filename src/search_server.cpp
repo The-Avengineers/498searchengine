@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <cstdlib>
+#include <cstdio>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -95,10 +96,26 @@ void AppendJsonString(string& out, const string& value)
   out.pushBack('"');
 }
 
+void AppendJsonNumber(string& out, double value)
+{
+  char buffer[64];
+  const int length = std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+  if (length <= 0)
+  {
+    out += string("0");
+    return;
+  }
+
+  for (int i = 0; i < length && i < static_cast<int>(sizeof(buffer)); ++i)
+    out.pushBack(buffer[i]);
+}
+
 string MakeJsonResponse(const search::SearchResponse& response)
 {
   string body("{\"query\":");
   AppendJsonString(body, response.Query);
+  body += string(",\"page\":");
+  search::AppendUnsigned(body, response.Page);
   body += string(",\"limit\":");
   search::AppendUnsigned(body, response.Limit);
   body += string(",\"total_hits\":");
@@ -120,12 +137,14 @@ string MakeJsonResponse(const search::SearchResponse& response)
   for (size_t i = 0; i < response.Results.size(); ++i)
   {
     if (i != 0)
-      body.pushBack(',');
+    body.pushBack(',');
     body += string("{\"url\":");
     AppendJsonString(body, response.Results[i].Url);
     body += string(",\"title\":");
     AppendJsonString(body, response.Results[i].Title);
-    body += string(",\"score\":1}");
+    body += string(",\"score\":");
+    AppendJsonNumber(body, response.Results[i].Score);
+    body.pushBack('}');
   }
   body += string("]}");
   return body;
@@ -167,7 +186,7 @@ void HandleClient(int clientFd, const search::SearchService& service)
       targetEnd > lineEnd || (!isGet && !isOptions))
   {
     SendResponse(clientFd, 405, "Method Not Allowed",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+                 "{\"query\":\"\",\"page\":1,\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
                  "\"results\":[]}");
     return;
   }
@@ -176,7 +195,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
   if (!StartsWith(target, "/api/search"))
   {
     SendResponse(clientFd, 404, "Not Found",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}");
+                 "{\"query\":\"\",\"page\":1,\"errors\":[{\"message\":\"not found\"}],"
+                 "\"results\":[]}");
     return;
   }
 
@@ -187,6 +207,7 @@ void HandleClient(int clientFd, const search::SearchService& service)
   }
 
   string query;
+  size_t page = 1;
   size_t limit = 10;
   const size_t queryStart = FindChar(target, '?');
   if (queryStart != string::npos)
@@ -206,6 +227,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
 
       if (key == string("q"))
         query = DecodeQueryValue(value);
+      else if (key == string("page") && value.size() != 0)
+        page = static_cast<size_t>(strtoul(value.cstr(), nullptr, 10));
       else if (key == string("limit") && value.size() != 0)
         limit = search::ClampSearchLimit(static_cast<size_t>(strtoul(value.cstr(), nullptr, 10)));
 
@@ -215,7 +238,7 @@ void HandleClient(int clientFd, const search::SearchService& service)
     }
   }
 
-  const search::SearchResponse response = service.Search(query, limit);
+  const search::SearchResponse response = service.SearchPage(query, page, limit);
   SendResponse(clientFd, 200, "OK", MakeJsonResponse(response));
 }
 

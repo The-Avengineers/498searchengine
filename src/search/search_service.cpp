@@ -1,5 +1,6 @@
 #include <avengine/search/search_service.h>
 
+#include <avengine/ranker/Strategy.h>
 #include <avengine/ranker/ranker.h>
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
@@ -58,6 +59,64 @@ struct MatchPositions
   vector<vector<size_t>> termPositions; // termPositions[termIdx] = locations in document
 };
 
+string ExtractDomain(const string& url)
+{
+  size_t hostStart = 0;
+  const size_t schemeEnd = url.find("://");
+  if (schemeEnd != string::npos)
+    hostStart = schemeEnd + 3;
+
+  size_t hostEnd = hostStart;
+  while (hostEnd < url.size())
+  {
+    const char c = url[hostEnd];
+    if (c == '/' || c == '?' || c == '#')
+      break;
+    ++hostEnd;
+  }
+
+  string domain;
+  for (size_t i = hostStart; i < hostEnd; ++i)
+    domain.pushBack(url[i]);
+  return domain;
+}
+
+void CollectPositionsForTerms(const IndexShardSource* shard,
+                              const vector<constraint_solver::DocumentMatch>& matches,
+                              const vector<string>& terms, const string& prefix,
+                              vector<MatchPositions>& matchPositions)
+{
+  for (size_t t = 0; t < terms.size(); ++t)
+  {
+    string lookup = prefix;
+    lookup += terms[t];
+
+    ISRWord* isr = shard->OpenTermIsr(lookup);
+    if (!isr)
+      continue;
+
+    size_t matchIdx = 0;
+    for (Post* p = isr->Seek(1); p && matchIdx < matches.size(); p = isr->Next())
+    {
+      const Attributes attrs = p->GetAttributes();
+      if (attrs.kind != Attributes::Kind::WORD)
+        continue;
+
+      const uint32_t docId = attrs.Word.documentId;
+      while (matchIdx < matches.size() && matches[matchIdx].DocId < docId)
+        ++matchIdx;
+
+      if (matchIdx >= matches.size())
+        break;
+
+      if (matches[matchIdx].DocId == docId)
+        matchPositions[matchIdx].termPositions[t].pushBack(p->GetStartLocation());
+    }
+
+    delete isr;
+  }
+}
+
 void CollectQueryTerms(const constraint_solver::QueryNode* node, vector<string>& terms)
 {
   if (!node)
@@ -114,9 +173,19 @@ void SearchService::LoadShards()
 
 SearchResponse SearchService::Search(const string& query, size_t limit) const
 {
+  return SearchPage(query, 1, limit);
+}
+
+SearchResponse SearchService::SearchPage(const string& query, size_t page, size_t limit) const
+{
   SearchResponse response = {};
   response.Query = query;
   response.Limit = ClampSearchLimit(limit);
+  response.Page = page == 0 ? 1 : page;
+
+  const size_t pageNumber = response.Page;
+  const size_t pageSize = response.Limit;
+  const size_t candidateLimit = pageNumber * pageSize;
 
   if (IsBlankText(query))
     return response;
@@ -135,8 +204,26 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
   vector<string> queryTerms;
   CollectQueryTerms(parsed.Root, queryTerms);
 
-  Ranker ranker;
-  ranker.AddStrategy(&defaultStrategy_, 1.0);
+  Ranker ranker(candidateLimit);
+  DomainStrat domainStrategy;
+  ShortURLStrat shortUrlStrategy;
+  ShortTitleStrat shortTitleStrategy;
+  ExactPhraseMatch exactPhraseStrategy;
+  CorrectOrdering correctOrderingStrategy;
+  EarlyQueryTermMatch earlyQueryStrategy;
+  TermCoverage termCoverageStrategy;
+  UrlDepth urlDepthStrategy;
+  QueryOccurrence queryOccurrenceStrategy(queryTerms);
+
+  ranker.AddStrategy(&exactPhraseStrategy, 3.0);
+  ranker.AddStrategy(&correctOrderingStrategy, 2.0);
+  ranker.AddStrategy(&earlyQueryStrategy, 1.5);
+  ranker.AddStrategy(&queryOccurrenceStrategy, 1.25);
+  ranker.AddStrategy(&termCoverageStrategy, 1.0);
+  ranker.AddStrategy(&shortTitleStrategy, 0.45);
+  ranker.AddStrategy(&shortUrlStrategy, 0.35);
+  ranker.AddStrategy(&domainStrategy, 0.25);
+  ranker.AddStrategy(&urlDepthStrategy, 0.25);
 
   for (const IndexShardSource* shard : shards_)
   {
@@ -146,43 +233,23 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
     if (solved.Matches.empty())
       continue;
 
-    // Build per-match term position vectors by walking each term ISR once
-    vector<MatchPositions> matchPositions;
+    vector<MatchPositions> bodyPositions;
+    vector<MatchPositions> titlePositions;
     for (size_t i = 0; i < solved.Matches.size(); ++i)
     {
-      MatchPositions mp;
+      MatchPositions body;
+      MatchPositions title;
       for (size_t t = 0; t < queryTerms.size(); ++t)
-        mp.termPositions.pushBack(vector<size_t>());
-      matchPositions.pushBack(mp);
-    }
-
-    for (size_t t = 0; t < queryTerms.size(); ++t)
-    {
-      ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
-      if (!isr)
-        continue;
-
-      size_t matchIdx = 0;
-      for (Post* p = isr->Seek(1); p && matchIdx < solved.Matches.size(); p = isr->Next())
       {
-        const Attributes attrs = p->GetAttributes();
-        if (attrs.kind != Attributes::Kind::WORD)
-          continue;
-
-        const uint32_t docId = attrs.Word.documentId;
-
-        // Advance past matches with smaller docIds
-        while (matchIdx < solved.Matches.size() && solved.Matches[matchIdx].DocId < docId)
-          ++matchIdx;
-
-        if (matchIdx >= solved.Matches.size())
-          break;
-
-        if (solved.Matches[matchIdx].DocId == docId)
-          matchPositions[matchIdx].termPositions[t].pushBack(p->GetStartLocation());
+        body.termPositions.pushBack(vector<size_t>());
+        title.termPositions.pushBack(vector<size_t>());
       }
-      delete isr;
+      bodyPositions.pushBack(body);
+      titlePositions.pushBack(title);
     }
+
+    CollectPositionsForTerms(shard, solved.Matches, queryTerms, string(), bodyPositions);
+    CollectPositionsForTerms(shard, solved.Matches, queryTerms, string("#"), titlePositions);
 
     // Score each match with real ISR-derived data
     for (size_t i = 0; i < solved.Matches.size(); ++i)
@@ -192,18 +259,26 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
 
       urlEntry entry = {};
       entry.url = match.Url;
+      entry.domain = ExtractDomain(match.Url);
 
       Ranker::RankSignals signals = {};
       if (docInfo)
-        signals.title_word_count = docInfo->titleLength;
+      {
+        entry.depth = static_cast<int>(ranking_input::Depth(docInfo->rankingInput));
+        signals.title_word_count = ranking_input::TitleWordCount(docInfo->rankingInput);
+      }
+      if (i < titlePositions.size())
+        signals.title_term_positions = &titlePositions[i].termPositions;
 
-      ranker.Consider(entry, shard->GetDocumentTitle(match.DocId), matchPositions[i].termPositions,
+      ranker.Consider(entry, shard->GetDocumentTitle(match.DocId), bodyPositions[i].termPositions,
                       signals);
     }
   }
 
   const auto& topResults = ranker.TopResults();
-  for (size_t i = 0; i < topResults.size() && i < response.Limit; ++i)
+  const size_t startIndex = (pageNumber - 1) * pageSize;
+  const size_t endIndex = startIndex + pageSize;
+  for (size_t i = startIndex; i < topResults.size() && i < endIndex; ++i)
     response.Results.pushBack({topResults[i].entry.url, topResults[i].title, topResults[i].score});
 
   constraint_solver::DestroyQueryTree(parsed.Root);

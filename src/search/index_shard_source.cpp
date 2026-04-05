@@ -257,12 +257,15 @@ bool IndexShardSource::ParseDocumentMetadata()
   {
     const avengine::string url = r.readString();
     const avengine::string title = r.readString();
-    r.skip(sizeof(uint64_t));
+    RankingInput rankingInput = 0;
+    if (r.remaining() >= sizeof(uint64_t))
+      rankingInput = r.readU64();
 
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     const uint32_t titleLength = static_cast<uint32_t>(title.size());
     const uint32_t urlLength = static_cast<uint32_t>(url.size());
-    documents_.pushBack({static_cast<uint32_t>(docId), start, end, titleLength, urlLength});
+    documents_.pushBack(
+        {static_cast<uint32_t>(docId), start, end, titleLength, urlLength, rankingInput});
     documentUrls_.pushBack(url);
     documentTitles_.pushBack(title);
     start = end + 1;

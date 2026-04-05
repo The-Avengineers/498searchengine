@@ -634,7 +634,7 @@ void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_
     return;
 
   documents_.pushBack({static_cast<uint32_t>(documents_.size()), startLocation, endLocation,
-                       titleLength, urlLength});
+                       titleLength, urlLength, 0});
 }
 
 void Dictionary::AddOccurrence(const char* token, Location location)

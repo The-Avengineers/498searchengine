@@ -130,10 +130,12 @@ int main(int argc, char** argv)
 
       phrases.pushBack(content);
 
+      avengine::string title = content.split('\n').front().toString();
       auto metadata = DocumentMetadata{
           .url = file,
-          .title = content.split('\n').front().toString(),
-          .input = 0,
+          .title = title,
+          .input = ranking_input::Pack(0u, static_cast<uint32_t>(file.size()),
+                                       ranking_input::CountWords(title)),
       };
 
       indexDocument(metadata, phrases);
@@ -167,10 +169,11 @@ int main(int argc, char** argv)
     start = clock();
     for (size_t i = 0; i < documents.size(); i++)
     {
+      avengine::string title = documentNames[i].toString();
       DocumentMetadata metadata = {
           .url = "(none)",
-          .title = documentNames[i].toString(),
-          .input = 0,
+          .title = title,
+          .input = ranking_input::Pack(0u, 6u, ranking_input::CountWords(title)),
       };
       avengine::vector<avengine::string_slice> phrases;
       phrases.pushBack(documents[i]);
