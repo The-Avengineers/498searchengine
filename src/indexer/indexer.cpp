@@ -1,5 +1,6 @@
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/codec.h>
+#include <avengine/indexer/anchor_indexer.h>
 #include <avengine/indexer/indexer.h>
 #include <cassert>
 #include <cctype>
@@ -329,6 +330,8 @@ void cleanUpIndexer()
   {
     pthread_join(serializeThreads[i], nullptr);
   }
+
+  closeAnchorLog();
 }
 
 void resumeIndexer()
@@ -387,6 +390,8 @@ void resumeIndexer()
 
   if (found)
     indexCounter = maxIndex + 1;
+
+  openAnchorLog();
 }
 
 size_t indexDocument(DocumentMetadata& document_metadata,
