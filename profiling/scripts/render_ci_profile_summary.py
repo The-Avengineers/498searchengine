@@ -47,15 +47,21 @@ def main() -> int:
         f"| P50 client ms | {search['p50_client_ms']:.2f} |",
         f"| P95 client ms | {search['p95_client_ms']:.2f} |",
         "",
-        "| Query | Mean ms | P50 ms | P95 ms | Mean server took_ms |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        "| Query | Hits | Mean client ms | P50 ms | P95 ms | Server ms | Parse ms | Solve ms | Collect ms | Rank ms |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     for sample in search["samples"]:
         lines.append(
-            f"| `{sample['query']}` | {sample['mean_client_ms']:.2f} | "
-            f"{sample['p50_client_ms']:.2f} | {sample['p95_client_ms']:.2f} | "
-            f"{sample['mean_server_took_ms']:.2f} |"
+            f"| `{sample['query']}` | {sample['expected_total_hits']} |"
+            f" {sample['mean_client_ms']:.2f} |"
+            f" {sample['p50_client_ms']:.2f} |"
+            f" {sample['p95_client_ms']:.2f} |"
+            f" {sample['mean_server_took_ms']:.2f} |"
+            f" {sample.get('mean_parse_ms', 0):.2f} |"
+            f" {sample.get('mean_solve_ms', 0):.2f} |"
+            f" {sample.get('mean_collect_ms', 0):.2f} |"
+            f" {sample.get('mean_rank_ms', 0):.2f} |"
         )
 
     pathlib.Path(args.output).write_text("\n".join(lines) + "\n", encoding="utf-8")
