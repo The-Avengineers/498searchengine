@@ -49,3 +49,35 @@ jobs:
         with:
           name: profiling-artifacts
           path: artifacts/
+
+  cpu-profile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3 graphviz \
+            linux-tools-common linux-tools-generic || true
+          pip3 install --quiet gprof2dot
+          git clone --depth 1 https://github.com/brendangregg/FlameGraph /opt/FlameGraph
+          echo "/opt/FlameGraph" >> "$GITHUB_PATH"
+
+      - name: Run CPU profile
+        run: |
+          sudo sysctl -w kernel.perf_event_paranoia=1 || true
+          BENCHMARK_ITERATIONS=500 BENCHMARK_WARMUP=5 \
+            bash profiling/scripts/run_cpu_profile.sh \
+              artifacts/cpu_profile build-cpu-profile
+
+      - name: Show gprof flat profile
+        run: head -60 artifacts/cpu_profile/gprof_report.txt >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload CPU profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-profiling-artifacts
+          path: artifacts/cpu_profile/
