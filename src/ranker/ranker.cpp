@@ -71,9 +71,7 @@ vector<Ranker::RankedResult> Ranker::TopResults() const
   // Reverse to return highest score first.
   vector<RankedResult> result;
   for (size_t i = ascending.size(); i > 0; --i)
-  {
     result.pushBack(ascending[i - 1]);
-  }
   return result;
 }
 
