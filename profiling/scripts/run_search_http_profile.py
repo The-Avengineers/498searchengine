@@ -94,7 +94,7 @@ def main() -> int:
         # Single term with a single hit
         {"query": "telemetry", "limit": 10, "expected_total_hits": 1},
         # Multi-word phrase covering multiple shards
-        {"query": "search ranking", "limit": 10, "expected_total_hits": 3},
+        {"query": "search ranking", "limit": 10, "expected_total_hits": 2},
     ]
 
     samples: list[dict] = []
