@@ -19,34 +19,53 @@ void Ranker::ClearStrategies()
 void Ranker::ResetResults()
 {
   Top10.clear();
+  insertionCount_ = 0;
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
                       const vector<vector<size_t>>& term_positions,
-                      const RankSignals& signals) // using insertion sort to dynamically pick top10
+                      const RankSignals& signals)
 {
+  // Deduplicate: skip URLs already tracked since same URL can appear across shards.
+  const vector<RankedResult>& heap = Top10.serializeHeap();
+  for (size_t i = 0; i < heap.size(); ++i)
+  {
+    if (heap[i].entry.url == entry.url)
+      return;
+  }
+
+  // When full skip scoring entirely if this candidate can't beat the weakest result.
+  const double new_score = Score(entry, term_positions, signals);
+  if (Top10.size() == 10 && new_score <= Top10.top().score)
+    return;
+
   RankedResult candidate;
   candidate.entry = entry;
   candidate.title = title;
-  candidate.score = Score(entry, term_positions, signals);
+  candidate.score = new_score;
+  candidate.insertionIndex = insertionCount_++;
 
-  size_t insert_pos = 0;
-  while (insert_pos < Top10.size() && Top10[insert_pos].score >= candidate.score)
-  {
-    ++insert_pos;
-  }
-
-  Top10.insert(insert_pos, candidate);
+  Top10.push(candidate);
 
   if (Top10.size() > 10)
-  {
-    Top10.popBack();
-  }
-}
+    Top10.pop();
 
-const vector<Ranker::RankedResult>& Ranker::TopResults() const
+vector<Ranker::RankedResult> Ranker::TopResults() const
 {
-  return Top10;
+  // Copy the heap and drain it (pops ascending: worst first).
+  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
+  vector<RankedResult> ascending;
+  while (!copy.empty())
+  {
+    ascending.pushBack(copy.top());
+    copy.pop();
+  }
+
+  // Reverse to return highest score first.
+  vector<RankedResult> result;
+  for (size_t i = ascending.size(); i > 0; --i)
+    result.pushBack(ascending[i - 1]);
+  return result;
 }
 
 double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,

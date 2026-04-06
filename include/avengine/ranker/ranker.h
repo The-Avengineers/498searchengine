@@ -3,6 +3,7 @@
 
 #include <cstddef>
 
+#include <avengine/avengine_lib/PriorityQueue.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
@@ -81,6 +82,17 @@ public:
     urlEntry entry;
     string title;
     double score{0.0};
+    size_t insertionIndex{0};
+
+    // Min-heap ordering
+    // Evict lower scores first and for equal scores evict newer items bc found later in index
+    bool operator<(const RankedResult& other) const
+    {
+      if (score != other.score)
+        return score < other.score;
+      return insertionIndex > other.insertionIndex;
+    }
+    bool operator>(const RankedResult& other) const { return other < *this; }
   };
 
   /**
@@ -92,7 +104,7 @@ public:
   /**
    * Return the current top results (highest score first).
    */
-  const vector<RankedResult>& TopResults() const;
+  vector<RankedResult> TopResults() const;
 
 private:
   struct WeightedStrategy
@@ -102,7 +114,8 @@ private:
   };
 
   vector<WeightedStrategy> Strategies;
-  vector<RankedResult> Top10;
+  priorityQueue<RankedResult, greater<RankedResult>> Top10;
+  size_t insertionCount_{0};
 };
 
 class ConstantScoreStrategy : public Ranker::Strategy
