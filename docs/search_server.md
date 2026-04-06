@@ -50,18 +50,6 @@ SEARCH_ROLE=worker NODE_ID=2 NUM_PEERS=3 INDEX_DIR=/path/to/worker2/index ./buil
 
 All peers must be able to discover each other on the local network or a VPN that supports broadcast traffic.
 
-Example:
-
-```bash
-./build/search_server 8080 /data/index
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8080/
-```
-
 ## API
 
 ### `GET /api/search`
@@ -119,6 +107,7 @@ Timing fields:
 | Phrase | `"apple pie"` | Documents containing the exact phrase |
 | OR | `apple OR banana` | Documents containing either term |
 
+
 ### Error response
 
 Parse errors include an `offset` pointing into the query string:
@@ -154,6 +143,7 @@ Timeout:
 
 ```bash
 curl -i 'http://127.0.0.1:8080/'
+curl -s 'http://127.0.0.1:8080/api/search?q=apple&limit=5' | python3 -m json.tool
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=1&limit=10'
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=2&limit=10'
 curl -s 'http://127.0.0.1:8080/api/search?q=%22distributed+search%22'
