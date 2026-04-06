@@ -92,7 +92,10 @@ public:
         return score < other.score;
       return insertionIndex > other.insertionIndex;
     }
-    bool operator>(const RankedResult& other) const { return other < *this; }
+    bool operator>(const RankedResult& other) const
+    {
+      return other < *this;
+    }
   };
 
   /**

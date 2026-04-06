@@ -23,8 +23,7 @@ void Ranker::ResetResults()
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
-                      const vector<vector<size_t>>& term_positions,
-                      const RankSignals& signals)
+                      const vector<vector<size_t>>& term_positions, const RankSignals& signals)
 {
   // Deduplicate: skip URLs already tracked since same URL can appear across shards.
   const vector<RankedResult>& heap = Top10.serializeHeap();
@@ -50,41 +49,41 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   if (Top10.size() > 10)
     Top10.pop();
 
-vector<Ranker::RankedResult> Ranker::TopResults() const
-{
-  // Copy the heap and drain it (pops ascending: worst first).
-  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
-  vector<RankedResult> ascending;
-  while (!copy.empty())
+  vector<Ranker::RankedResult> Ranker::TopResults() const
   {
-    ascending.pushBack(copy.top());
-    copy.pop();
-  }
-
-  // Reverse to return highest score first.
-  vector<RankedResult> result;
-  for (size_t i = ascending.size(); i > 0; --i)
-    result.pushBack(ascending[i - 1]);
-  return result;
-}
-
-double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
-                     const RankSignals& signals) const
-{
-  double combined = 0.0;
-
-  for (size_t i = 0; i < Strategies.size(); ++i)
-  {
-    const WeightedStrategy& weighted = Strategies[i];
-    if (weighted.strategy == nullptr)
+    // Copy the heap and drain it (pops ascending: worst first).
+    priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
+    vector<RankedResult> ascending;
+    while (!copy.empty())
     {
-      return 0.0;
+      ascending.pushBack(copy.top());
+      copy.pop();
     }
 
-    combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+    // Reverse to return highest score first.
+    vector<RankedResult> result;
+    for (size_t i = ascending.size(); i > 0; --i)
+      result.pushBack(ascending[i - 1]);
+    return result;
   }
 
-  return combined;
-}
+  double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
+                       const RankSignals& signals) const
+  {
+    double combined = 0.0;
+
+    for (size_t i = 0; i < Strategies.size(); ++i)
+    {
+      const WeightedStrategy& weighted = Strategies[i];
+      if (weighted.strategy == nullptr)
+      {
+        return 0.0;
+      }
+
+      combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+    }
+
+    return combined;
+  }
 
 } // namespace avengine
