@@ -33,8 +33,7 @@ void Ranker::ResetResults()
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
-                      const vector<vector<size_t>>& term_positions,
-                      const RankSignals& signals)
+                      const vector<vector<size_t>>& term_positions, const RankSignals& signals)
 {
   if (MaxResults_ == 0)
   {
