@@ -50,41 +50,41 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
     Top10.pop();
 }
 
-  vector<Ranker::RankedResult> Ranker::TopResults() const
+vector<Ranker::RankedResult> Ranker::TopResults() const
+{
+  // Copy the heap and drain it (pops ascending: worst first).
+  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
+  vector<RankedResult> ascending;
+  while (!copy.empty())
   {
-    // Copy the heap and drain it (pops ascending: worst first).
-    priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
-    vector<RankedResult> ascending;
-    while (!copy.empty())
-    {
-      ascending.pushBack(copy.top());
-      copy.pop();
-    }
-
-    // Reverse to return highest score first.
-    vector<RankedResult> result;
-    for (size_t i = ascending.size(); i > 0; --i)
-      result.pushBack(ascending[i - 1]);
-    return result;
+    ascending.pushBack(copy.top());
+    copy.pop();
   }
 
-  double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
-                       const RankSignals& signals) const
+  // Reverse to return highest score first.
+  vector<RankedResult> result;
+  for (size_t i = ascending.size(); i > 0; --i)
+    result.pushBack(ascending[i - 1]);
+  return result;
+}
+
+double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
+                     const RankSignals& signals) const
+{
+  double combined = 0.0;
+
+  for (size_t i = 0; i < Strategies.size(); ++i)
   {
-    double combined = 0.0;
-
-    for (size_t i = 0; i < Strategies.size(); ++i)
+    const WeightedStrategy& weighted = Strategies[i];
+    if (weighted.strategy == nullptr)
     {
-      const WeightedStrategy& weighted = Strategies[i];
-      if (weighted.strategy == nullptr)
-      {
-        return 0.0;
-      }
-
-      combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+      return 0.0;
     }
 
-    return combined;
+    combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
   }
+
+  return combined;
+}
 
 } // namespace avengine
