@@ -83,10 +83,18 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     queries = [
+        # Single common term — many hits, exercises ISR decode + collect
         {"query": "apple", "limit": 10, "expected_total_hits": 4},
+        # Multi-term AND — intersection, smaller hit set
         {"query": "banana cherry", "limit": 10, "expected_total_hits": 2},
+        # Phrase query — exact adjacency matching, exercises ISRPhrase
         {"query": "\"distributed search ranking\"", "limit": 10, "expected_total_hits": 1},
+        # No-results query — exercises early-exit path
         {"query": "kiwi", "limit": 10, "expected_total_hits": 0},
+        # Single term with a single hit
+        {"query": "telemetry", "limit": 10, "expected_total_hits": 1},
+        # Multi-word phrase covering multiple shards
+        {"query": "search ranking", "limit": 10, "expected_total_hits": 3},
     ]
 
     samples: list[dict] = []
@@ -145,6 +153,10 @@ def main() -> int:
 
                 latencies: list[float] = []
                 server_took_ms: list[int] = []
+                parse_ms: list[int] = []
+                solve_ms: list[int] = []
+                collect_ms: list[int] = []
+                rank_ms: list[int] = []
                 for _ in range(args.iterations):
                     sample = query_once(port, spec["query"], spec["limit"])
                     response = sample["response"]
@@ -155,6 +167,10 @@ def main() -> int:
                         )
                     latencies.append(sample["client_ms"])
                     server_took_ms.append(int(response.get("took_ms", 0)))
+                    parse_ms.append(int(response.get("parse_ms", 0)))
+                    solve_ms.append(int(response.get("solve_ms", 0)))
+                    collect_ms.append(int(response.get("collect_ms", 0)))
+                    rank_ms.append(int(response.get("rank_ms", 0)))
 
                 samples.append(
                     {
@@ -166,6 +182,10 @@ def main() -> int:
                         "p95_client_ms": percentile(latencies, 0.95),
                         "mean_server_took_ms": statistics.fmean(server_took_ms),
                         "max_server_took_ms": max(server_took_ms),
+                        "mean_parse_ms": statistics.fmean(parse_ms),
+                        "mean_solve_ms": statistics.fmean(solve_ms),
+                        "mean_collect_ms": statistics.fmean(collect_ms),
+                        "mean_rank_ms": statistics.fmean(rank_ms),
                     }
                 )
         finally:

@@ -518,6 +518,14 @@ void AppendResultString(string& body, const search::SearchResponse& response)
   search::AppendUnsigned(body, response.TotalHits);
   body += string(",\"took_ms\":");
   search::AppendUnsigned(body, response.TookMs);
+  body += string(",\"parse_ms\":");
+  search::AppendUnsigned(body, response.ParseMs);
+  body += string(",\"solve_ms\":");
+  search::AppendUnsigned(body, response.SolveMs);
+  body += string(",\"collect_ms\":");
+  search::AppendUnsigned(body, response.CollectMs);
+  body += string(",\"rank_ms\":");
+  search::AppendUnsigned(body, response.RankMs);
   body += string(",\"errors\":[");
   for (size_t i = 0; i < response.Errors.size(); ++i)
   {

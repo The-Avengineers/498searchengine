@@ -705,3 +705,502 @@
 2026-03-12T20:50:52Z,OK, Code 200,http://www.sf-encyclopedia.com/entry/cooper_edmund,30640
 2026-03-12T20:50:52Z,OK, Code 200,https://ee.wikipedia.org/wiki/Adaklu_Distrikt?action=edit&amp;redlink=1,73338
 2026-03-12T20:50:52Z,DONE, SIGNAL STOP,684,119262
+2026-04-06T18:09:14Z,https://www.theride.org/,OK, Code 200,309138
+2026-04-06T18:09:14Z,https://rust-lang.org/,OK, Code 200,18601
+2026-04-06T18:09:14Z,https://medium.com/,OK, Code 200,37717
+2026-04-06T18:09:14Z,https://theverge.com/,OK, Code 200,911849
+2026-04-06T18:09:14Z,https://bbc.com/,OK, Code 200,549975
+2026-04-06T18:09:14Z,https://theatlantic.com/,OK, Code 200,388339
+2026-04-06T18:09:14Z,https://www.michigandaily.com/,OK, Code 200,304374
+2026-04-06T18:09:14Z,https://etymonline.com/,OK, Code 200,129691
+2026-04-06T18:09:14Z,https://freebsd.org/,OK, Code 200,15864
+2026-04-06T18:09:34Z,https://annarbor.craigslist.org/,OK, Code 200,61404
+2026-04-06T18:09:36Z,https://www.who.int/,OK, Code 200,131849
+2026-04-06T18:09:37Z,https://www.fda.gov/,OK, Code 200,42394
+2026-04-06T18:09:37Z,https://arxiv.org/,OK, Code 200,42861
+2026-04-06T18:09:37Z,https://fifa.com/,OK, Code 200,4972
+2026-04-06T18:09:37Z,https://walmart.com/,OK, Code 200,390038
+2026-04-06T18:09:37Z,https://youtube.com/,OK, Code 200,695012
+2026-04-06T18:09:37Z,https://rfc-editor.org/,OK, Code 200,69038
+2026-04-06T18:09:37Z,https://python.org/,OK, Code 200,49436
+2026-04-06T18:09:37Z,https://theguardian.com/,OK, Code 200,1339636
+2026-04-06T18:09:38Z,https://census.gov/,OK, Code 200,356163
+2026-04-06T18:09:38Z,https://www.who.int/news-room/headlines,OK, Code 200,90819
+2026-04-06T18:09:38Z,https://www.theverge.com/netflix,OK, Code 200,585108
+2026-04-06T18:09:38Z,https://www.michigan.gov/,SKIP, BAD RESP,403
+2026-04-06T18:09:38Z,https://dev.to/,OK, Code 200,267833
+2026-04-06T18:09:38Z,https://theguardian.com/us-news/2026/apr/06/immigrant-girl-sexual-abuse-federal-custody,OK, Code 200,305577
+2026-04-06T18:09:39Z,SKIP, ROBOTS DISALLOW,https://twitter.com/catchtheride
+2026-04-06T18:09:39Z,https://theguardian.com/thefilter-us/2026/apr/01/acquaintance-flirtation-cards-dating,OK, Code 200,343230
+2026-04-06T18:09:39Z,https://www.michigandaily.com/news,FAILED FETCHING: too many redirects
+2026-04-06T18:09:39Z,https://www.census.gov/programs-surveys/household-pulse-survey.html,OK, Code 200,316521
+2026-04-06T18:09:40Z,https://newscientist.com/,OK, Code 200,505660
+2026-04-06T18:09:40Z,ROBOTS FETCH FAILED: DNS resolution failed,https:// reuters.com/robots.txt
+2026-04-06T18:09:40Z,https:// reuters.com/,FAILED FETCHING: DNS resolution failed
+2026-04-06T18:09:41Z,https://bandcamp.com/,OK, Code 200,95307
+2026-04-06T18:09:41Z,https://standardebooks.org/,OK, Code 200,14811
+2026-04-06T18:09:41Z,https://theguardian.com/us/environment,OK, Code 200,801711
+2026-04-06T18:09:41Z,https://lwn.net/,OK, Code 200,29058
+2026-04-06T18:09:41Z,https://theguardian.com/wellness/2026/apr/03/what-is-orgasmic-meditation,OK, Code 200,288281
+2026-04-06T18:09:41Z,https://docs.freebsd.org/en/books/porters-handbook,FAILED FETCHING: too many redirects
+2026-04-06T18:09:41Z,https://www.theguardian.com/world/2026/apr/06/trump-iran-war-netanyahu-israel,OK, Code 200,509558
+2026-04-06T18:09:41Z,https://ft.com/,OK, Code 200,349359
+2026-04-06T18:09:42Z,https://ssrn.com/,FAILED FETCHING: too many redirects
+2026-04-06T18:09:42Z,https://www.fda.gov/vaccines-blood-biologics,OK, Code 200,71385
+2026-04-06T18:09:42Z,https://medlineplus.gov/,OK, Code 200,26445
+2026-04-06T18:09:42Z,https://www.youtube.com/howyoutubeworks?utm_campaign=ytgen&amp;utm_source=ythp&amp;utm_medium=LeftNav&amp;utm_content=txt&amp;u=https%3A%2F%2Fwww.youtube.com%2Fhowyoutubeworks%3Futm_source%3Dythp%26utm_medium%3DLeftNav%26utm_campaign%3Dytgen,OK, Code 200,46782
+2026-04-06T18:09:42Z,https://info.arxiv.org/about/ourmembers.html,OK, Code 200,101513
+2026-04-06T18:09:42Z,https://www.ft.com/alphaville,OK, Code 200,231703
+2026-04-06T18:09:43Z,https://debian.org/,OK, Code 200,15695
+2026-04-06T18:09:43Z,https://bonappetit.com/,OK, Code 200,1365590
+2026-04-06T18:09:43Z,https://ft.com/lex,OK, Code 200,234707
+2026-04-06T18:09:43Z,https://lwn.net/Kernel,FAILED FETCHING: too many redirects
+2026-04-06T18:09:45Z,https://www.michigandaily.com/sports/mens-basketball/michigan-frontcourt-splintered-never-shattered-in-final-four-demolition,FAILED FETCHING: too many redirects
+2026-04-06T18:09:50Z,SKIP, ROBOTS DISALLOW,https://x.com/__tinygrad__/status/1980083574507552975
+2026-04-06T18:09:50Z,https://www.fda.gov/news-events/press-announcements/fda-importshield-program-delivers-impressive-results-strengthening-fda-oversight-us-ports-entry,OK, Code 200,35131
+2026-04-06T18:09:50Z,SKIP, ROBOTS DISALLOW,https://twitter.com/intent/follow?source=followbutton&amp;variant=1.0&amp;screen_name=who
+2026-04-06T18:09:50Z,https://theguardian.com/lifeandstyle/family,OK, Code 200,537090
+2026-04-06T18:09:50Z,SKIP, ROBOTS DISALLOW,https://sciencedirect.com/
+2026-04-06T18:09:50Z,https://medlineplus.gov/about,FAILED FETCHING: too many redirects
+2026-04-06T18:09:50Z,https://www.michigandaily.com/focal-point-mission-statement-and-ethics,FAILED FETCHING: too many redirects
+2026-04-06T18:09:51Z,https://nba.com/,OK, Code 200,459965
+2026-04-06T18:09:51Z,https://springer.com/,OK, Code 200,258303
+2026-04-06T18:10:20Z,https://geo.craigslist.org/iso/uy,OK, Code 200,54970
+2026-04-06T18:10:20Z,SKIP, ROBOTS DISALLOW,https://theguardian.com/preference/edition/us
+2026-04-06T18:10:20Z,SKIP, ROBOTS DISALLOW,https://www.theride.org/user/login
+2026-04-06T18:10:20Z,https://bbc.com/news/articles/cj60x206dx1o,OK, Code 200,260041
+2026-04-06T18:10:20Z,https://theverge.com/games/907162/ruin-chapter-0-is-surrealist-art-posing-as-a-retro-video-game,OK, Code 200,466063
+2026-04-06T18:10:20Z,https://etsy.com/,SKIP, BAD RESP,403
+2026-04-06T18:10:20Z,https://nba.com/lakers,FAILED FETCHING: too many redirects
+2026-04-06T18:10:21Z,https://www.walmart.com/cp/6545138?athAsset=eyJhdGhjcGlkIjoiZjQzNDkzYzctMTcwMy00ZGNhLWJiNTktMTNmMGE0NmFiZWQ5IiwiYWVjdSI6eyJzIjoxLjAsInN0IjoiMCJ9LCJhZXdyIjoiTVBfQ1RSIn0=&amp;athena=true,OK, Code 200,15195
+2026-04-06T18:10:21Z,https://www.michigandaily.com/news/campus-life/umich-special-olympics-college-hosts-second-annual-unified-games,FAILED FETCHING: too many redirects
+2026-04-06T18:10:22Z,https://discogs.com/,OK, Code 200,170748
+2026-04-06T18:10:30Z,SKIP, ROBOTS DISALLOW,https://forums.craigslist.org/?areaID=172&amp;forumID=27
+2026-04-06T18:10:30Z,https://theverge.com/policy/889191/polymarket-nuclear-war,OK, Code 200,460825
+2026-04-06T18:10:30Z,https://www.bbc.com/business,OK, Code 200,478090
+2026-04-06T18:10:30Z,https://www.who.int/mega-menu/about-us/our-work,OK, Code 200,115023
+2026-04-06T18:10:30Z,https://dev.to/ben,OK, Code 200,641456
+2026-04-06T18:10:31Z,https://www.un.org/en,OK, Code 200,155784
+2026-04-06T18:10:31Z,https://openai.com/,OK, Code 200,426141
+2026-04-06T18:10:31Z,https://newscientist.com/section/news,FAILED FETCHING: too many redirects
+2026-04-06T18:10:31Z,https://www.michigandaily.com/focal-point,FAILED FETCHING: too many redirects
+2026-04-06T18:10:31Z,https://musicbrainz.org/,OK, Code 200,34886
+2026-04-06T18:10:40Z,https://annarbor.craigslist.org/search/bip,OK, Code 200,39580
+2026-04-06T18:10:41Z,https://corporate.walmart.com/california-transparency,OK, Code 200,158990
+2026-04-06T18:10:41Z,SKIP, ROBOTS DISALLOW,https://forums.craigslist.org/?areaID=172&amp;forumID=5
+2026-04-06T18:10:41Z,https://www.etymonline.com/search?q=H,OK, Code 200,256482
+2026-04-06T18:10:41Z,https://slate.com/,OK, Code 200,463763
+2026-04-06T18:10:41Z,https://www.djangoproject.com/,OK, Code 200,20507
+2026-04-06T18:10:41Z,https://en.wikipedia.org/wiki/Markdown,OK, Code 200,194901
+2026-04-06T18:10:41Z,https://theguardian.com/tv-and-radio,OK, Code 200,572140
+2026-04-06T18:10:41Z,https://healthline.com/,OK, Code 200,374815
+2026-04-06T18:10:41Z,SKIP, ROBOTS DISALLOW,https://archive.bonappetit.com/
+2026-04-06T18:10:41Z,https://theatlantic.com/projects,FAILED FETCHING: too many redirects
+2026-04-06T18:10:42Z,https://corporate.walmart.com/privacy-security/walmart-privacy-notice,OK, Code 200,244955
+2026-04-06T18:10:42Z,https://bandcamp.com/discover/beat-tape?from=hp_disco_tags,OK, Code 200,103316
+2026-04-06T18:10:42Z,https://theguardian.com/artanddesign,OK, Code 200,673984
+2026-04-06T18:10:42Z,https://www.bbc.com/video/bbc-maestro/ago-perrone,OK, Code 200,234312
+2026-04-06T18:10:42Z,https://www.discogs.com/digs/music/essential-dubstep-records/?utm_source=Homepage&utm_medium=Discogs&utm_campaign=Essential-dubstep-records_Music,OK, Code 200,408306
+2026-04-06T18:10:42Z,https://theguardian.com/thefilter-us,OK, Code 200,626542
+2026-04-06T18:10:42Z,https://census.gov/programs-surveys/surveyhelp/verify-a-survey.html,OK, Code 200,346841
+2026-04-06T18:10:42Z,https://docs.python.org/,FAILED FETCHING: too many redirects
+2026-04-06T18:10:42Z,https://www.bbc.co.uk/editorialguidelines/guidance/feeds-and-links,SKIP, BAD RESP,404
+2026-04-06T18:10:42Z,https://amazon.com/,OK, Code 200,688593
+2026-04-06T18:10:42Z,CHECKPOINT,100,7074,6974
+2026-04-06T18:10:43Z,https://musicbrainz.org/doc/MusicBrainz_API,FAILED FETCHING: SSL handshake failed or timed out
+2026-04-06T18:10:43Z,https://bbc.com/arts,OK, Code 200,333014
+2026-04-06T18:10:43Z,https://dev.to/tkuenneth/agentic-interaction-using-appfunctions-m8k,OK, Code 200,108122
+2026-04-06T18:10:43Z,https://theguardian.com/business/2026/apr/06/jamie-dimon-us-donald-trump-jp-morgan-tariffs-letter-shareholders,OK, Code 200,435911
+2026-04-06T18:10:44Z,https://thekitchn.com/,SKIP, BAD RESP,403
+2026-04-06T18:10:44Z,https://haskell.org/,OK, Code 200,64881
+2026-04-06T18:10:44Z,https://www.healthline.com/anxiety-and-depression,OK, Code 200,436916
+2026-04-06T18:10:45Z,https://ebay.com/,OK, Code 200,862575
+2026-04-06T18:10:50Z,ROBOTS FETCH FAILED: connection timeout,https://scholarpedia.org/robots.txt
+2026-04-06T18:10:53Z,https://annarbor.craigslist.org/search/bpa,OK, Code 200,28503
+2026-04-06T18:10:59Z,https://scholarpedia.org/,FAILED FETCHING: connection timeout
+2026-04-06T18:10:59Z,https://arxiv.org/list/cond-mat.str-el/recent,OK, Code 200,98825
+2026-04-06T18:10:59Z,https://arstechnica.com/,OK, Code 200,342823
+2026-04-06T18:10:59Z,https://ft.com/television,OK, Code 200,219947
+2026-04-06T18:11:00Z,https://store.nba.com/,OK, Code 200,240995
+2026-04-06T18:11:00Z,https://www.ft.com/tech-asia,OK, Code 200,238286
+2026-04-06T18:11:00Z,https://lonelyplanet.com/,OK, Code 200,1513227
+2026-04-06T18:11:01Z,https://python.org/success-stories/category/education,FAILED FETCHING: too many redirects
+2026-04-06T18:11:01Z,https://nba.com/clippers,FAILED FETCHING: too many redirects
+2026-04-06T18:11:04Z,https://newscientist.com/subscribe/studentdiscount,FAILED FETCHING: too many redirects
+2026-04-06T18:11:04Z,https://state.gov/,OK, Code 200,659508
+2026-04-06T18:11:04Z,https://www.who.int/about/contact-us,OK, Code 200,91454
+2026-04-06T18:11:04Z,SKIP, ROBOTS DISALLOW,https://www.facebook.com/verge
+2026-04-06T18:11:04Z,https://genius.com/,OK, Code 200,297852
+2026-04-06T18:11:04Z,https://www.healthline.com/newsletter-signup/type-2-diabetes,OK, Code 200,200316
+2026-04-06T18:11:05Z,https://theguardian.com/film,OK, Code 200,624148
+2026-04-06T18:11:05Z,https://thenextweb.com/news/european-commission-breach-trivy-supply-chain,OK, Code 200,134009
+2026-04-06T18:11:05Z,https://get.bandcamp.help/hc/en-us?from=footer,OK, Code 200,24284
+2026-04-06T18:11:05Z,https://www.who.int/mega-menu/about-us/governance/wha,OK, Code 200,91444
+2026-04-06T18:11:05Z,https://www.youtube.com/watch?v=LnX3B9oaKzw,OK, Code 200,1223277
+2026-04-06T18:11:24Z,https://geo.craigslist.org/iso/pl,OK, Code 200,54211
+2026-04-06T18:11:25Z,https://www.who.int/publications/m/item/middle-east-escalation-of-conflict--global-external-situation-report--2---2-april-2026,OK, Code 200,87043
+2026-04-06T18:11:25Z,https://www.theride.org/about/news/theride-receives-nearly-8-million-federal-funding-ypsilanti-transit-center,OK, Code 200,307263
+2026-04-06T18:11:25Z,https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations,OK, Code 200,78723
+2026-04-06T18:11:25Z,https://play.google.com/store/apps/details?id=com.discogs.app&referrer=utm_source%3Ddiscogs-homepage,OK, Code 200,1223824
+2026-04-06T18:11:25Z,https://www.walmart.com/brand/laroche-posay/10046134?athAsset=eyJhdGhjcGlkIjoiNGM1ZWZlNmEtZDVmNy00MTdjLTg0ZmEtYjgxOTc0ODY2NGVjIiwiYWVjdSI6eyJzIjoxLjAsInN0IjoiMCJ9LCJhZXdyIjoiQ1RSIn0=&amp;athena=true,OK, Code 200,15195
+2026-04-06T18:11:26Z,https://shop.lonelyplanet.com/products/east-coast-australia?utm_source=lonelyplanet&,OK, Code 200,2551821
+2026-04-06T18:11:26Z,https://tickets.metabrainz.org/,OK, Code 200,54467
+2026-04-06T18:11:26Z,https://springer.com/brands/springer/journals/earth-and-environmental-sciences?error&,OK, Code 200,260233
+2026-04-06T18:11:45Z,https://geo.craigslist.org/iso/tw,OK, Code 200,53967
+2026-04-06T18:11:45Z,https://geo.craigslist.org/iso/be,OK, Code 200,54700
+2026-04-06T18:11:45Z,https://www.discogs.com/release/5903986-Lewis-Baloue-Romantic-Times,OK, Code 200,221307
+2026-04-06T18:11:45Z,https://www.healthline.com/about/health-medicare-state-coverage,OK, Code 200,823176
+2026-04-06T18:11:45Z,https://doi.org/,OK, Code 200,25120
+2026-04-06T18:11:45Z,https://theguardian.com/us-news/2026/apr/06/republicans-ai-image-us-plane-member-rescue-iran,OK, Code 200,308558
+2026-04-06T18:11:46Z,https://www.lonelyplanet.com/articles/category/adventure,OK, Code 200,1715817
+2026-04-06T18:11:46Z,https://theguardian.com/books/2026/apr/06/jan-morris-by-sara-wheeler-review-masterly-account-of-a-flawed-figure,OK, Code 200,296125
+2026-04-06T18:11:46Z,https://openai.com/index/extending-single-minus-amplitudes-to-gravitons,FAILED FETCHING: too many redirects
+2026-04-06T18:11:46Z,https://stanford.edu/,OK, Code 200,157628
+2026-04-06T18:11:47Z,https://amazon.com/Anker-Charging-Foldable-Recognition-Non-Battery/dp/B0G1MRLXMV?_encoding=UTF8&amp;pd_rd_w=qTr8C&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_541966,OK, Code 200,1086509
+2026-04-06T18:11:47Z,https://amazon.com/Mighty-Patch-Hydrocolloid-Absorbing-count/dp/B074PVTPBW?_encoding=UTF8&amp;pd_rd_w=qQUlR&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_3760911,OK, Code 200,1058819
+2026-04-06T18:11:47Z,https://www.bbc.com/health,OK, Code 200,379043
+2026-04-06T18:11:47Z,https://apnews.com/,OK, Code 200,2077892
+2026-04-06T18:11:47Z,https://rust-lang.org/learn/get-started,FAILED FETCHING: too many redirects
+2026-04-06T18:11:48Z,https://wiktionary.org/,OK, Code 200,75291
+2026-04-06T18:11:48Z,https://nba.com/watch/video/inside-look-cooper-flagg?plsrc=nba&amp;collection=top-trending-videos,OK, Code 200,194505
+2026-04-06T18:11:48Z,https://www.algolia.com/developers/?utm_source=devto&utm_medium=referral,OK, Code 200,334931
+2026-04-06T18:11:49Z,https://shop.lonelyplanet.com/products/mauritius-reunion-seychelles?utm_source=lonelyplanet&,OK, Code 200,2476963
+2026-04-06T18:11:49Z,https://unctad.org/news/hormuz-disruption-deepens-global-economic-strain-across-trade-prices-and-finance,OK, Code 200,74059
+2026-04-06T18:11:50Z,https://unctad.org/publication/strait-hormuz-disruptions-growth-and-financial-implications,OK, Code 200,67445
+2026-04-06T18:11:57Z,https://annarbor.craigslist.org/search/eee?sale_date=2026-04-30,OK, Code 200,7713
+2026-04-06T18:11:57Z,https://slate.com/technology/2026/04/usability-complexity-apple-iphone-facebook-donald-norman.html,OK, Code 200,388372
+2026-04-06T18:11:57Z,https://corporate.walmart.com/privacy-security/walmart-consumer-health-data-privacy-notices,OK, Code 200,153930
+2026-04-06T18:11:57Z,SKIP, ROBOTS DISALLOW,https://live.stanford.edu/
+2026-04-06T18:11:58Z,https://cloud.email.bbc.com/techdecoded-newsletter-signup?&amp;at_bbc_team=studios&amp;at_medium=display&amp;at_objective=acquisition&amp;at_ptr_type=&amp;at_ptr_name=bbc.comhp&amp;at_format=Module&amp;at_link_origin=homepage&amp;at_campaign=techdecoded&amp;at_campaign_type=owned,OK, Code 200,10476
+2026-04-06T18:11:58Z,https://mozilla.org/,OK, Code 200,48492
+2026-04-06T18:11:58Z,https://michigandaily.com/sports,FAILED FETCHING: too many redirects
+2026-04-06T18:11:58Z,https://springer.com/search?query&,FAILED FETCHING: too many redirects
+2026-04-06T18:11:59Z,https://arstechnica.com/space/2026/04/four-astronauts-are-now-inexorably-bound-for-the-moon,FAILED FETCHING: too many redirects
+2026-04-06T18:11:59Z,https://amazon.com/Gildan-Mens-T-Shirt-White-Large/dp/B077ZMKWVM?_encoding=UTF8&amp;pd_rd_w=hVDjl&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_7141123011,OK, Code 200,799745
+2026-04-06T18:12:18Z,https://zurich.craigslist.org/,OK, Code 200,54430
+2026-04-06T18:12:18Z,https://www.etymonline.com/search?q=V,OK, Code 200,259123
+2026-04-06T18:12:18Z,https://theverge.com/column/889922/optimizer-casey-means-wellness-influencer-playbook,OK, Code 200,629740
+2026-04-06T18:12:18Z,https://theguardian.com/lifeandstyle/2025/jan/24/sign-up-for-the-detox-your-kitchen-newsletter-your-guide-to-avoiding-chemicals-in-your-food,OK, Code 200,257221
+2026-04-06T18:12:18Z,https://www.healthline.com/sitemap,OK, Code 200,242249
+2026-04-06T18:12:18Z,https://medlineplus.gov/plugins.html,OK, Code 200,18677
+2026-04-06T18:12:18Z,https://arxiv.org/list/physics.chem-ph/recent,OK, Code 200,92757
+2026-04-06T18:12:18Z,https://www.britannica.com/,OK, Code 200,134004
+2026-04-06T18:12:18Z,https://rfc-editor.org/search/rfc_search.php,OK, Code 200,15701
+2026-04-06T18:12:18Z,https://openlibrary.org/,OK, Code 200,74792
+2026-04-06T18:12:19Z,https://ft.com/content/e898af73-d71c-4a99-b891-0eaed1ac52e4,OK, Code 200,100475
+2026-04-06T18:12:19Z,https://slate.com/podcasts/slate-money/2026/03/business-the-illusion-of-americas-next-top-model,OK, Code 200,364671
+2026-04-06T18:12:19Z,https://www.un.org/en/spotlight-initiative/index.shtml,OK, Code 200,19313
+2026-04-06T18:12:19Z,https://www.who.int/news-room/fact-sheets/detail/refugee-and-migrant-health,OK, Code 200,116634
+2026-04-06T18:12:19Z,https://bandcamp.com/artists?from=footer,OK, Code 200,191810
+2026-04-06T18:12:19Z,https://www.britannica.com/Animals-Nature,OK, Code 200,100519
+2026-04-06T18:12:19Z,https://lonelyplanet.com/journeys/itineraries/6e10d5fb-87a4-48bc-87a4-339cad3876b1,OK, Code 200,1515503
+2026-04-06T18:12:19Z,https://aboutus.ft.com/contact-us,OK, Code 200,16876
+2026-04-06T18:12:19Z,https://www.youtube.com/watch?v=WHVMjMIJnB4&amp;list=PLD8gywOEY4HaG5VSrKVnHxCptlJv2GAn7&amp;index=20,OK, Code 200,1447105
+2026-04-06T18:12:19Z,https://hackage.haskell.org/package/hspec,OK, Code 200,52553
+2026-04-06T18:12:21Z,https://amazon.com/Utopia-Bedding-4-Piece-Queen-Sheets/dp/B00NX0WXQI?_encoding=UTF8&amp;pd_rd_w=nW4pv&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_1055398,OK, Code 200,1057288
+2026-04-06T18:12:21Z,https://www.doi.org/the-identifier/resources/factsheets/doi-system-and-the-handle-system,OK, Code 200,21711
+2026-04-06T18:12:21Z,https://apnews.com/hub/nhl,OK, Code 200,892266
+2026-04-06T18:12:21Z,https://www.kingarthurbaking.com/,OK, Code 200,275258
+2026-04-06T18:12:21Z,https://dev.to/ayushgupta,OK, Code 200,153570
+2026-04-06T18:12:21Z,https://shop.lonelyplanet.com/products/australia?utm_source=lonelyplanet&,OK, Code 200,2577619
+2026-04-06T18:12:21Z,https://dev.to/t/android,OK, Code 200,169374
+2026-04-06T18:12:21Z,https://www.who.int/mega-menu/countries/who-in-countries/country-office-profiles,OK, Code 200,183641
+2026-04-06T18:12:21Z,https://theguardian.com/games/2026/apr/02/life-is-strange-reunion-review-deck-nine,OK, Code 200,298979
+2026-04-06T18:12:22Z,https://wiki.nixos.org/,SKIP, BAD RESP,404
+2026-04-06T18:12:22Z,https://amazon.com/Premier-Protein-Shake-Chocolate-11-5/dp/B07MJL8NXR?_encoding=UTF8&amp;pd_rd_w=7Br0F&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_16310101,OK, Code 200,998540
+2026-04-06T18:12:22Z,CHECKPOINT,200,12841,12641
+2026-04-06T18:12:22Z,https://arxiv.org/list/math.FA/recent,OK, Code 200,74680
+2026-04-06T18:12:23Z,https://bbc.com/news/england,OK, Code 200,313354
+2026-04-06T18:12:23Z,https://nba.com/celtics,FAILED FETCHING: too many redirects
+2026-04-06T18:12:23Z,https://ft.com/commodities,OK, Code 200,227633
+2026-04-06T18:12:23Z,https://www.noredink.com/,OK, Code 200,197613
+2026-04-06T18:12:23Z,https://perl.org/,OK, Code 200,12517
+2026-04-06T18:12:23Z,https://mozilla.org/gd,FAILED FETCHING: too many redirects
+2026-04-06T18:12:23Z,https://justia.com/,OK, Code 200,86250
+2026-04-06T18:12:24Z,https://openlibrary.org/borrow/ia/hunterdetectivet008800?ref=ol,OK, Code 200,25365
+2026-04-06T18:12:24Z,https://amazon.com/Crocs-Kids-Classic-White-Toddler/dp/B09642FYB7?_encoding=UTF8&amp;pd_rd_w=hVDjl&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_7141123011,OK, Code 200,778579
+2026-04-06T18:12:24Z,SKIP, ROBOTS DISALLOW,https://www.ebay.com/mye/buyagain
+2026-04-06T18:12:24Z,ROBOTS FETCH FAILED: SSL handshake failed or timed out,https://metabrainz.org/robots.txt
+2026-04-06T18:12:24Z,https://amazon.com/b?_encoding=UTF8&amp;ie=UTF8&amp;node=212930550011&amp;ref_=bolt_b_fitness_cn_l1&amp;enabledRefinements=%5B%7B%22rid%22%3A%22p_n_condition-type%22%2C%22value%22%3A%226503254011%22%2C%22ridType%22%3A%22SEARCH_SHORT_ID%22%2C%22type%22%3A%22BROWSE_NODE%22%7D%5D&amp;pd_rd_w=c1qVf&amp;content-id=amzn1.sym.8d6f47bb-f397-4582-8dae-cb3648cefa9c&amp;pf_rd_p=8d6f47bb-f397-4582-8dae-cb3648cefa9c&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857,SKIP, BAD RESP,404
+2026-04-06T18:12:24Z,https://recalls.justia.com/,OK, Code 200,50559
+2026-04-06T18:12:24Z,https://substack.com/,OK, Code 200,78584
+2026-04-06T18:12:24Z,https://apnews.com/article/scottie-scheffler-rory-masters-augusta-national-6dc2e89dfdb07ea13dee658b2f290ee5,OK, Code 200,880055
+2026-04-06T18:12:24Z,https://mlh.io/,OK, Code 200,52302
+2026-04-06T18:12:24Z,https://metabrainz.org/social-contract,FAILED FETCHING: SSL handshake failed or timed out
+2026-04-06T18:12:24Z,https://ft.com/books,OK, Code 200,246633
+2026-04-06T18:12:25Z,https://www.michigandaily.com/news/ann-arbor,FAILED FETCHING: too many redirects
+2026-04-06T18:12:25Z,https://www.lonelyplanet.com/destinations/spain/barcelona,OK, Code 200,1710566
+2026-04-06T18:12:25Z,https://theverge.com/cs/features/831818/ai-mercor-handshake-scale-surge-staffing-companies,OK, Code 200,190367
+2026-04-06T18:12:26Z,https://pubmed.ncbi.nlm.nih.gov/,OK, Code 200,42550
+2026-04-06T18:12:26Z,https://www.youtube.com/slate,OK, Code 200,1564993
+2026-04-06T18:12:26Z,https://shop.kingarthurbaking.com/flours/whole-grains,OK, Code 200,556776
+2026-04-06T18:12:26Z,https://www.lonelyplanet.com/destinations/france,OK, Code 200,1712105
+2026-04-06T18:12:26Z,https://shop.kingarthurbaking.com/ingredients,OK, Code 200,893777
+2026-04-06T18:12:27Z,https://ft.com/content/680c720b-6b00-4231-bf1a-f20cc54733eb,OK, Code 200,100475
+2026-04-06T18:12:27Z,https://shop.kingarthurbaking.com/pans/cookie-sheet-pans,OK, Code 200,600399
+2026-04-06T18:12:28Z,https://apnews.com/projects/news-values-and-principles,FAILED FETCHING: too many redirects
+2026-04-06T18:12:29Z,https://www.lonelyplanet.com/destinations/thailand/bangkok,OK, Code 200,1696272
+2026-04-06T18:12:29Z,https://dev.to/t/showdev,OK, Code 200,172229
+2026-04-06T18:12:30Z,https://arxiv.org/list/cond-mat.mtrl-sci/recent,OK, Code 200,97153
+2026-04-06T18:12:30Z,https://www.theverge.com/games,OK, Code 200,636163
+2026-04-06T18:12:30Z,https://theverge.com/science/906988/nasa-artemis-ii-microsoft-outlook-issue-fixed,OK, Code 200,530977
+2026-04-06T18:12:30Z,https://platform.theverge.com/wp-content/uploads/sites/2/2026/04/samsungmessages-shutdown.png?quality=90&amp;strip=all&amp;crop=0,0,100,100,SKIP, NON-HTML CONTENT
+2026-04-06T18:12:31Z,https://bbc.com/audio/play/p0n5js72,OK, Code 200,177464
+2026-04-06T18:12:31Z,https://amazon.com/eero-reliable-gigabit-connect-Coverage/dp/B08ZK2BHP2?_encoding=UTF8&amp;pd_rd_w=Hovc5&amp;content-id=amzn1.sym.050cd659-7175-41e7-9127-e6ee80b2a7b5&amp;pf_rd_p=050cd659-7175-41e7-9127-e6ee80b2a7b5&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=iF3tk&amp;pd_rd_r=ea8f1866-efe7-4cff-987a-3e2ca4f161b2&amp;ref_=pd_hp_d_atf_dealz_sod,OK, Code 200,715695
+2026-04-06T18:12:31Z,https://discourse.ubuntu.com/t/streamlining-secure-boot-for-26-10/79069,OK, Code 200,59669
+2026-04-06T18:12:32Z,https://www.elsewhere.io/canada?utm_source=lonelyplanet&,OK, Code 200,44200
+2026-04-06T18:12:40Z,SKIP, ROBOTS DISALLOW,https://accounts.craigslist.org/login/home
+2026-04-06T18:12:41Z,https://www.healthline.com/health/medicare/does-medicare-cover-pneumonia-shots,OK, Code 200,464085
+2026-04-06T18:12:41Z,https://arxiv.org/list/cond-mat.dis-nn/recent,OK, Code 200,66166
+2026-04-06T18:12:41Z,https://www.kingarthurbaking.com/recipe-of-the-year,OK, Code 200,345025
+2026-04-06T18:12:41Z,https://whitehouse.gov/,OK, Code 200,263251
+2026-04-06T18:12:41Z,https://theguardian.com/news/2026/feb/17/sign-up-for-the-breaking-news-us-email-to-get-newsletter-alerts-direct-to-your-inbox,OK, Code 200,249046
+2026-04-06T18:12:41Z,https://arxiv.org/list/eess/recent,OK, Code 200,91292
+2026-04-06T18:12:41Z,https://www.youtube.com/about/policies,FAILED FETCHING: too many redirects
+2026-04-06T18:12:41Z,https://shop.kingarthurbaking.com/select/usa-made-pans,OK, Code 200,835415
+2026-04-06T18:12:42Z,https://mic.michigandaily.com/queer-in-color-2023,FAILED FETCHING: too many redirects
+2026-04-06T18:12:42Z,https://www.newscientist.com/article/2521449-how-many-academics-does-it-take-to-tell-a-joke-time-for-a-study,FAILED FETCHING: too many redirects
+2026-04-06T18:12:42Z,SKIP, ROBOTS DISALLOW,https://x.com/NASA/status/2040647522276802773
+2026-04-06T18:12:42Z,https://dev.to/arshtechpro/turboquant-what-developers-need-to-know-about-googles-kv-cache-compression-eeg,OK, Code 200,175140
+2026-04-06T18:12:43Z,https://bbc.com/news/articles/cvgl0ng8z0do,OK, Code 200,265219
+2026-04-06T18:12:43Z,https://www.bbc.com/korean,OK, Code 200,393190
+2026-04-06T18:12:43Z,https://www.kingarthurbaking.com/customer-service/shipping,OK, Code 200,255835
+2026-04-06T18:12:44Z,https://archive.org/donate/?platform=ol&origin=olwww-TopNavDonateButton,OK, Code 200,2670
+2026-04-06T18:12:44Z,https://www.lonelyplanet.com/destinations/saudi-arabia,OK, Code 200,1580037
+2026-04-06T18:12:44Z,https://python.org/downloads/android,FAILED FETCHING: too many redirects
+2026-04-06T18:12:44Z,https://nba.com/stats/help/glossary,OK, Code 200,817932
+2026-04-06T18:12:46Z,https://nature.com/,FAILED FETCHING: DNS resolution failed
+2026-04-06T18:12:46Z,https://archive.org/,OK, Code 200,2670
+2026-04-06T18:12:47Z,https://law.justia.com/cases/federal/appellate-courts,SKIP, BAD RESP,403
+2026-04-06T18:12:47Z,https://data.who.int/dashboards/covid19/summary?n=o,OK, Code 200,106204
+2026-04-06T18:12:48Z,https://llvm.org/,OK, Code 200,18407
+2026-04-06T18:12:49Z,https://policy.medium.com/medium-privacy-policy-f03bf92035c9,OK, Code 200,181567
+2026-04-06T18:12:49Z,https://support.nlm.nih.gov/knowledgebase/category/?id=CAT-01231&category=medlineplus&from=https%3A/medlineplus.gov,OK, Code 200,48271
+2026-04-06T18:12:49Z,https://openai.com/policies,FAILED FETCHING: too many redirects
+2026-04-06T18:12:49Z,https://nbagameworn.nba.com/iSynApp/showHomePage.action?sid=1101561,OK, Code 200,281521
+2026-04-06T18:12:50Z,https://tpi.wiktionary.org/,OK, Code 200,48097
+2026-04-06T18:12:50Z,https://www.michigandaily.com/arts/digital-culture,FAILED FETCHING: too many redirects
+2026-04-06T18:12:50Z,https://genius.com/artists-index/q,OK, Code 200,63580
+2026-04-06T18:12:50Z,https://www.theverge.com/hbo,OK, Code 200,598461
+2026-04-06T18:12:50Z,https://www.theverge.com/gadgets,OK, Code 200,697015
+2026-04-06T18:12:50Z,https://www.healthline.com/health/flu/how-to-disinfect-house-after-flu,OK, Code 200,442719
+2026-04-06T18:12:51Z,https://genius.com/gabTenmaki,OK, Code 200,215757
+2026-04-06T18:12:53Z,https://investopedia.com/,OK, Code 200,583291
+2026-04-06T18:12:53Z,https://li.wiktionary.org/,OK, Code 200,177098
+2026-04-06T18:12:56Z,https://openlibrary.org/borrow/ia/warriordancersed0000acke?ref=ol,OK, Code 200,25405
+2026-04-06T18:12:56Z,https://rfc-editor.org/report-summary,FAILED FETCHING: too many redirects
+2026-04-06T18:12:57Z,https://springer.com/brands/springer/contact-us?error&,OK, Code 200,258486
+2026-04-06T18:12:57Z,https://www.theride.org/how-ride/plan-your-trip,OK, Code 200,335634
+2026-04-06T18:12:57Z,https://theguardian.com/science/2026/apr/06/labs-testing-thousands-of-unregulated-substances-amid-peptide-craze,OK, Code 200,333465
+2026-04-06T18:12:57Z,https://www.kernel.org/,OK, Code 200,16938
+2026-04-06T18:12:57Z,https://bonappetit.com/newsletter,OK, Code 200,746377
+2026-04-06T18:12:57Z,https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us,SKIP, BAD RESP,401
+2026-04-06T18:12:57Z,https://theatlantic.com/politics,FAILED FETCHING: too many redirects
+2026-04-06T18:12:57Z,https://www.whitehouse.gov/subscribe,OK, Code 200,50412
+2026-04-06T18:12:57Z,https://ft.com/stream/155f69d8-9bdd-4354-935a-6a0647a92f90,OK, Code 200,229686
+2026-04-06T18:12:57Z,https://www.theatlantic.com/politics/2026/04/hungary-maga-orban-gladden-pappin-trump/686652,FAILED FETCHING: too many redirects
+2026-04-06T18:12:59Z,https://amazon.com/Theo-Golden-Novel-Allen-Levi/dp/1668236516?_encoding=UTF8&amp;pd_rd_w=iSsRl&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_283155,OK, Code 200,1064323
+2026-04-06T18:12:59Z,SKIP, ROBOTS DISALLOW,https://arxiv.org/search/cond-mat
+2026-04-06T18:12:59Z,https://apnews.com/photo-gallery/artemis-ii-launch-photos-b87b2d017672b6dd323ccf9c224c4909,OK, Code 200,1160366
+2026-04-06T18:12:59Z,https://www.healthline.com/health/video/5-stages,OK, Code 200,368909
+2026-04-06T18:12:59Z,https://www.investopedia.com/simulator/games/my-games,OK, Code 200,13505
+2026-04-06T18:12:59Z,SKIP, ROBOTS DISALLOW,https://link.springer.com/termsandconditions
+2026-04-06T18:12:59Z,https://kids.britannica.com/,OK, Code 200,49434
+2026-04-06T18:12:59Z,https://news.un.org/pages/global-crisis-response-group,FAILED FETCHING: too many redirects
+2026-04-06T18:13:01Z,https://amazon.com/Project-Hail-Mary-Andy-Weir/dp/0593135229?_encoding=UTF8&amp;pd_rd_w=iSsRl&amp;content-id=amzn1.sym.f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_p=f2128ffe-3407-4a64-95b5-696504f68ca1&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_crs_zg_bs_283155,OK, Code 200,1020744
+2026-04-06T18:13:01Z,https://www.justia.com/marketing/elevate/law-firm-websites,FAILED FETCHING: too many redirects
+2026-04-06T18:13:19Z,https://geo.craigslist.org/iso/vn,OK, Code 200,55012
+2026-04-06T18:13:19Z,CHECKPOINT,300,17513,17213
+2026-04-06T18:13:19Z,SKIP, ROBOTS DISALLOW,https://www.ebay.com/mys/home?source=GBH
+2026-04-06T18:13:19Z,https://arxiv.org/list/math.NT/recent,OK, Code 200,82137
+2026-04-06T18:13:19Z,https://www.healthline.com/health/nutrition/video/healthy-harvest,OK, Code 200,406670
+2026-04-06T18:13:20Z,https://rust-lang.org/what/cli,FAILED FETCHING: too many redirects
+2026-04-06T18:13:20Z,https://www.youtube.com/user/TheGuardian,OK, Code 200,2054416
+2026-04-06T18:13:20Z,https://www.theatlantic.com/ideas/2026/04/road-trip-gage-excerpt-this-land/686650,FAILED FETCHING: too many redirects
+2026-04-06T18:13:20Z,https://shop.lonelyplanet.com/products/ecuador-the-galapagos-islands?utm_source=lonelyplanet&,OK, Code 200,2302293
+2026-04-06T18:13:20Z,https://www.lonelyplanet.com/destinations/argentina/buenos-aires,OK, Code 200,1653977
+2026-04-06T18:13:20Z,https://openai.com/index/our-agreement-with-the-department-of-war,FAILED FETCHING: too many redirects
+2026-04-06T18:13:20Z,https://www.theatlantic.com/group-subscriptions,FAILED FETCHING: too many redirects
+2026-04-06T18:13:20Z,https://genius.com/artists-index/w,OK, Code 200,111258
+2026-04-06T18:13:20Z,https://www.un.org/ht,OK, Code 200,54458
+2026-04-06T18:13:20Z,https://musicbrainz.org/doc/Frequently_Asked_Questions,FAILED FETCHING: SSL handshake failed or timed out
+2026-04-06T18:13:21Z,https://www.investopedia.com/mortgage-4689703,OK, Code 200,687028
+2026-04-06T18:13:21Z,https://www.kingarthurbaking.com/recipes/collections/gluten-free-recipes,OK, Code 200,315174
+2026-04-06T18:13:21Z,https://reviews.freebsd.org/,OK, Code 200,24511
+2026-04-06T18:13:21Z,https://games.michigandaily.com/crosswords/latest,OK, Code 200,26969
+2026-04-06T18:13:21Z,https://apimagesblog.com/,OK, Code 200,227737
+2026-04-06T18:13:21Z,https://www.youtube.com/user/firefoxchannel,OK, Code 200,1231296
+2026-04-06T18:13:21Z,https://www.theatlantic.com/subscribe/footer-gift,FAILED FETCHING: too many redirects
+2026-04-06T18:13:21Z,SKIP, ROBOTS DISALLOW,https://musicbrainz.org/set-language/de?returnto=%2F
+2026-04-06T18:13:21Z,https://www.kingarthurbaking.com/pro/distributor,OK, Code 200,262240
+2026-04-06T18:13:22Z,https://nba.com/standings?GroupBy=conf,OK, Code 200,205931
+2026-04-06T18:13:22Z,https://ft.com/content/4bd40966-8f9c-4d8a-ae1e-7919316b23c2,OK, Code 200,100475
+2026-04-06T18:13:22Z,https://amazon.com/sports-outdoors/b/?ie=UTF8&node=3375251&ref_=nav_cs_sports,OK, Code 200,432217
+2026-04-06T18:13:22Z,https://www.bbc.com/cymrufyw,OK, Code 200,673182
+2026-04-06T18:13:23Z,https://www.lonelyplanet.com/articles/best-places-to-visit-in-amalfi-coast,OK, Code 200,1586280
+2026-04-06T18:13:23Z,https://nba.com/pelicans,FAILED FETCHING: too many redirects
+2026-04-06T18:13:23Z,https://newscientist.com/about,FAILED FETCHING: too many redirects
+2026-04-06T18:13:42Z,https://rio.craigslist.org/,OK, Code 200,55279
+2026-04-06T18:13:42Z,https://arxiv.org/list/physics.data-an/recent,OK, Code 200,49115
+2026-04-06T18:13:42Z,https://arxiv.org/archive/nucl-th,OK, Code 200,19513
+2026-04-06T18:13:42Z,SKIP, ROBOTS DISALLOW,https://llvm-compile-time-tracker.com/
+2026-04-06T18:13:42Z,https://theguardian.com/us-news/2026/apr/06/new-york-opera-innocence-finland-school-shooting,OK, Code 200,322946
+2026-04-06T18:13:42Z,https://debian.org/trademark,OK, Code 200,14139
+2026-04-06T18:13:42Z,https://justia.com/lawyers/texas/houston,OK, Code 200,659267
+2026-04-06T18:13:43Z,https://investopedia.com/portfolio-construction-4689785,OK, Code 200,642264
+2026-04-06T18:13:43Z,https://www.discogs.com/artist/14721643,OK, Code 200,163552
+2026-04-06T18:13:43Z,https://www.healthline.com/newsletter-signup,OK, Code 200,303393
+2026-04-06T18:13:44Z,https://www.lonelyplanet.com/destinations/usa/california,OK, Code 200,1688048
+2026-04-06T18:13:44Z,https://bandcamp.com/discover?loc=3128760&amp;from=hp_disco_locations,OK, Code 200,101497
+2026-04-06T18:13:45Z,https://nginx.org/,OK, Code 200,6593
+2026-04-06T18:13:45Z,https://www.elsewhere.io/new-zealand?utm_source=lonelyplanet&,OK, Code 200,44293
+2026-04-06T18:13:45Z,https://www.bbc.co.uk/contact,OK, Code 200,126637
+2026-04-06T18:13:45Z,https://www.ft.com/energy,OK, Code 200,227432
+2026-04-06T18:13:45Z,https://arxiv.org/archive/math-ph,OK, Code 200,19215
+2026-04-06T18:13:45Z,https://www.un.org/en/gender-inclusive-language,FAILED FETCHING: too many redirects
+2026-04-06T18:13:45Z,https://medscape.com/,OK, Code 200,245060
+2026-04-06T18:13:46Z,https://openai.com/index/introducing-gpt-5-4,FAILED FETCHING: too many redirects
+2026-04-06T18:13:50Z,https://blog.metabrainz.org/2026/03/11/schema-change-release-may-11-2026,FAILED FETCHING: too many redirects
+2026-04-06T18:13:50Z,https://nginx.org/en/docs/njs/changes.html,OK, Code 200,119482
+2026-04-06T18:13:50Z,https://bbc.com/travel/article/20260402-the-floridian-beach-town-that-looks-like-santorini,OK, Code 200,365006
+2026-04-06T18:13:50Z,https://www.theride.org/business/employers,OK, Code 200,310987
+2026-04-06T18:13:50Z,https://theguardian.com/world/2026/apr/05/viktor-orban-hungary-election-serbia-explosives-gas-pipeline,OK, Code 200,437705
+2026-04-06T18:13:50Z,https://www.un.org/en/actnow,OK, Code 200,91172
+2026-04-06T18:13:50Z,https://www.discogs.com/selling,OK, Code 200,220762
+2026-04-06T18:13:50Z,https://www.gog.com/en,OK, Code 200,1428140
+2026-04-06T18:13:51Z,https://shop.lonelyplanet.com/products/the-world?utm_source=lonelyplanet&,OK, Code 200,2180084
+2026-04-06T18:13:51Z,https://www.stanford.edu/admission,FAILED FETCHING: too many redirects
+2026-04-06T18:13:51Z,https://www.theatlantic.com/magazine/archive/1977/06/life-on-mars/307391,FAILED FETCHING: too many redirects
+2026-04-06T18:13:51Z,SKIP, ROBOTS DISALLOW,https://musicbrainz.org/set-language/unset?returnto=%2F
+2026-04-06T18:13:51Z,https://www.investopedia.com/terms-beginning-with-z-4769376,OK, Code 200,499626
+2026-04-06T18:13:53Z,https://www.lonelyplanet.com/destinations/st-vincent-and-the-grenadines,OK, Code 200,1531933
+2026-04-06T18:13:53Z,https://hasura.io/,OK, Code 200,29349
+2026-04-06T18:13:53Z,https://www.gog.com/en/game/police_quest_collection,OK, Code 200,948650
+2026-04-06T18:13:53Z,https://pandoc.org/,OK, Code 200,18561
+2026-04-06T18:13:54Z,https://sell.amazon.com/brand-registry?ld=AZUSSOA_ABR-FT,OK, Code 200,429474
+2026-04-06T18:13:54Z,https://kn.wiktionary.org/,OK, Code 200,167546
+2026-04-06T18:13:55Z,https://theatlantic.com/education,FAILED FETCHING: too many redirects
+2026-04-06T18:13:55Z,https://www.michigandaily.com/arts/style/hudsens-hall-of-games-the-most-important-step-to-becoming-a-world-class-dungeon-master,FAILED FETCHING: too many redirects
+2026-04-06T18:13:56Z,SKIP, ROBOTS DISALLOW,https://www.linkedin.com/company/mozilla-corporation
+2026-04-06T18:13:56Z,https://www.britannica.com/biography/John-Wooden,OK, Code 200,81660
+2026-04-06T18:13:56Z,https://investopedia.com/legal-4768893,OK, Code 200,441278
+2026-04-06T18:13:56Z,https://openlibrary.org/?show_page_status=1,OK, Code 200,74810
+2026-04-06T18:13:57Z,https://medscape.com/infectiousdiseases,OK, Code 200,208213
+2026-04-06T18:13:58Z,https://lonelyplanet.com/journeys,OK, Code 200,1567301
+2026-04-06T18:13:58Z,https://shop.kingarthurbaking.com/collections/best-sellers,OK, Code 200,880477
+2026-04-06T18:13:58Z,https://gv.wiktionary.org/,OK, Code 200,74148
+2026-04-06T18:13:59Z,https://socialimpact.nba.com/,OK, Code 200,127595
+2026-04-06T18:14:02Z,https://justia.com/us-states,FAILED FETCHING: too many redirects
+2026-04-06T18:14:02Z,https://www.who.int/about/policies/terms-of-use,OK, Code 200,76839
+2026-04-06T18:14:02Z,https://www.theride.org/services/fixed-route,OK, Code 200,346615
+2026-04-06T18:14:02Z,https://www.kernel.org/category/site-news.html,OK, Code 200,21420
+2026-04-06T18:14:02Z,https://apnews.com/article/michigan-arizona-score-final-four-march-madness-e7568a02f1547ddb095f4c57d3eea183,OK, Code 200,908353
+2026-04-06T18:14:02Z,https://arxiv.org/archive/hep-lat,OK, Code 200,19544
+2026-04-06T18:14:02Z,https://www.gog.com/en/patrons,OK, Code 200,463198
+2026-04-06T18:14:02Z,https://www.discogs.com/artist/253278,OK, Code 200,425203
+2026-04-06T18:14:03Z,https://www.lonelyplanet.com/destinations/argentina,OK, Code 200,1686128
+2026-04-06T18:14:03Z,https://ft.com/content/d81ef16e-2d05-4536-9580-4bb1af91b705,OK, Code 200,100475
+2026-04-06T18:14:03Z,https://php.net/,OK, Code 200,52224
+2026-04-06T18:14:04Z,https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts,OK, Code 200,73359
+2026-04-06T18:14:04Z,https://www.investopedia.com/commodities-4427780,OK, Code 200,629783
+2026-04-06T18:14:04Z,https://www.bbc.com/portuguese,OK, Code 200,615849
+2026-04-06T18:14:04Z,https://www.gog.com/en/game/kingdom_the_far_reaches,OK, Code 200,934743
+2026-04-06T18:14:04Z,https://www.medscape.com/slideshow/Primary-Care-Affiliations-2026-6019102,OK, Code 200,5763
+2026-04-06T18:14:04Z,https://amazon.com/b/ref=cpf_shop_dsk_dc_lmlk_5?_encoding=UTF8&amp;_encoding=UTF8&amp;node=121222297011&amp;pd_rd_w=NRVuh&amp;content-id=amzn1.sym.c50c4914-924e-45e2-9eec-951e70bc479c&amp;pf_rd_p=c50c4914-924e-45e2-9eec-951e70bc479c&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_unk,SKIP, BAD RESP,404
+2026-04-06T18:14:04Z,https://blk.wiktionary.org/,OK, Code 200,190374
+2026-04-06T18:14:04Z,https://python.org/downloads,FAILED FETCHING: too many redirects
+2026-04-06T18:14:04Z,https://gom.wiktionary.org/,OK, Code 200,169994
+2026-04-06T18:14:06Z,https://justia.com/criminal/offenses/sex-crimes,FAILED FETCHING: too many redirects
+2026-04-06T18:14:06Z,CHECKPOINT,400,22051,21651
+2026-04-06T18:14:06Z,https://bbc.com/audio/play/w3ct8hx2,OK, Code 200,180884
+2026-04-06T18:14:06Z,https://www.medscape.com/viewarticle/unsustainable-physicians-lawsuit-challenge-medicares-wiser-2026a1000ae8,OK, Code 200,643823
+2026-04-06T18:14:06Z,https://www.kingarthurbaking.com/baking-school/contact,OK, Code 200,260030
+2026-04-06T18:14:06Z,https://ft.com/africa,OK, Code 200,221536
+2026-04-06T18:14:07Z,https://shop.lonelyplanet.com/products/india?utm_source=lonelyplanet&,OK, Code 200,2336546
+2026-04-06T18:14:07Z,https://amazon.com/s?_encoding=UTF8&amp;k=Dog%20Flea%20%26%20Tick%20Control&amp;rh=n%3A2975384011&amp;pf_rd_m=ATVPDKIKX0DER&amp;pf_rd_s=desktop-top-slot-2&amp;ref=nb_sb_noss&amp;pd_rd_w=6LxlJ&amp;content-id=amzn1.sym.3d52a903-43ef-404d-b1ce-bd21fb65f6ee&amp;pf_rd_p=3d52a903-43ef-404d-b1ce-bd21fb65f6ee&amp;pf_rd_r=M1Q4H6ZVPH52TE7ZVQ0X&amp;pd_rd_wg=4YS9I&amp;pd_rd_r=88ee9992-581d-4c99-843d-8410de549857&amp;ref_=pd_hp_d_btf_unk,OK, Code 200,500142
+2026-04-06T18:14:07Z,https://www.pinterest.com/britannica,FAILED FETCHING: too many redirects
+2026-04-06T18:14:07Z,https://rfc-editor.org/sitemap,SKIP, BAD RESP,403
+2026-04-06T18:14:08Z,https://openlibrary.org/subjects,OK, Code 200,33785
+2026-04-06T18:14:15Z,https://openlibrary.org/books/OL9219606M,OK, Code 200,116058
+2026-04-06T18:14:15Z,https://theverge.com/entertainment/907137/the-writers-guild-reached-a-four-year-deal-with-the-studios-with-increased-ai-protections,OK, Code 200,462371
+2026-04-06T18:14:15Z,https://www.gog.com/en/game/litil_divil,OK, Code 200,929624
+2026-04-06T18:14:15Z,https://www.who.int/mega-menu/emergencies/news/situation-reports,OK, Code 200,281209
+2026-04-06T18:14:16Z,https://www.healthline.com/health/video/future-of-health,OK, Code 200,379680
+2026-04-06T18:14:16Z,https://cdn.kernel.org/pub/linux/kernel/v6.x/ChangeLog-6.12.80,SKIP, NON-HTML CONTENT
+2026-04-06T18:14:16Z,https://www.ticketmaster.com/nba?brand=nba&amp;wt.mc_id=NBA_LEAGUE_NBA_TICKET_NAV_DROPDOWN&amp;utm_source=NBA.com&amp;utm_medium=client&amp;utm_campaign=NBA_LEAGUE&amp;utm_content=NBA_TICKET_NAV_DROPDOWN,OK, Code 200,319575
+2026-04-06T18:14:17Z,https://rfc-editor.org/standards,OK, Code 200,2757934
+2026-04-06T18:14:17Z,https://census.gov/data/data-tools/data-cedsci.html,OK, Code 200,2663
+2026-04-06T18:14:17Z,https://sfconservancy.org/blog/2026/apr/02/fcc-router-ban,FAILED FETCHING: too many redirects
+2026-04-06T18:14:36Z,https://singapore.craigslist.org/,OK, Code 200,54023
+2026-04-06T18:14:36Z,DONE, SIGNAL STOP,420,41937
+2026-04-06T18:17:55Z,https://www.kernel.org/,OK, Code 200,16938
+2026-04-06T18:17:55Z,https://www.fda.gov/,OK, Code 200,42394
+2026-04-06T18:17:56Z,https://whitehouse.gov/,OK, Code 200,263251
+2026-04-06T18:17:56Z,https://harvard.edu/,OK, Code 200,166713
+2026-04-06T18:17:56Z,https://www.michigandaily.com/,OK, Code 200,304376
+2026-04-06T18:17:56Z,https://epicurious.com/,OK, Code 200,4469972
+2026-04-06T18:17:56Z,https://mit.edu/,OK, Code 200,48253
+2026-04-06T18:17:56Z,https://reason.com/,OK, Code 200,288263
+2026-04-06T18:17:56Z,https://goodreads.com/,OK, Code 200,55794
+2026-04-06T18:17:56Z,https://extension.okstate.edu/,OK, Code 200,66073
+2026-04-06T18:17:57Z,https://arstechnica.com/,OK, Code 200,342772
+2026-04-06T18:17:57Z,https://docker.com/,OK, Code 200,347145
+2026-04-06T18:17:57Z,SKIP, ROBOTS DISALLOW,https://marketwatch.com/
+2026-04-06T18:17:57Z,https://swift.org/,OK, Code 200,34377
+2026-04-06T18:17:57Z,https://mozilla.org/,OK, Code 200,48492
+2026-04-06T18:17:57Z,https://data.gov/,OK, Code 200,121569
+2026-04-06T18:17:57Z,https://thekitchn.com/,SKIP, BAD RESP,403
+2026-04-06T18:17:57Z,https://knowyourmeme.com/,OK, Code 200,205218
+2026-04-06T18:17:57Z,https://bloomberg.com/,SKIP, BAD RESP,403
+2026-04-06T18:18:07Z,ROBOTS FETCH FAILED: empty response,https://bestbuy.com/robots.txt
+2026-04-06T18:18:17Z,https://bestbuy.com/,FAILED FETCHING: empty response
+2026-04-06T18:18:17Z,https://pypi.org/,OK, Code 200,22515
+2026-04-06T18:18:17Z,https://www.un.org/en,OK, Code 200,155784
+2026-04-06T18:18:17Z,https://forbes.com/,OK, Code 200,765155
+2026-04-06T18:18:17Z,https://imdb.com/,SKIP, BAD RESP,202
+2026-04-06T18:18:17Z,https://congress.gov/,OK, Code 200,434712
+2026-04-06T18:18:17Z,SKIP, ROBOTS DISALLOW,https://clang.llvm.org/
+2026-04-06T18:18:17Z,https://loc.gov/,OK, Code 200,176698
+2026-04-06T18:18:17Z,https://bonappetit.com/,OK, Code 200,1364811
+2026-04-06T18:18:17Z,https://news.ycombinator.com/,OK, Code 200,34289
+2026-04-06T18:18:18Z,https://www.michigandaily.com/sports/mens-basketball/sportsmonday-michigan-should-win-the-national-championship-and-it-shouldnt-be-close,FAILED FETCHING: too many redirects
+2026-04-06T18:18:18Z,https://medium.com/,OK, Code 200,37717
+2026-04-06T18:18:18Z,https://scientificamerican.com/,OK, Code 200,379909
+2026-04-06T18:18:18Z,https://etsy.com/,SKIP, BAD RESP,403
+2026-04-06T18:18:18Z,https://techcrunch.com/,OK, Code 200,428755
+2026-04-06T18:18:18Z,https://theguardian.com/,OK, Code 200,1343271
+2026-04-06T18:18:18Z,https://vox.com/,OK, Code 200,935934
+2026-04-06T18:18:19Z,https://man7.org/,OK, Code 200,5046
+2026-04-06T18:18:19Z,https://webmd.com/,OK, Code 200,379701
+2026-04-06T18:18:20Z,https://postgresql.org/,OK, Code 200,23469
+2026-04-06T18:18:38Z,https://annarbor.craigslist.org/,OK, Code 200,61404
+2026-04-06T18:18:38Z,https://espn.com/,OK, Code 200,223458
+2026-04-06T18:18:38Z,https://www.britannica.com/,OK, Code 200,135985
+2026-04-06T18:18:38Z,https://stackoverflow.com/,OK, Code 200,429261
+2026-04-06T18:18:38Z,https://edx.org/,OK, Code 200,2528196
+2026-04-06T18:18:38Z,https://encyclopediaofmath.org/,SKIP, BAD RESP,502
+2026-04-06T18:18:39Z,https://mozilla.org/rm,FAILED FETCHING: too many redirects
+2026-04-06T18:18:39Z,https://archive.org/,OK, Code 200,2670
+2026-04-06T18:18:39Z,https://berkeley.edu/,OK, Code 200,74699
+2026-04-06T18:18:39Z,https://www.michigandaily.com/sports/lacrosse,FAILED FETCHING: too many redirects
+2026-04-06T18:18:49Z,https://annarbor.craigslist.org/search/sss,OK, Code 200,445370
+2026-04-06T18:18:49Z,SKIP, ROBOTS DISALLOW,https://epicurious.com/recipes/food/views/ba-syn-giant-baba-au-rhum
+2026-04-06T18:18:49Z,https://www.forbes.com/sites/fionariley,SKIP, BAD RESP,403
+2026-04-06T18:18:49Z,https://stackoverflow.com/questions?tab=Bounties,OK, Code 200,210378
+2026-04-06T18:18:49Z,https://www.un.org/library,OK, Code 200,101798
+2026-04-06T18:18:49Z,https://theguardian.com/environment/climate-crisis,OK, Code 200,530308
+2026-04-06T18:18:49Z,https://state.gov/,OK, Code 200,659508
+2026-04-06T18:18:50Z,https://newscientist.com/,OK, Code 200,505660
+2026-04-06T18:18:50Z,https://goodreads.com/genres/classics,OK, Code 200,233073
+2026-04-06T18:18:51Z,https://reason.com/donate/?rfr=p0038&amp;ip_creative_slot=popup&amp;ip_creative_name=fight_back_against&amp;ip_promotion_id=p0038&amp;ip_promotion_name=webathon_2025&amp;ip_item_name=donation,OK, Code 200,185871
+2026-04-06T18:19:19Z,https://geo.craigslist.org/iso/do,OK, Code 200,55069
+2026-04-06T18:19:19Z,https://www.theride.org/,OK, Code 200,309138
+2026-04-06T18:19:19Z,https://www.kingarthurbaking.com/,OK, Code 200,275258
+2026-04-06T18:19:19Z,https://python.org/,OK, Code 200,49033
+2026-04-06T18:19:19Z,https://www.forbes.com/vetted/gear/golf,SKIP, BAD RESP,403
+2026-04-06T18:19:19Z,https://researchgate.net/,OK, Code 200,37796
+2026-04-06T18:19:20Z,https://docs.docker.com/dhi/core-concepts,OK, Code 200,403383
+2026-04-06T18:19:20Z,https://www.webmd.com/osteoporosis/default.htm,OK, Code 200,397815
+2026-04-06T18:19:20Z,https://coursera.org/,OK, Code 200,739327
+2026-04-06T18:19:21Z,https://clp.law.harvard.edu/knowledge-hub/magazine/issues/approaching-lawyer-well-being/it-is-time-to-normalize-mental-health-check-ups,FAILED FETCHING: too many redirects
+2026-04-06T18:19:29Z,ROBOTS FETCH FAILED: empty response,https://olympics.com/robots.txt

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# profile_query_pipeline.sh — locally profile the search query pipeline
+#
+# Usage:
+#   ./profile_query_pipeline.sh [options]
+#
+# Options:
+#   --server-url URL     Base URL of a running search_server (skip auto-start)
+#   --index-dir DIR      Index directory for the search_server (default: repo root)
+#   --build-dir DIR      Directory containing built binaries (default: <repo>/build-profiling)
+#   --iterations N       Queries per term (default: 20)
+#   --output FILE        Write JSON summary to FILE (stdout only by default)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# ── Defaults (all paths relative to repo root or configurable) ────────────────
+SERVER_URL=""
+INDEX_DIR="${REPO_ROOT}"
+BUILD_DIR="${REPO_ROOT}/build-profiling"
+ITERATIONS=20
+OUTPUT_FILE=""
+MANAGED_SERVER_PID=""
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --server-url) SERVER_URL="$2"; shift 2 ;;
+    --index-dir)  INDEX_DIR="$2";  shift 2 ;;
+    --build-dir)  BUILD_DIR="$2";  shift 2 ;;
+    --iterations) ITERATIONS="$2"; shift 2 ;;
+    --output)     OUTPUT_FILE="$2"; shift 2 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if ! command -v python3 &>/dev/null; then
+  echo "python3 is required" >&2
+  exit 1
+fi
+
+# ── Server lifecycle ──────────────────────────────────────────────────────────
+cleanup() {
+  if [[ -n "${MANAGED_SERVER_PID}" ]]; then
+    kill "${MANAGED_SERVER_PID}" 2>/dev/null || true
+    wait "${MANAGED_SERVER_PID}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+if [[ -z "${SERVER_URL}" ]]; then
+  SEARCH_SERVER="${BUILD_DIR}/search_server"
+  if [[ ! -x "${SEARCH_SERVER}" ]]; then
+    echo "Building search_server..." >&2
+    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -q
+    cmake --build "${BUILD_DIR}" --config Release --target search_server -j >/dev/null
+  fi
+
+  PORT=$(( 20000 + ($$ % 20000) ))
+  echo "Starting search_server on port ${PORT} with index dir ${INDEX_DIR}..." >&2
+  "${SEARCH_SERVER}" "${PORT}" "${INDEX_DIR}" >/dev/null 2>&1 &
+  MANAGED_SERVER_PID=$!
+
+  # Wait for port using Python (portable, no GNU date required)
+  if ! python3 - "${PORT}" <<'PYEOF'
+import socket, sys, time
+port = int(sys.argv[1])
+deadline = time.time() + 10
+while time.time() < deadline:
+    with socket.socket() as s:
+        s.settimeout(0.25)
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            sys.exit(0)
+    time.sleep(0.1)
+sys.exit(1)
+PYEOF
+  then
+    echo "search_server did not start in time" >&2
+    exit 1
+  fi
+
+  SERVER_URL="http://127.0.0.1:${PORT}"
+  echo "Server ready at ${SERVER_URL}" >&2
+fi
+
+# ── All measurement and reporting delegated to Python ────────────────────────
+python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" <<'PYEOF'
+from __future__ import annotations
+import json, statistics, sys, time, urllib.request, urllib.parse, pathlib
+
+server_url   = sys.argv[1]
+iterations   = int(sys.argv[2])
+output_file  = sys.argv[3]  # empty string means no file output
+
+QUERIES = [
+    # (label, raw_query)  — no expected-hit assertion; corpus varies by deployment
+    ("apple (common)",                     "apple"),
+    ("search ranking (multi-term)",        "search ranking"),
+    ("distributed search ranking (phrase)","\"distributed search ranking\""),
+    ("telemetry (single hit)",             "telemetry"),
+    ("kiwi (no results)",                  "kiwi"),
+    ("banana cherry (AND)",                "banana cherry"),
+]
+
+def fetch(query: str) -> dict:
+    url = server_url + "/api/search?" + urllib.parse.urlencode({"q": query, "limit": 10})
+    start = time.perf_counter()
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = resp.read()
+    except Exception as exc:
+        return {"error": str(exc), "client_ms": 0.0, "total_hits": 0,
+                "took_ms": 0, "parse_ms": 0, "solve_ms": 0,
+                "collect_ms": 0, "rank_ms": 0}
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    d = json.loads(data)
+    d["client_ms"] = elapsed_ms
+    return d
+
+def pct(vals: list[float], p: float) -> float:
+    if not vals:
+        return 0.0
+    ordered = sorted(vals)
+    if len(ordered) == 1:
+        return ordered[0]
+    idx = p * (len(ordered) - 1)
+    lo, hi = int(idx), min(int(idx) + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (idx - lo)
+
+def mean(vals: list[float]) -> float:
+    return statistics.fmean(vals) if vals else 0.0
+
+COL_W = 44
+print()
+print(f"{'Query':<{COL_W}}  {'Hits':>4}  {'Mean':>7}  {'P50':>7}  {'P95':>7}"
+      f"  {'Parse':>7}  {'Solve':>7}  {'Collect':>7}  {'Rank':>7}")
+print("─" * 102)
+
+samples = []
+for label, query in QUERIES:
+    # Warmup (discarded)
+    warmup = fetch(query)
+
+    client_ms_list: list[float] = []
+    took_list:    list[float] = []
+    parse_list:   list[float] = []
+    solve_list:   list[float] = []
+    collect_list: list[float] = []
+    rank_list:    list[float] = []
+    actual_hits = 0
+
+    for _ in range(iterations):
+        r = fetch(query)
+        client_ms_list.append(float(r.get("client_ms", 0)))
+        took_list.append(   float(r.get("took_ms",    0)))
+        parse_list.append(  float(r.get("parse_ms",   0)))
+        solve_list.append(  float(r.get("solve_ms",   0)))
+        collect_list.append(float(r.get("collect_ms", 0)))
+        rank_list.append(   float(r.get("rank_ms",    0)))
+        actual_hits = int(r.get("total_hits", 0))
+
+    m_client  = mean(client_ms_list)
+    p50       = pct(client_ms_list, 0.50)
+    p95       = pct(client_ms_list, 0.95)
+    m_parse   = mean(parse_list)
+    m_solve   = mean(solve_list)
+    m_collect = mean(collect_list)
+    m_rank    = mean(rank_list)
+
+    print(f"{label:<{COL_W}}  {actual_hits:>4}  {m_client:>7.1f}  {p50:>7.1f}  {p95:>7.1f}"
+          f"  {m_parse:>7.1f}  {m_solve:>7.1f}  {m_collect:>7.1f}  {m_rank:>7.1f}", flush=True)
+
+    samples.append({
+        "query":           query,
+        "label":           label,
+        "iterations":      iterations,
+        "total_hits":      actual_hits,
+        "mean_client_ms": round(m_client,  3),
+        "p50_client_ms":  round(p50,       3),
+        "p95_client_ms":  round(p95,       3),
+        "mean_took_ms":   round(mean(took_list),    3),
+        "mean_parse_ms":  round(m_parse,   3),
+        "mean_solve_ms":  round(m_solve,   3),
+        "mean_collect_ms":round(m_collect, 3),
+        "mean_rank_ms":   round(m_rank,    3),
+    })
+
+print("─" * 102)
+print("Columns (ms): client round-trip (mean/P50/P95) | server-side phase breakdowns\n")
+
+if output_file:
+    payload = {
+        "profile":             "query_pipeline",
+        "server_url":          server_url,
+        "iterations_per_query": iterations,
+        "samples":             samples,
+    }
+    pathlib.Path(output_file).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print(f"JSON written to {output_file}", file=sys.stderr)
+PYEOF
