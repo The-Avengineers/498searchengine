@@ -1,14 +1,18 @@
 #include <avengine/constraint_solver/constraint_solver.h>
 #include <avengine/constraint_solver/isr_tree.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <thread>
 
 namespace
 {
 using avengine::Dictionary;
 using avengine::ISREndDoc;
 using avengine::ISRWord;
+using avengine::Location;
+using avengine::Post;
 using avengine::string;
 using avengine::vector;
 using avengine::constraint_solver::ConstraintSolver;
@@ -68,6 +72,87 @@ public:
 private:
   Dictionary dict_;
   vector<string> names_;
+};
+
+class SlowWordIsr : public ISRWord
+{
+public:
+  SlowWordIsr(ISRWord* inner, size_t delayMs) : inner_(inner), delayMs_(delayMs) {}
+
+  ~SlowWordIsr() override
+  {
+    delete inner_;
+  }
+
+  Post* GetCurrentPost() override
+  {
+    return inner_ ? inner_->GetCurrentPost() : nullptr;
+  }
+
+  Location GetStartLocation() const override
+  {
+    return inner_ ? inner_->GetStartLocation() : 0;
+  }
+
+  Location GetEndLocation() const override
+  {
+    return inner_ ? inner_->GetEndLocation() : 0;
+  }
+
+  Post* Next() override
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delayMs_));
+    return inner_ ? inner_->Next() : nullptr;
+  }
+
+  Post* Seek(Location target) override
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delayMs_));
+    return inner_ ? inner_->Seek(target) : nullptr;
+  }
+
+private:
+  ISRWord* inner_ = nullptr;
+  size_t delayMs_ = 0;
+};
+
+class SlowDictionarySource : public IsrSource
+{
+public:
+  explicit SlowDictionarySource(size_t delayMs) : delayMs_(delayMs) {}
+
+  void AddDocument(const char* name, size_t endLocation)
+  {
+    names_.pushBack(string(name));
+    dict_.AddDocument(endLocation);
+  }
+
+  void AddOccurrence(const char* term, size_t location)
+  {
+    dict_.AddOccurrence(term, location);
+  }
+
+  ISRWord* OpenTermIsr(const string& term) const override
+  {
+    return new SlowWordIsr(dict_.OpenIsr(term.cstr()), delayMs_);
+  }
+
+  ISREndDoc* OpenEndDocIsr() const override
+  {
+    return dict_.OpenEndDocIsr();
+  }
+
+  string GetDocumentURL(uint32_t docId) const override
+  {
+    if (docId >= names_.size())
+      return string();
+    return names_[docId];
+  }
+
+private:
+  Dictionary dict_;
+  vector<string> names_;
+  size_t delayMs_ = 0;
 };
 
 void expectMatches(const vector<DocumentMatch>& matches, std::initializer_list<const char*> names)
@@ -287,6 +372,23 @@ void testEmptySourceReturnsNoMatches()
   EXPECT(result.Matches.size() == 0);
 }
 
+void testSolveTimesOut()
+{
+  ConstraintSolver solver;
+  solver.SetExecutionTimeThresholdMs(1);
+
+  SlowDictionarySource source(10);
+  source.AddOccurrence("apple", 1);
+  source.AddDocument("doc-a", 1);
+  source.AddOccurrence("apple", 2);
+  source.AddDocument("doc-b", 2);
+
+  auto result = solver.SolveQuery("apple", source);
+  EXPECT(result.Errors.size() == 0);
+  EXPECT(result.TimedOut);
+  EXPECT(result.Matches.size() == 0);
+}
+
 } // namespace
 
 int main()
@@ -307,5 +409,6 @@ int main()
   testSolveParsedPath();
   testInvalidQueryErrorsPassThrough();
   testEmptySourceReturnsNoMatches();
+  testSolveTimesOut();
   return 0;
 }

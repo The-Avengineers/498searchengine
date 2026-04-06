@@ -138,6 +138,13 @@ void testSolverQueries()
   EXPECT(parseError.Errors.size() != 0u);
   EXPECT(parseError.Results.empty());
 
+  service.SetQueryExecutionTimeThresholdMs(0);
+  const SearchResponse timedOut = service.Search("apple", 10);
+  EXPECT(timedOut.Errors.size() == 1u);
+  EXPECT(timedOut.Errors[0].Message == string("query timed out after exceeding 0 ms threshold"));
+  EXPECT(timedOut.TotalHits == 0u);
+  EXPECT(timedOut.Results.empty());
+
   EXPECT(unlink(shard0.cstr()) == 0);
   EXPECT(unlink(shard1.cstr()) == 0);
   EXPECT(rmdir(dir) == 0);

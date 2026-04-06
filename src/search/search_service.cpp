@@ -4,6 +4,7 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
 
+#include <chrono>
 #include <ctime>
 #include <dirent.h>
 
@@ -86,6 +87,29 @@ void CollectQueryTerms(const constraint_solver::QueryNode* node, vector<string>&
   }
 }
 
+bool QueryExceededThreshold(const std::chrono::steady_clock::time_point& startedAt,
+                            size_t thresholdMs)
+{
+  if (thresholdMs == 0)
+    return true;
+
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - startedAt);
+  return static_cast<size_t>(elapsed.count()) > thresholdMs;
+}
+
+void MarkTimeout(SearchResponse& response, size_t thresholdMs)
+{
+  response.TotalHits = 0;
+  response.Results.clear();
+  response.Errors.clear();
+
+  string message("query timed out after exceeding ");
+  search::AppendUnsigned(message, thresholdMs);
+  message += string(" ms threshold");
+  response.Errors.pushBack({0, message});
+}
+
 } // namespace
 
 SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
@@ -97,6 +121,16 @@ SearchService::~SearchService()
 {
   for (IndexShardSource* shard : shards_)
     delete shard;
+}
+
+void SearchService::SetQueryExecutionTimeThresholdMs(size_t thresholdMs)
+{
+  solver_.SetExecutionTimeThresholdMs(thresholdMs);
+}
+
+size_t SearchService::GetQueryExecutionTimeThresholdMs() const
+{
+  return solver_.GetExecutionTimeThresholdMs();
 }
 
 void SearchService::LoadShards()
@@ -121,6 +155,8 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
   if (IsBlankText(query))
     return response;
 
+  const auto startedAt = std::chrono::steady_clock::now();
+  const size_t thresholdMs = solver_.GetExecutionTimeThresholdMs();
   const clock_t start = clock();
   constraint_solver::ParseResult parsed = solver_.ParseQuery(query);
   if (!parsed.Errors.empty())
@@ -140,7 +176,21 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
 
   for (const IndexShardSource* shard : shards_)
   {
+    if (QueryExceededThreshold(startedAt, thresholdMs))
+    {
+      constraint_solver::DestroyQueryTree(parsed.Root);
+      MarkTimeout(response, thresholdMs);
+      return response;
+    }
+
     const auto solved = solver_.SolveParsed(parsed.Root, *shard);
+    if (solved.TimedOut)
+    {
+      constraint_solver::DestroyQueryTree(parsed.Root);
+      MarkTimeout(response, thresholdMs);
+      return response;
+    }
+
     response.TotalHits += solved.Matches.size();
 
     if (solved.Matches.empty())
@@ -158,6 +208,13 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
 
     for (size_t t = 0; t < queryTerms.size(); ++t)
     {
+      if (QueryExceededThreshold(startedAt, thresholdMs))
+      {
+        constraint_solver::DestroyQueryTree(parsed.Root);
+        MarkTimeout(response, thresholdMs);
+        return response;
+      }
+
       ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
       if (!isr)
         continue;
@@ -187,6 +244,13 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
     // Score each match with real ISR-derived data
     for (size_t i = 0; i < solved.Matches.size(); ++i)
     {
+      if (QueryExceededThreshold(startedAt, thresholdMs))
+      {
+        constraint_solver::DestroyQueryTree(parsed.Root);
+        MarkTimeout(response, thresholdMs);
+        return response;
+      }
+
       const auto& match = solved.Matches[i];
       const DocumentInfo* docInfo = shard->GetDocumentInfo(match.DocId);
 
