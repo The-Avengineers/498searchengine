@@ -13,6 +13,7 @@
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/avengine_lib/thread.h"
+#include <avengine/indexer/anchor_indexer.h>
 #include <avengine/indexer/indexer.h>
 #include <avengine/node.h>
 #include <csignal>
@@ -171,6 +172,7 @@ void routeURLToPeer(const string& normalized, int depth,
     state.frontierMu.lock();
     state.theFrontier->add(normalized, depth);
     state.frontierMu.unlock();
+    saveAnchorText(normalized, anchorTextSlices);
   }
   else
   {

@@ -44,6 +44,8 @@ public:
   SearchService(const SearchService&) = delete;
   SearchService& operator=(const SearchService&) = delete;
 
+  void SetQueryExecutionTimeThresholdMs(size_t thresholdMs);
+  size_t GetQueryExecutionTimeThresholdMs() const;
   SearchResponse Search(const string& query, size_t limit = 10) const;
   SearchResponse SearchPage(const string& query, size_t page, size_t limit = 10) const;
 

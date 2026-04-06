@@ -22,14 +22,22 @@ struct SolveResult
 {
   vector<DocumentMatch> Matches;
   vector<ParseError> Errors;
+  bool TimedOut = false;
 };
 
 class ConstraintSolver
 {
 public:
+  static constexpr size_t kDefaultExecutionTimeThresholdMs = 2000;
+
+  void SetExecutionTimeThresholdMs(size_t thresholdMs);
+  size_t GetExecutionTimeThresholdMs() const;
   ParseResult ParseQuery(const string& query) const;
   SolveResult SolveQuery(const string& query, const IsrSource& source) const;
   SolveResult SolveParsed(const QueryNode* root, const IsrSource& source) const;
+
+private:
+  size_t executionTimeThresholdMs_ = kDefaultExecutionTimeThresholdMs;
 };
 
 } // namespace constraint_solver
