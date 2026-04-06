@@ -48,6 +48,7 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
 
   if (Top10.size() > 10)
     Top10.pop();
+}
 
   vector<Ranker::RankedResult> Ranker::TopResults() const
   {
