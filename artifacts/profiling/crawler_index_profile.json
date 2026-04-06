@@ -7,7 +7,7 @@
   "total_words": 6880,
   "normalized_link_count": 720,
   "shard_count": 1,
-  "parse_index_ms": 1,
+  "parse_index_ms": 2,
   "serialize_ms": 0,
   "total_ms": 2,
   "docs_per_sec": 120000.000,
