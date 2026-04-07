@@ -1,10 +1,28 @@
 # search_server
 
-`search_server` is the HTTP entrypoint for the online search path. It loads `.sfi` index shards
-from a directory, handles `GET /api/search` requests, returns ranked results as JSON, and serves
-the checked-in frontend from `frontend/`.
+## What it does
+
+`search_server` now runs in two roles:
+
+- `coordinator` - exposes `GET /api/search`, fans out to peer workers, merges the responses, and returns one global page window
+- `worker` - loads its local shard directory, listens on the node mesh, and answers search requests from the coordinator
+
+The same binary is used in both roles. The role is selected with `SEARCH_ROLE`.
+
+## Environment
+
+Common environment variables:
+
+- `SEARCH_ROLE=coordinator|worker`
+- `NODE_ID` - this node's 0-based id in the peer set
+- `NUM_PEERS` - total number of peers in the cluster
+- `INDEX_DIR` - directory containing this node's local `.sfi` files
+
+If `SEARCH_ROLE` is not set, the binary defaults to `coordinator`.
 
 ## Build and run
+
+Local single-node search:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -17,6 +35,21 @@ cmake --build build --target search_server -j 4
 | `port` | `8080` | TCP port to listen on |
 | `index-dir` | `.` | Directory containing `.sfi` shard files |
 
+Distributed search on multiple machines:
+
+```bash
+# coordinator
+SEARCH_ROLE=coordinator NODE_ID=0 NUM_PEERS=3 INDEX_DIR=/path/to/coordinator/index ./build/search_server 8080 /path/to/coordinator/index
+
+# worker 1
+SEARCH_ROLE=worker NODE_ID=1 NUM_PEERS=3 INDEX_DIR=/path/to/worker1/index ./build/search_server 8081 /path/to/worker1/index
+
+# worker 2
+SEARCH_ROLE=worker NODE_ID=2 NUM_PEERS=3 INDEX_DIR=/path/to/worker2/index ./build/search_server 8082 /path/to/worker2/index
+```
+
+All peers must be able to discover each other on the local network or a VPN that supports broadcast traffic.
+
 Example:
 
 ```bash
@@ -27,12 +60,6 @@ Then open:
 
 ```text
 http://127.0.0.1:8080/
-```
-
-The server prints a startup line and then handles one request at a time:
-
-```
-search_server listening on port 8080 using index dir /data/index
 ```
 
 ## API
@@ -80,6 +107,8 @@ Timing fields:
 | `solve_ms` | Constraint solver across all shards (ISR traversal) |
 | `collect_ms` | ISR position collection for ranking signals |
 | `rank_ms` | Scoring and top-K selection |
+
+`page` is 1-based. The coordinator overfetches internally before merging worker responses.
 
 ### Query syntax
 
@@ -131,10 +160,12 @@ curl -s 'http://127.0.0.1:8080/api/search?q=%22distributed+search%22'
 curl -s 'http://127.0.0.1:8080/api/search?q='
 ```
 
-Notes:
+## Notes
 
 - only `GET` and `OPTIONS` are supported
 - `limit` is clamped to `10`
 - `page` defaults to `1`
 - result scores are real floating-point values from the ranker
 - `/`, `/results.html`, and frontend assets are served from `frontend/`
+- a blank query returns an empty result set
+- the coordinator returns partial results when a worker times out or is unreachable

@@ -13,10 +13,10 @@ namespace avengine
 /**
  * Ranker combines one or more scoring strategies into a single score.
  * Ranker is supposed to rank one url at one time, we have the information of all the positions
- * of the matching query words
+ * of the matching query words.
  *
- * Dynamically output the Top 10 results:
- * using insertion sort (in this scenario faster than other sorting algos)
+ * Dynamically output the top-k results using insertion sort (in this scenario
+ * faster than other sorting algos for small k).
  */
 class Ranker
 {

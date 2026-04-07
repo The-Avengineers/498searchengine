@@ -35,11 +35,9 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
                       const vector<vector<size_t>>& term_positions,
                       const RankSignals& signals) // keep a bounded top-k with insertion sort
 {
-  // Skip URLs already tracked since the same URL can appear across shards.
-  for (size_t i = 0; i < TopResults_.size(); ++i)
+  if (MaxResults_ == 0)
   {
-    if (TopResults_[i].entry.url == entry.url)
-      return;
+    return;
   }
 
   RankedResult candidate;

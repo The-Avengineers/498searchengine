@@ -52,7 +52,7 @@ public:
   void SetQueryExecutionTimeThresholdMs(size_t thresholdMs);
   size_t GetQueryExecutionTimeThresholdMs() const;
   SearchResponse Search(const string& query, size_t limit = 10) const;
-  SearchResponse SearchPage(const string& query, size_t page, size_t limit = 10) const;
+  SearchResponse SearchPage(const string& query, size_t page = 1, size_t limit = 10) const;
 
 private:
   void LoadShards();
