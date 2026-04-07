@@ -28,9 +28,9 @@ constexpr const int CONNECT_TIMEOUT_MS = 8000; // ms before updatePeer gives up 
 constexpr size_t HEADER_SIZE = 24;
 constexpr uint64_t MAGIC = 0xF09F9B9C;
 // Upper bound on the number of simultaneous peers we track.
-constexpr size_t MAX_PEERS = 256;
 // Fix 3: reject payloads larger than ~4 GB to prevent unbounded allocation.
 constexpr uint64_t MAX_PAYLOAD_LEN = static_cast<uint64_t>(UINT32_MAX);
+constexpr size_t MESSAGE_TYPE_COUNT = static_cast<size_t>(avengine::MessageType::SEARCH_REPLY) + 1u;
 
 // Forward declaration, defined after handleMessage().
 static void spawnPeerRecvThread(size_t peerIdx, int fd);
@@ -156,9 +156,9 @@ static struct
   }
 } peerList;
 
-// Per-message-type handlers
-// Each function receives the index of the peer that sent the message and the
-// raw payload bytes extracted from the framed TCP message.
+// Per-message-type handlers. Each function receives the index of the peer that
+// sent the message and the raw payload bytes extracted from the framed TCP
+// message.
 static void handleFrontierUpdate(size_t peerIndex, const avengine::vector<uint8_t>& payload)
 {
   avengine::vector<avengine::crawler::FullURLEntry> entries;
@@ -176,20 +176,42 @@ static void handleFrontierUpdate(size_t peerIndex, const avengine::vector<uint8_
   }
 }
 
+static avengine::MessageHandler messageHandlers[MESSAGE_TYPE_COUNT] = {
+    handleFrontierUpdate,
+    nullptr,
+    nullptr,
+};
+
+void avengine::registerMessageHandler(MessageType messageType, MessageHandler handler)
+{
+  const size_t idx = static_cast<size_t>(messageType);
+  if (idx >= MESSAGE_TYPE_COUNT)
+  {
+    return;
+  }
+  messageHandlers[idx] = handler;
+}
+
 // Dispatch an incoming message to the correct handler based on its type.
 static void handleMessage(size_t peerIndex, uint64_t messageType,
                           const avengine::vector<uint8_t>& payload)
 {
-  switch (static_cast<avengine::MessageType>(messageType))
+  if (messageType >= MESSAGE_TYPE_COUNT)
   {
-  case avengine::MessageType::FRONTIER_UPDATE:
-    handleFrontierUpdate(peerIndex, payload);
-    break;
-  default:
     printf("[tcp recv] unknown message type %llu from peer #%zu (%zu payload bytes)\n",
            static_cast<unsigned long long>(messageType), peerIndex, payload.size());
-    break;
+    return;
   }
+
+  const avengine::MessageHandler handler = messageHandlers[static_cast<size_t>(messageType)];
+  if (handler)
+  {
+    handler(peerIndex, payload);
+    return;
+  }
+
+  printf("[tcp recv] unhandled message type %llu from peer #%zu (%zu payload bytes)\n",
+         static_cast<unsigned long long>(messageType), peerIndex, payload.size());
 }
 
 static void* udpGossip(void* arg);
@@ -309,7 +331,7 @@ struct PeerRecvArg
 static bool recvBytes(int fd, uint8_t* buf, size_t size)
 {
   size_t read = 0;
-  while (read <= size)
+  while (read < size)
   {
     ssize_t n = recv(fd, buf + read, size - read, 0);
     if (n < 0 && errno == EINTR)
@@ -351,7 +373,10 @@ static bool recvMessage(int fd, size_t peerIdx, uint64_t& messageType,
                         avengine::vector<uint8_t>& payload)
 {
   uint8_t header[HEADER_SIZE];
-  recvBytes(fd, header, HEADER_SIZE);
+  if (!recvBytes(fd, header, HEADER_SIZE))
+  {
+    return false;
+  }
 
   avengine::Reader r(header, HEADER_SIZE);
   uint64_t magic = r.readU64();
@@ -377,7 +402,10 @@ static bool recvMessage(int fd, size_t peerIdx, uint64_t& messageType,
   }
 
   payload = avengine::vector<uint8_t>(static_cast<size_t>(payloadLen));
-  recvBytes(fd, payload.begin(), payloadLen);
+  if (payloadLen > 0 && !recvBytes(fd, payload.begin(), static_cast<size_t>(payloadLen)))
+  {
+    return false;
+  }
 
   return true;
 }

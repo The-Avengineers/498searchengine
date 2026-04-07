@@ -111,6 +111,11 @@ void testSolverQueries()
   SearchService service(dir);
 
   expectUrls(service.Search("apple", 10), {"doc://apollo", "doc://fruit-a", "doc://brown-fox"});
+  const SearchResponse page2 = service.SearchPage("apple", 2, 1);
+  EXPECT(page2.Page == 2u);
+  EXPECT(page2.Limit == 1u);
+  expectUrls(page2, {"doc://fruit-a"});
+
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
   expectUrls(service.Search("banana cherry", 10), {"doc://fruit-a", "doc://fruit-b"});
   expectUrls(service.Search("apple | brown", 10),
@@ -120,6 +125,7 @@ void testSolverQueries()
 
   const SearchResponse limited = service.Search("apple", 1);
   EXPECT(limited.TotalHits == 3u);
+  EXPECT(limited.Page == 1u);
   EXPECT(limited.Results.size() == 1u);
   EXPECT(limited.Results[0].Url == string("doc://apollo"));
   EXPECT(limited.Results[0].Score == 1.0);

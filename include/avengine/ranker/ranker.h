@@ -13,14 +13,16 @@ namespace avengine
 /**
  * Ranker combines one or more scoring strategies into a single score.
  * Ranker is supposed to rank one url at one time, we have the information of all the positions
- * of the matching query words
+ * of the matching query words.
  *
- * Dynamically output the Top 10 results:
- * using insertion sort (in this scenario faster than other sorting algos)
+ * Dynamically output the top-k results using insertion sort (in this scenario
+ * faster than other sorting algos for small k).
  */
 class Ranker
 {
 public:
+  explicit Ranker(size_t maxResults = 10);
+
   struct RankSignals
   {
     size_t outlink_count{0};
@@ -102,7 +104,8 @@ private:
   };
 
   vector<WeightedStrategy> Strategies;
-  vector<RankedResult> Top10;
+  vector<RankedResult> TopResults_;
+  size_t MaxResults_ = 10;
 };
 
 class ConstantScoreStrategy : public Ranker::Strategy

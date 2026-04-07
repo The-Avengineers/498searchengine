@@ -110,6 +110,38 @@ void MarkTimeout(SearchResponse& response, size_t thresholdMs)
   response.Errors.pushBack({0, message});
 }
 
+size_t ComputeCandidateLimit(size_t page, size_t limit)
+{
+  if (page == 0 || limit == 0)
+  {
+    return limit == 0 ? 10u : limit;
+  }
+
+  if (page > (static_cast<size_t>(-1) / limit))
+  {
+    return static_cast<size_t>(-1);
+  }
+
+  const size_t candidateLimit = page * limit;
+  return candidateLimit == 0 ? limit : candidateLimit;
+}
+
+size_t ComputeWindowStart(size_t page, size_t limit)
+{
+  if (page <= 1 || limit == 0)
+  {
+    return 0;
+  }
+
+  const size_t maxSize = static_cast<size_t>(-1);
+  if (page - 1 > maxSize / limit)
+  {
+    return maxSize;
+  }
+
+  return (page - 1) * limit;
+}
+
 } // namespace
 
 SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
@@ -148,13 +180,20 @@ void SearchService::LoadShards()
 
 SearchResponse SearchService::Search(const string& query, size_t limit) const
 {
+  return SearchPage(query, 1, limit);
+}
+
+SearchResponse SearchService::SearchPage(const string& query, size_t page, size_t limit) const
+{
   SearchResponse response = {};
   response.Query = query;
-  response.Limit = ClampSearchLimit(limit);
+  response.Page = page == 0 ? 1 : page;
+  response.Limit = limit == 0 ? 10 : limit;
 
   if (IsBlankText(query))
     return response;
 
+  const size_t candidateLimit = ComputeCandidateLimit(response.Page, response.Limit);
   const auto startedAt = std::chrono::steady_clock::now();
   const size_t thresholdMs = solver_.GetExecutionTimeThresholdMs();
   const clock_t start = clock();
@@ -171,7 +210,7 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
   vector<string> queryTerms;
   CollectQueryTerms(parsed.Root, queryTerms);
 
-  Ranker ranker;
+  Ranker ranker(candidateLimit);
   ranker.AddStrategy(&defaultStrategy_, 1.0);
 
   for (const IndexShardSource* shard : shards_)
@@ -274,7 +313,11 @@ SearchResponse SearchService::Search(const string& query, size_t limit) const
   }
 
   const auto& topResults = ranker.TopResults();
-  for (size_t i = 0; i < topResults.size() && i < response.Limit; ++i)
+  const size_t pageStart = ComputeWindowStart(response.Page, response.Limit);
+  const size_t pageEnd = pageStart > static_cast<size_t>(-1) - response.Limit
+                             ? static_cast<size_t>(-1)
+                             : pageStart + response.Limit;
+  for (size_t i = pageStart; i < topResults.size() && i < pageEnd; ++i)
     response.Results.pushBack({topResults[i].entry.url, topResults[i].title, topResults[i].score});
 
   constraint_solver::DestroyQueryTree(parsed.Root);

@@ -113,6 +113,28 @@ void testRankerMethods()
   EXPECT(top[0].score > top[top.size() - 1].score);
 }
 
+void testCustomTopKCapacity()
+{
+  Ranker ranker(3);
+  UrlLengthStrategy len;
+  vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
+  ranker.AddStrategy(&len, 1.0);
+
+  for (int i = 0; i < 8; ++i)
+  {
+    urlEntry entry = makeEntry("https://example.com/");
+    for (int j = 0; j < i; ++j)
+      entry.url.pushBack('x');
+    ranker.Consider(entry, string(), positions, signals);
+  }
+
+  const vector<Ranker::RankedResult>& top = ranker.TopResults();
+  EXPECT(top.size() == 3);
+  EXPECT(top[0].score >= top[1].score);
+  EXPECT(top[1].score >= top[2].score);
+}
+
 void testDomainStrat()
 {
   DomainStrat strat;
@@ -291,6 +313,7 @@ void testEarlyQueryTermMatch()
 int main()
 {
   testRankerMethods();
+  testCustomTopKCapacity();
   testDomainStrat();
   testShortURLStrat();
   testShortTitleStrat();
