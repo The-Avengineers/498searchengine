@@ -1,14 +1,14 @@
 #include <avengine/avengine_lib/condition_variable.h>
-#include <avengine/codec.h>
 #include <avengine/avengine_lib/lock_guard.h>
 #include <avengine/avengine_lib/mutex.h>
+#include <avengine/codec.h>
 #include <avengine/node.h>
 #include <avengine/search/search_common.h>
 #include <avengine/search/search_service.h>
 
 #include <arpa/inet.h>
-#include <cstdio>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -38,10 +38,7 @@ struct SearchSource
 
 struct SearchServerState
 {
-  explicit SearchServerState(const string& indexDirectory)
-      : Service(indexDirectory)
-  {
-  }
+  explicit SearchServerState(const string& indexDirectory) : Service(indexDirectory) {}
 
   search::SearchService Service;
   mutex ServiceMutex;
@@ -346,12 +343,13 @@ search::SearchResponse MergeResponses(const string& query, size_t page, size_t l
   for (size_t i = 0; i < transportErrors.size(); ++i)
     response.Errors.pushBack(transportErrors[i]);
 
-  candidates.sort([](const search::SearchHit& lhs, const search::SearchHit& rhs)
-                  {
-                    if (lhs.Score != rhs.Score)
-                      return lhs.Score > rhs.Score;
-                    return lhs.Url < rhs.Url;
-                  });
+  candidates.sort(
+      [](const search::SearchHit& lhs, const search::SearchHit& rhs)
+      {
+        if (lhs.Score != rhs.Score)
+          return lhs.Score > rhs.Score;
+        return lhs.Url < rhs.Url;
+      });
 
   vector<search::SearchHit> uniqueHits;
   for (size_t i = 0; i < candidates.size(); ++i)
@@ -361,9 +359,8 @@ search::SearchResponse MergeResponses(const string& query, size_t page, size_t l
   }
 
   const size_t start = ComputeWindowStart(response.Page, response.Limit);
-  const size_t end = start > static_cast<size_t>(-1) - response.Limit
-                         ? static_cast<size_t>(-1)
-                         : start + response.Limit;
+  const size_t end = start > static_cast<size_t>(-1) - response.Limit ? static_cast<size_t>(-1)
+                                                                      : start + response.Limit;
   for (size_t i = start; i < uniqueHits.size() && i < end; ++i)
     response.Results.pushBack(uniqueHits[i]);
 
@@ -385,8 +382,8 @@ bool StoreReply(SearchServerState& state, size_t peerIndex, uint64_t requestId,
                 const search::SearchResponse& response)
 {
   avengine::lock_guard<mutex> guard(state.MailboxMutex);
-  if (!state.RequestActive || state.ActiveRequestId != requestId || peerIndex >= state.ReplySeen.size() ||
-      state.ReplySeen[peerIndex] != 0)
+  if (!state.RequestActive || state.ActiveRequestId != requestId ||
+      peerIndex >= state.ReplySeen.size() || state.ReplySeen[peerIndex] != 0)
   {
     return false;
   }
@@ -480,10 +477,9 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
     for (size_t i = 0; i < parsed.Errors.size(); ++i)
       response.Errors.pushBack({parsed.Errors[i].Offset, parsed.Errors[i].Message});
     constraint_solver::DestroyQueryTree(parsed.Root);
-    response.TookMs = static_cast<size_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                              startedAt)
-            .count());
+    response.TookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now() - startedAt)
+                                              .count());
     return response;
   }
   constraint_solver::DestroyQueryTree(parsed.Root);
@@ -546,10 +542,9 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
   state.MailboxCV.broadcast();
   state.MailboxMutex.unlock();
 
-  const size_t tookMs = static_cast<size_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                            startedAt)
-          .count());
+  const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                std::chrono::steady_clock::now() - startedAt)
+                                                .count());
 
   return MergeResponses(query, response.Page, response.Limit, sources, transportErrors, tookMs);
 }
@@ -738,8 +733,8 @@ int main(int argc, char** argv)
 
   if (role == ServerRole::Worker)
   {
-    std::cout << "search_server running in worker mode using index dir "
-              << indexDirectory.cstr() << "\n";
+    std::cout << "search_server running in worker mode using index dir " << indexDirectory.cstr()
+              << "\n";
     for (;;)
       pause();
   }
