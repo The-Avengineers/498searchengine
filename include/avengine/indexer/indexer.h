@@ -83,7 +83,6 @@ struct IndexSlot
 };
 
 extern IndexSlot globalIndex;
-extern avengine::vector<pthread_t> g_serializeThreads;
 
 void* serializeIndex(Index* index);
 

@@ -150,7 +150,7 @@ bool QueryExceededThreshold(const std::chrono::steady_clock::time_point& started
                             size_t thresholdMs)
 {
   if (thresholdMs == 0)
-    return true;
+    return false;
 
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - startedAt);
@@ -290,45 +290,9 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
       MatchPositions body;
       MatchPositions title;
       for (size_t t = 0; t < queryTerms.size(); ++t)
-        mp.termPositions.pushBack(vector<size_t>());
-      matchPositions.pushBack(mp);
-    }
-
-    // Build O(1) DocId → match-index lookup. DocIds are 0-based sequential
-    // integers within a shard, so a flat vector indexed by DocId is cache-friendly.
-    const uint32_t maxDocId = solved.Matches.back().DocId;
-    vector<size_t> docIdToMatchIdx(static_cast<size_t>(maxDocId) + 1, solved.Matches.size());
-    for (size_t i = 0; i < solved.Matches.size(); ++i)
-      docIdToMatchIdx[solved.Matches[i].DocId] = i;
-
-    for (size_t t = 0; t < queryTerms.size(); ++t)
-    {
-      if (QueryExceededThreshold(startedAt, thresholdMs))
       {
-        constraint_solver::DestroyQueryTree(parsed.Root);
-        MarkTimeout(response, thresholdMs);
-        return response;
-      }
-
-      ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
-      if (!isr)
-        continue;
-
-      for (Post* p = isr->Seek(1); p; p = isr->Next())
-      {
-        const Attributes attrs = p->GetAttributes();
-        if (attrs.kind != Attributes::Kind::WORD)
-          continue;
-
-        const uint32_t docId = attrs.Word.documentId;
-        if (docId > maxDocId)
-          continue;
-
-        const size_t idx = docIdToMatchIdx[docId];
-        if (idx == solved.Matches.size())
-          continue;
-
-        matchPositions[idx].termPositions[t].pushBack(p->GetStartLocation());
+        body.termPositions.pushBack(vector<size_t>());
+        title.termPositions.pushBack(vector<size_t>());
       }
       bodyPositions.pushBack(body);
       titlePositions.pushBack(title);
