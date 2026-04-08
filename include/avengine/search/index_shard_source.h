@@ -33,7 +33,6 @@ public:
 private:
   struct DictEntry
   {
-    uint64_t stringOffset = 0;
     uint64_t postingOffset = 0;
   };
 
@@ -49,7 +48,7 @@ private:
     size_t EndOffset = 0;
   };
 
-  bool ParseDictionary(uint64_t uniqueWordsPlusOne);
+  bool ParseDictionary(uint64_t uniqueWords);
   bool ParseDocumentMetadata();
   bool FindPostingBounds(const string& term, const uint8_t** begin, const uint8_t** end,
                          uint64_t* documentFrequency) const;

@@ -12,7 +12,7 @@
 
 struct DictEntry
 {
-  uint64_t stringOffset;
+  avengine::string term;
   uint64_t postingOffset;
 };
 
@@ -25,20 +25,12 @@ struct ParsedSkipPointer
 
 struct DocInfo
 {
-  uint64_t endPosition; // global token offset of this doc's DOCUMENT_END marker
+  uint64_t endPosition;
   avengine::string title;
   avengine::string url;
 };
 
-static size_t cstr_len_safe(const uint8_t* start, const uint8_t* end)
-{
-  const uint8_t* p = start;
-  while (p < end && *p)
-    p++;
-  if (p == end)
-    return static_cast<size_t>(-1);
-  return static_cast<size_t>(p - start);
-}
+constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
 
 static size_t cstr_len(const char* s)
 {
@@ -74,26 +66,40 @@ static void cstr_copy_lower(char* dst, const char* src, size_t dstCap)
   dst[i] = '\0';
 }
 
-// Parses the DOCUMENT_END posting list to extract per-document boundary positions and titles.
-//
-// The DOCUMENT_END posting blob layout (from encodePostingList in index.cpp):
-//   [doc_freq u64][coll_freq u64][skip_count u64]
-//   [skip stream: skip_count x (posIdx varint, posVal varint, byteOff varint)]
-//   [position delta stream: coll_freq varints, delta-encoded from 0]
-//   [metadata buffer: doc_freq x (url length-prefixed, title length-prefixed, 8-byte RankingInput)]
-//
-// Populates docInfos with one entry per document (endPosition, title), sorted ascending by
-// endPosition. Returns true on success, false if DOCUMENT_END is absent or the blob is malformed.
+static bool posting_bounds_for_term(const avengine::vector<DictEntry>& terms, size_t termIndex,
+                                    size_t postingsStart, size_t fileSize, size_t* outStart,
+                                    size_t* outEnd)
+{
+  if (termIndex >= terms.size() || !outStart || !outEnd)
+    return false;
+
+  const uint64_t current = terms[termIndex].postingOffset;
+  uint64_t next = static_cast<uint64_t>(fileSize - postingsStart);
+
+  for (const DictEntry& entry : terms)
+  {
+    if (entry.postingOffset > current && entry.postingOffset < next)
+      next = entry.postingOffset;
+  }
+
+  const size_t start = postingsStart + static_cast<size_t>(current);
+  const size_t end = postingsStart + static_cast<size_t>(next);
+  if (start + 24 > end || end > fileSize)
+    return false;
+
+  *outStart = start;
+  *outEnd = end;
+  return true;
+}
+
 static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t postingsStart,
-                                 const avengine::vector<DictEntry>& usedEntries,
-                                 const avengine::vector<avengine::string>& terms,
+                                 const avengine::vector<DictEntry>& terms,
                                  avengine::vector<DocInfo>& docInfos)
 {
-  // Locate the DOCUMENT_END entry in the dictionary.
   ssize_t docendIdx = -1;
   for (size_t i = 0; i < terms.size(); i++)
   {
-    if (cstr_equal(terms[i].cstr(), "DOCUMENT_END"))
+    if (cstr_equal(terms[i].term.cstr(), "DOCUMENT_END"))
     {
       docendIdx = static_cast<ssize_t>(i);
       break;
@@ -106,21 +112,10 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
     return false;
   }
 
-  const DictEntry& de = usedEntries[static_cast<size_t>(docendIdx)];
-
-  // Determine the end of this posting blob by finding the smallest posting offset
-  // that is strictly greater than de.postingOffset.
-  uint64_t nextPosting = static_cast<uint64_t>(fileSize - postingsStart);
-  for (const DictEntry& e : usedEntries)
-  {
-    if (e.postingOffset > de.postingOffset && e.postingOffset < nextPosting)
-      nextPosting = e.postingOffset;
-  }
-
-  size_t startOff = postingsStart + static_cast<size_t>(de.postingOffset);
-  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
-
-  if (startOff + 24 > endOff || endOff > fileSize)
+  size_t startOff = 0;
+  size_t endOff = 0;
+  if (!posting_bounds_for_term(terms, static_cast<size_t>(docendIdx), postingsStart, fileSize,
+                               &startOff, &endOff))
   {
     std::fprintf(stderr, "Warning: DOCUMENT_END posting list has corrupt boundaries.\n");
     return false;
@@ -128,22 +123,16 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
 
   avengine::Reader r(data + startOff, endOff - startOff);
 
-  auto docFreq_r = r.readU64();
-  auto collFreq_r = r.readU64();
-  auto skipCount_r = r.readU64();
-  const uint64_t docFreq = docFreq_r;
-  const uint64_t collFreq = collFreq_r;
-  const uint64_t skipCount = skipCount_r;
+  const uint64_t docFreq = r.readU64();
+  const uint64_t collFreq = r.readU64();
+  const uint64_t skipCount = r.readU64();
 
-  // Consume the skip-pointer stream (3 varints per entry).
   for (uint64_t i = 0; i < skipCount; i++)
   {
     for (int field = 0; field < 3; field++)
       r.readVarU32();
   }
 
-  // Decode exactly collFreq position deltas to obtain per-document boundary positions.
-  // For DOCUMENT_END, collFreq == docFreq (one end-marker per document).
   avengine::vector<uint64_t> boundaryPositions;
   {
     uint64_t pos = 0;
@@ -155,7 +144,6 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
     }
   }
 
-  // Read per-document metadata: url (discarded), title (kept), 8-byte RankingInput (skipped).
   for (uint64_t i = 0; i < docFreq; i++)
   {
     const avengine::string url = r.readString();
@@ -169,10 +157,6 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
   return true;
 }
 
-// Returns the index of the first DocInfo whose endPosition is strictly greater than pos.
-// Since DOCUMENT_END is ingested after all tokens in a document, every token position within
-// document d satisfies pos < docInfos[d].endPosition, making this an upper-bound search.
-// Returns docInfos.size() if no such entry exists (corrupt / position out of range).
 static size_t find_doc_for_position(const avengine::vector<DocInfo>& docInfos, uint64_t pos)
 {
   for (size_t i = 0; i < docInfos.size(); i++)
@@ -216,7 +200,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  if (sb.st_size < 16)
+  if (sb.st_size < static_cast<off_t>(5 * sizeof(uint64_t)))
   {
     std::fprintf(stderr, "Index too small.\n");
     close(fd);
@@ -231,65 +215,31 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Header: [document_count u64][unique_words_plus_one u64]
-  avengine::Reader fileHeaderReader(data, 16);
-  auto documentCount_r = fileHeaderReader.readU64();
-  auto uniqueWordsPlusOne_r = fileHeaderReader.readU64();
-  const uint64_t documentCount = documentCount_r;
-  const uint64_t uniqueWordsPlusOne = uniqueWordsPlusOne_r;
-  const uint64_t tableSlots = uniqueWordsPlusOne * 2;
-  const uint64_t dictionaryBytes = 16 + tableSlots * 16;
+  avengine::Reader fileHeaderReader(data, static_cast<size_t>(sb.st_size));
+  const uint64_t magic = fileHeaderReader.readU64();
+  const uint64_t documentCount = fileHeaderReader.readU64();
+  const uint64_t uniqueWords = fileHeaderReader.readU64();
+  const uint64_t tokenOffset = fileHeaderReader.readU64();
+  const uint64_t rankingInputSize = fileHeaderReader.readU64();
 
-  if (dictionaryBytes > static_cast<uint64_t>(sb.st_size))
+  if (magic != kIndexMagic)
   {
-    std::fprintf(stderr, "Corrupt index: dictionary exceeds file size.\n");
+    std::fprintf(stderr, "Corrupt index: bad magic.\n");
     munmap(data, sb.st_size);
     return 1;
   }
 
-  // Dictionary is a flat hash table; each slot is [string_offset u64][posting_offset u64].
-  avengine::vector<DictEntry> entries;
-  for (uint64_t i = 0; i < tableSlots; i++)
+  avengine::vector<DictEntry> terms;
+  for (uint64_t i = 0; i < uniqueWords; i++)
   {
-    size_t offset = static_cast<size_t>(16 + i * 16);
-    avengine::Reader slotReader(data + offset, 16);
-    auto strOff = slotReader.readU64();
-    auto postOff = slotReader.readU64();
-    entries.pushBack({strOff, postOff});
+    const avengine::string term = fileHeaderReader.readString();
+    (void)fileHeaderReader.readU64();
+    (void)fileHeaderReader.readU64();
+    const uint64_t postingOffset = fileHeaderReader.readU64();
+    terms.pushBack({term, postingOffset});
   }
 
-  const uint8_t* stringStart = data + dictionaryBytes;
-  const uint8_t* fileEnd = data + sb.st_size;
-
-  size_t inferredStringBytes = 0;
-  size_t parsedTerms = 0;
-  avengine::vector<DictEntry> usedEntries;
-  avengine::vector<avengine::string> terms;
-
-  // Scan non-empty dictionary slots, recover C strings from string buffer,
-  // and infer where the postings region begins.
-  for (const DictEntry& e : entries)
-  {
-    if (e.stringOffset == 0 && e.postingOffset == 0)
-      continue;
-    if (dictionaryBytes + e.stringOffset >= static_cast<uint64_t>(sb.st_size))
-      continue;
-
-    const uint8_t* termPtr = stringStart + e.stringOffset;
-    size_t len = cstr_len_safe(termPtr, fileEnd);
-    if (len == static_cast<size_t>(-1))
-      continue;
-
-    size_t endOff = static_cast<size_t>(e.stringOffset + len + 1);
-    if (endOff > inferredStringBytes)
-      inferredStringBytes = endOff;
-
-    usedEntries.pushBack(e);
-    terms.pushBack(avengine::string(reinterpret_cast<const char*>(termPtr)));
-    parsedTerms++;
-  }
-
-  const size_t postingsStart = static_cast<size_t>(dictionaryBytes) + inferredStringBytes;
+  const size_t postingsStart = static_cast<size_t>(fileHeaderReader.cursor() - data);
   if (postingsStart > static_cast<size_t>(sb.st_size))
   {
     std::fprintf(stderr, "Corrupt index: postings start exceeds file size.\n");
@@ -298,13 +248,15 @@ int main(int argc, char** argv)
   }
 
   std::printf("Documents: %llu\n", static_cast<unsigned long long>(documentCount));
-  std::printf("Dictionary slots: %llu\n", static_cast<unsigned long long>(tableSlots));
-  std::printf("Parsed terms (best effort): %zu\n", parsedTerms);
+  std::printf("Unique words: %llu\n", static_cast<unsigned long long>(uniqueWords));
+  std::printf("Token offset: %llu\n", static_cast<unsigned long long>(tokenOffset));
+  std::printf("Ranking input size: %llu\n", static_cast<unsigned long long>(rankingInputSize));
+  std::printf("Parsed terms: %zu\n", terms.size());
 
   if (listMode)
   {
-    for (const avengine::string& term : terms)
-      std::printf("%s\n", term.cstr());
+    for (const DictEntry& entry : terms)
+      std::printf("%s\n", entry.term.cstr());
 
     munmap(data, sb.st_size);
     return 0;
@@ -323,7 +275,7 @@ int main(int argc, char** argv)
   ssize_t foundIndex = -1;
   for (size_t i = 0; i < terms.size(); i++)
   {
-    if (cstr_equal(terms[i].cstr(), queryLower))
+    if (cstr_equal(terms[i].term.cstr(), queryLower))
     {
       foundIndex = static_cast<ssize_t>(i);
       break;
@@ -338,19 +290,10 @@ int main(int argc, char** argv)
     return 0;
   }
 
-  const DictEntry found = usedEntries[static_cast<size_t>(foundIndex)];
-
-  // Determine the end of this posting blob.
-  uint64_t nextPosting = static_cast<uint64_t>(sb.st_size - postingsStart);
-  for (const DictEntry& e : usedEntries)
-  {
-    if (e.postingOffset > found.postingOffset && e.postingOffset < nextPosting)
-      nextPosting = e.postingOffset;
-  }
-
-  size_t startOff = postingsStart + static_cast<size_t>(found.postingOffset);
-  size_t endOff = postingsStart + static_cast<size_t>(nextPosting);
-  if (startOff + 24 > endOff || endOff > static_cast<size_t>(sb.st_size))
+  size_t startOff = 0;
+  size_t endOff = 0;
+  if (!posting_bounds_for_term(terms, static_cast<size_t>(foundIndex), postingsStart,
+                               static_cast<size_t>(sb.st_size), &startOff, &endOff))
   {
     std::fprintf(stderr, "Corrupt posting list boundaries.\n");
     std::free(queryLower);
@@ -358,15 +301,11 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Per posting-list header: [doc_freq u64][collection_freq u64][skip_count u64].
   avengine::Reader postReader(data + startOff, endOff - startOff);
 
-  auto documentFrequency_r = postReader.readU64();
-  auto collectionFrequency_r = postReader.readU64();
-  auto skipCount_r = postReader.readU64();
-  const uint64_t documentFrequency = documentFrequency_r;
-  const uint64_t collectionFrequency = collectionFrequency_r;
-  const uint64_t skipCount = skipCount_r;
+  const uint64_t documentFrequency = postReader.readU64();
+  const uint64_t collectionFrequency = postReader.readU64();
+  const uint64_t skipCount = postReader.readU64();
 
   avengine::vector<ParsedSkipPointer> parsedSkips;
   for (uint64_t i = 0; i < skipCount; i++)
@@ -377,10 +316,8 @@ int main(int argc, char** argv)
     parsedSkips.pushBack({positionIndex, positionValue, byteOffset});
   }
 
-  // Parse DOCUMENT_END to build the per-document info table (endPosition + title).
   avengine::vector<DocInfo> docInfos;
-  parse_docend_posting(data, static_cast<size_t>(sb.st_size), postingsStart, usedEntries, terms,
-                       docInfos);
+  parse_docend_posting(data, static_cast<size_t>(sb.st_size), postingsStart, terms, docInfos);
 
   std::printf("Term: %s\n", queryLower);
   std::printf("Document frequency: %llu\n", static_cast<unsigned long long>(documentFrequency));
@@ -397,7 +334,6 @@ int main(int argc, char** argv)
     std::printf("\n");
   }
 
-  // Decode position delta stream and print each position with the containing document's title.
   size_t decoded = 0;
   uint64_t pos64 = 0;
 

@@ -54,33 +54,31 @@ static uint32_t readVarU32(const uint8_t* begin, const uint8_t* end, const uint8
   return 0;
 }
 
-// Reads a varint-length-prefixed string (as written by append_string in
-// indexer.cpp): varint(len) followed by len raw bytes (no null terminator).
+// Reads a u64-length-prefixed string (as written by Writer::writeString):
+// [len u64][len raw bytes, no null terminator].
 // Advances *next past the consumed bytes; sets *next = nullptr on failure.
 static avengine::string readLPString(const uint8_t* begin, const uint8_t* end, const uint8_t** next)
 {
-  const uint8_t* afterLen = nullptr;
-  uint32_t len = readVarU32(begin, end, &afterLen);
-  if (!afterLen || afterLen + len > end)
+  if (begin + 8 > end)
   {
     *next = nullptr;
     return avengine::string();
   }
-  avengine::string s;
-  for (uint32_t i = 0; i < len; i++)
-    s.pushBack(static_cast<char>(afterLen[i]));
-  *next = afterLen + len;
-  return s;
-}
 
-// Returns the byte-length of the null-terminated string starting at `start`,
-// or static_cast<size_t>(-1) if the string is not terminated before `end`.
-static size_t cstrLenSafe(const uint8_t* start, const uint8_t* end)
-{
-  const uint8_t* p = start;
-  while (p < end && *p)
-    p++;
-  return (p == end) ? static_cast<size_t>(-1) : static_cast<size_t>(p - start);
+  const uint64_t len64 = readU64Le(begin);
+  if (len64 > static_cast<uint64_t>(end - (begin + 8)))
+  {
+    *next = nullptr;
+    return avengine::string();
+  }
+
+  const uint8_t* payload = begin + 8;
+  const size_t len = static_cast<size_t>(len64);
+  avengine::string s;
+  for (size_t i = 0; i < len; i++)
+    s.pushBack(static_cast<char>(payload[i]));
+  *next = payload + len;
+  return s;
 }
 
 // Directory scan, collects every NNNNN.sfi file in the CWD
@@ -214,126 +212,87 @@ static void buildTsvMap(avengine::string_slice content,
 // Parses the DOCUMENT_END posting list from a memory-mapped SFI blob and
 // fills `docMetas` with one DocMeta per document (in declaration order).
 //
+// Current top-level header:
+//   [magic u64][doc_count u64][unique_words u64][token_offset u64][input_size u64]
+//   then `unique_words` term records:
+//     [word string(u64-len + bytes)][positions_count u64][doc_freq u64][postings_offset u64]
+//
 // DOCUMENT_END posting blob layout (see encodePostingList in indexer.cpp):
 //   [doc_freq u64][coll_freq u64][skip_count u64]
 //   [skip stream:     skip_count × 3 varints (posIdx, posVal, byteOff)]
 //   [position stream: coll_freq varints, delta-encoded]
-//   [metadata:        doc_freq × (url LP-string, title LP-string, 8-byte RankingInput)]
-//
-// Returns false when DOCUMENT_END is absent or the blob is malformed.
+//   [metadata:        doc_freq × (url string, title string, 8-byte RankingInput)]
 static bool parseDocEnd(const uint8_t* data, size_t fileSize,
                         avengine::vector<DocumentMetadata>& docMetas)
 {
-  if (fileSize < 16)
-  {
+  constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
+  if (fileSize < 5 * sizeof(uint64_t))
     return false;
-  }
 
-  const uint64_t uniqueWordsPlusOne = readU64Le(data + 8);
-  const uint64_t tableSlots = uniqueWordsPlusOne * 2;
-  const uint64_t dictBytes = 16 + tableSlots * 16;
-  if (dictBytes > fileSize)
-  {
+  const uint64_t magic = readU64Le(data);
+  if (magic != kIndexMagic)
     return false;
-  }
 
-  const uint8_t* stringStart = data + dictBytes;
+  const uint64_t uniqueWords = readU64Le(data + 16);
+  const size_t fixedHeader = 5 * sizeof(uint64_t);
+  const uint8_t* cursor = data + fixedHeader;
   const uint8_t* fileEnd = data + fileSize;
 
-  // Collect non-empty dictionary slots, recover their C-string terms,
-  // and infer where the postings region begins.
   struct DEntry
   {
-    uint64_t strOff, postOff;
+    avengine::string term;
+    uint64_t postOff;
   };
   avengine::vector<DEntry> entries;
-  avengine::vector<avengine::string> terms;
-  size_t inferredStringBytes = 0;
 
-  for (uint64_t slot = 0; slot < tableSlots; slot++)
+  for (uint64_t i = 0; i < uniqueWords; ++i)
   {
-    size_t slotOff = static_cast<size_t>(16 + slot * 16);
-    uint64_t strOff = readU64Le(data + slotOff);
-    uint64_t postOff = readU64Le(data + slotOff + 8);
+    const uint8_t* nx = nullptr;
+    avengine::string term = readLPString(cursor, fileEnd, &nx);
+    if (!nx)
+      return false;
+    cursor = nx;
 
-    if (strOff == 0 && postOff == 0)
-    {
-      continue;
-    }
-    if (dictBytes + strOff >= fileSize)
-    {
-      continue;
-    }
+    if (cursor + 24 > fileEnd)
+      return false;
 
-    const uint8_t* tp = stringStart + strOff;
-    size_t termLen = cstrLenSafe(tp, fileEnd);
-    if (termLen == static_cast<size_t>(-1))
-    {
-      continue;
-    }
+    (void)readU64Le(cursor);     // positions_count
+    (void)readU64Le(cursor + 8); // document_frequency
+    const uint64_t postOff = readU64Le(cursor + 16);
+    cursor += 24;
 
-    size_t endOff = static_cast<size_t>(strOff + termLen + 1);
-    inferredStringBytes = std::max(endOff, inferredStringBytes);
-
-    entries.pushBack({strOff, postOff});
-    terms.pushBack(avengine::string(reinterpret_cast<const char*>(tp)));
+    entries.pushBack({term, postOff});
   }
 
-  const size_t postingsStart = static_cast<size_t>(dictBytes) + inferredStringBytes;
+  const size_t postingsStart = static_cast<size_t>(cursor - data);
   if (postingsStart > fileSize)
-  {
     return false;
-  }
 
-  // Find the DOCUMENT_END entry.
   ssize_t deIdx = -1;
-  for (size_t i = 0; i < terms.size(); i++)
+  for (size_t i = 0; i < entries.size(); i++)
   {
-    const char* tw = terms[i].cstr();
-    const char* ref = DOCEND_TOKEN;
-    bool eq = true;
-    for (size_t j = 0;; j++)
-    {
-      if (tw[j] != ref[j])
-      {
-        eq = false;
-        break;
-      }
-      if (!tw[j])
-      {
-        break;
-      }
-    }
-    if (eq)
+    if (entries[i].term == avengine::string(DOCEND_TOKEN))
     {
       deIdx = static_cast<ssize_t>(i);
       break;
     }
   }
   if (deIdx < 0)
-  {
     return false;
-  }
 
   const DEntry& de = entries[static_cast<size_t>(deIdx)];
 
-  // Determine the byte extent of the DOCUMENT_END posting blob by finding the
-  // smallest posting offset strictly greater than de.postOff.
   uint64_t nextPost = static_cast<uint64_t>(fileSize - postingsStart);
   for (size_t i = 0; i < entries.size(); i++)
   {
     if (entries[i].postOff > de.postOff && entries[i].postOff < nextPost)
-    {
       nextPost = entries[i].postOff;
-    }
   }
 
   size_t blobStart = postingsStart + static_cast<size_t>(de.postOff);
   size_t blobEnd = postingsStart + static_cast<size_t>(nextPost);
   if (blobStart + 24 > blobEnd || blobEnd > fileSize)
-  {
     return false;
-  }
 
   const uint8_t* p = data + blobStart;
   const uint8_t* pEnd = data + blobEnd;
@@ -341,9 +300,8 @@ static bool parseDocEnd(const uint8_t* data, size_t fileSize,
   uint64_t docFreq = readU64Le(p);
   uint64_t collFreq = readU64Le(p + 8);
   uint64_t skipCount = readU64Le(p + 16);
-  const uint8_t* cursor = p + 24;
+  cursor = p + 24;
 
-  // Skip the skip-pointer stream (3 varints per entry).
   for (uint64_t s = 0; s < skipCount; s++)
   {
     for (int f = 0; f < 3; f++)
@@ -351,48 +309,36 @@ static bool parseDocEnd(const uint8_t* data, size_t fileSize,
       const uint8_t* nx = nullptr;
       readVarU32(cursor, pEnd, &nx);
       if (!nx)
-      {
         return false;
-      }
       cursor = nx;
     }
   }
 
-  // Skip the position delta stream.
   for (uint64_t pos = 0; pos < collFreq; pos++)
   {
     const uint8_t* nx = nullptr;
     readVarU32(cursor, pEnd, &nx);
     if (!nx)
-    {
       return false;
-    }
     cursor = nx;
   }
 
-  // Read per-document metadata: url, title, 8-byte RankingInput.
   for (uint64_t d = 0; d < docFreq; d++)
   {
     const uint8_t* nx = nullptr;
 
     avengine::string url = readLPString(cursor, pEnd, &nx);
     if (!nx)
-    {
       return false;
-    }
     cursor = nx;
 
     avengine::string title = readLPString(cursor, pEnd, &nx);
     if (!nx)
-    {
       return false;
-    }
     cursor = nx;
 
     if (cursor + 8 > pEnd)
-    {
       return false;
-    }
     uint64_t rankInput = readU64Le(cursor);
     cursor += 8;
 
