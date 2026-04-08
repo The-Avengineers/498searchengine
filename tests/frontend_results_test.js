@@ -127,7 +127,7 @@ async function testRendersApiResults() {
 
   global.document = document;
   global.window = {
-    location: { search: "?q=dog&api=http://127.0.0.1:8080" },
+    location: { search: "?q=dog" },
     localStorage: createLocalStorage(),
     AVENGINE_API_BASE: undefined,
   };
@@ -167,7 +167,7 @@ async function testRendersApiResults() {
 
   assert.equal(
     capturedUrl,
-    "http://127.0.0.1:8080/api/search?q=dog&limit=10",
+    "/api/search?q=dog&limit=10",
     "frontend should call expected api endpoint"
   );
   assert.equal(refs.query.value, "dog", "query box should reflect URL query");
