@@ -37,7 +37,7 @@ void PostingList::ingest(uint32_t docId, size_t offset)
 {
   if (postings.empty() || postings.back().docId != docId)
   {
-    postings.pushBack({.docId = docId, .termFreq = 0, .positions = positions.size()});
+    postings.pushBack({.docId = docId, .termFreq = 0, .positions = positions.size() - 1});
   }
 
   Posting& posting = postings.back();
