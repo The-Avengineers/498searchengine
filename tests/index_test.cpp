@@ -210,30 +210,42 @@ void testSerializationHeaderAndSkipPointers()
   EXPECT(close(readFd) == 0);
   EXPECT(unlink(pathTemplate) == 0);
 
-  avengine::Reader fileHeader(bytes, 16u);
+  avengine::Reader fileHeader(bytes, fileSize);
+  auto magicVal = fileHeader.readU64();
   auto docCountVal = fileHeader.readU64();
   auto uniqueWordsVal = fileHeader.readU64();
+  auto tokenOffsetVal = fileHeader.readU64();
+  auto rankingInputSizeVal = fileHeader.readU64();
+
+  EXPECT(magicVal == 0x008FB8EF84979FF0ULL);
   EXPECT(docCountVal == 1u);
-  EXPECT(uniqueWordsVal == 3u);
-  const uint64_t uniqueWordsPlusOne = uniqueWordsVal; // alpha + DOCEND_TOKEN + 1
+  EXPECT(uniqueWordsVal == 2u); // alpha + DOCUMENT_END
+  EXPECT(tokenOffsetVal == 11u);
+  EXPECT(rankingInputSizeVal == sizeof(RankingInput));
 
-  const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
-  // String table: alpha\0 (6 bytes) then DOCUMENT_END\0 (13 bytes) — in hashmap bucket order.
-  // unordered_map hashes "alpha" to bucket 43 and "DOCUMENT_END" to bucket 58 (256-slot table),
-  // so alpha is serialized first.
-  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
-  const size_t postingsStart = dictionaryBytes + stringBytes;
+  uint64_t alphaPostingOffset = UINT64_MAX;
+  for (uint64_t i = 0; i < uniqueWordsVal; ++i)
+  {
+    avengine::string word = fileHeader.readString();
+    auto positionsCount = fileHeader.readU64();
+    auto postingsCount = fileHeader.readU64();
+    auto postingOffset = fileHeader.readU64();
 
-  // alpha posting comes first (lower hash bucket).
-  // Its exact encoded size: 3×u64 header + 3 skip pointers (3 varints each, all ≤ 9)
-  //                         + 10 position delta varints.
-  const size_t alphaPostingSize = 24u    // [doc_freq][coll_freq][skip_count]
-                                  + 9u   // 3 skip pointers × 3 one-byte varints
-                                  + 10u; // 10 one-byte position deltas
+    if (word == avengine::string("alpha"))
+    {
+      EXPECT(positionsCount == 10u);
+      EXPECT(postingsCount == 1u);
+      alphaPostingOffset = postingOffset;
+    }
+  }
 
-  EXPECT(fileSize >= postingsStart + alphaPostingSize + 24u);
+  EXPECT(alphaPostingOffset != UINT64_MAX);
 
-  avengine::Reader postReader(bytes + postingsStart, fileSize - postingsStart);
+  const size_t postingsStart = static_cast<size_t>(fileHeader.cursor() - bytes);
+  const size_t alphaStart = postingsStart + static_cast<size_t>(alphaPostingOffset);
+  EXPECT(alphaStart + 24u <= fileSize);
+
+  avengine::Reader postReader(bytes + alphaStart, fileSize - alphaStart);
   {
     auto v = postReader.readU64();
     EXPECT(v == 1u);
@@ -268,8 +280,6 @@ void testSerializationHeaderAndSkipPointers()
   for (int i = 0; i < 9; ++i)
     checkVar(1u); // remaining position deltas
 
-  // alpha is the first posting; DOCUMENT_END follows it in the file.
-  EXPECT(postReader.cursor() == bytes + postingsStart + alphaPostingSize);
   std::free(bytes);
 }
 
