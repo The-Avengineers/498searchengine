@@ -81,6 +81,9 @@ void SearchLogger::logClick(const string& session_id, int clicked_index)
 void SearchLogger::writeSample(const SearchLog& log) const
 {
   if (!log_file_) return;
+  if (log.clicked_index < 0 ||
+      static_cast<size_t>(log.clicked_index) >= log.urls_shown.size())
+    return;
 
   // Only write up to and including the clicked result —
   // docs ranked below the click are never used by the tuner.
@@ -122,7 +125,7 @@ vector<TrainingSample> TrainingDataBuilder::build(const string& log_file_path) c
     while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
       buf[--len] = '\0';
 
-    vector<string> fields = string(buf).split('|');
+    vector<string> fields = string(buf).split('\t');
 
     // Minimum: session_id, timestamp, query, clicked_index, doc_count = 5 fields.
     if (fields.size() < 5) continue;
