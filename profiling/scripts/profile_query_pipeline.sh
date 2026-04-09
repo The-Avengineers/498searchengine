@@ -6,7 +6,7 @@
 #
 # Options:
 #   --server-url URL     Base URL of a running search_server (skip auto-start)
-#   --index-dir DIR      Index directory for the search_server (default: repo root)
+#   --index-dir DIR      Use pre-built .sfi shards from DIR instead of building a fresh index
 #   --build-dir DIR      Directory containing built binaries (default: <repo>/build-profiling)
 #   --iterations N       Queries per term (default: 20)
 #   --output FILE        Write JSON summary to FILE (stdout only by default)
@@ -15,14 +15,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+FIXTURE="${REPO_ROOT}/profiling/fixtures/search_corpus.tsv"
 
-# ── Defaults (all paths relative to repo root or configurable) ────────────────
+# ── Defaults ──────────────────────────────────────────────────────────────────
 SERVER_URL=""
-INDEX_DIR="${REPO_ROOT}"
+INDEX_DIR=""          # empty = build a fresh index from fixture
 BUILD_DIR="${REPO_ROOT}/build-profiling"
 ITERATIONS=20
 OUTPUT_FILE=""
 MANAGED_SERVER_PID=""
+MANAGED_INDEX_DIR=""  # set when we create a tmpdir for the fresh index
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -47,27 +49,41 @@ cleanup() {
     kill "${MANAGED_SERVER_PID}" 2>/dev/null || true
     wait "${MANAGED_SERVER_PID}" 2>/dev/null || true
   fi
+  if [[ -n "${MANAGED_INDEX_DIR}" ]]; then
+    rm -rf "${MANAGED_INDEX_DIR}"
+  fi
 }
 trap cleanup EXIT
 
 if [[ -z "${SERVER_URL}" ]]; then
   SEARCH_SERVER="${BUILD_DIR}/search_server"
-  if [[ ! -x "${SEARCH_SERVER}" ]]; then
-    echo "Building search_server..." >&2
-    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -q
-    cmake --build "${BUILD_DIR}" --config Release --target search_server -j >/dev/null
+  INDEX_BUILDER="${BUILD_DIR}/index_builder"
+
+  echo "Building binaries..." >&2
+  cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release \
+    --log-level=WARNING >/dev/null
+  cmake --build "${BUILD_DIR}" --config Release \
+    --target search_server index_builder -j >/dev/null
+
+  # Build a fresh index from the fixture if no --index-dir was given.
+  if [[ -z "${INDEX_DIR}" ]]; then
+    MANAGED_INDEX_DIR="$(mktemp -d)"
+    echo "Building fresh index from fixture into ${MANAGED_INDEX_DIR}..." >&2
+    (cd "${MANAGED_INDEX_DIR}" && "${INDEX_BUILDER}" "${FIXTURE}") >/dev/null
+    INDEX_DIR="${MANAGED_INDEX_DIR}"
   fi
 
+  SHARD_COUNT="$(ls "${INDEX_DIR}"/*.sfi 2>/dev/null | wc -l | tr -d ' ')"
   PORT=$(( 20000 + ($$ % 20000) ))
-  echo "Starting search_server on port ${PORT} with index dir ${INDEX_DIR}..." >&2
+  echo "Starting search_server on port ${PORT} with ${SHARD_COUNT} shard(s) from ${INDEX_DIR}..." >&2
   "${SEARCH_SERVER}" "${PORT}" "${INDEX_DIR}" >/dev/null 2>&1 &
   MANAGED_SERVER_PID=$!
 
-  # Wait for port using Python (portable, no GNU date required)
+  # Wait for the server to accept connections.
   if ! python3 - "${PORT}" <<'PYEOF'
 import socket, sys, time
 port = int(sys.argv[1])
-deadline = time.time() + 10
+deadline = time.time() + 15
 while time.time() < deadline:
     with socket.socket() as s:
         s.settimeout(0.25)
@@ -95,13 +111,13 @@ iterations   = int(sys.argv[2])
 output_file  = sys.argv[3]  # empty string means no file output
 
 QUERIES = [
-    # (label, raw_query)  — no expected-hit assertion; corpus varies by deployment
-    ("apple (common)",                     "apple"),
-    ("search ranking (multi-term)",        "search ranking"),
-    ("distributed search ranking (phrase)","\"distributed search ranking\""),
-    ("telemetry (single hit)",             "telemetry"),
-    ("kiwi (no results)",                  "kiwi"),
-    ("banana cherry (AND)",                "banana cherry"),
+    # (label, raw_query)
+    ("apple (common)",                      "apple"),
+    ("search ranking (multi-term)",         "search ranking"),
+    ("distributed search ranking (phrase)", "\"distributed search ranking\""),
+    ("telemetry (single hit)",              "telemetry"),
+    ("kiwi (no results)",                   "kiwi"),
+    ("banana cherry (AND)",                 "banana cherry"),
 ]
 
 def fetch(query: str) -> dict:
@@ -140,25 +156,24 @@ print("─" * 102)
 
 samples = []
 for label, query in QUERIES:
-    # Warmup (discarded)
-    warmup = fetch(query)
+    fetch(query)  # warmup (discarded)
 
     client_ms_list: list[float] = []
-    took_list:    list[float] = []
-    parse_list:   list[float] = []
-    solve_list:   list[float] = []
-    collect_list: list[float] = []
-    rank_list:    list[float] = []
+    took_list:      list[float] = []
+    parse_list:     list[float] = []
+    solve_list:     list[float] = []
+    collect_list:   list[float] = []
+    rank_list:      list[float] = []
     actual_hits = 0
 
     for _ in range(iterations):
         r = fetch(query)
         client_ms_list.append(float(r.get("client_ms", 0)))
-        took_list.append(   float(r.get("took_ms",    0)))
-        parse_list.append(  float(r.get("parse_ms",   0)))
-        solve_list.append(  float(r.get("solve_ms",   0)))
-        collect_list.append(float(r.get("collect_ms", 0)))
-        rank_list.append(   float(r.get("rank_ms",    0)))
+        took_list.append(    float(r.get("took_ms",    0)))
+        parse_list.append(   float(r.get("parse_ms",   0)))
+        solve_list.append(   float(r.get("solve_ms",   0)))
+        collect_list.append( float(r.get("collect_ms", 0)))
+        rank_list.append(    float(r.get("rank_ms",    0)))
         actual_hits = int(r.get("total_hits", 0))
 
     m_client  = mean(client_ms_list)
@@ -173,18 +188,18 @@ for label, query in QUERIES:
           f"  {m_parse:>7.1f}  {m_solve:>7.1f}  {m_collect:>7.1f}  {m_rank:>7.1f}", flush=True)
 
     samples.append({
-        "query":           query,
-        "label":           label,
-        "iterations":      iterations,
-        "total_hits":      actual_hits,
-        "mean_client_ms": round(m_client,  3),
-        "p50_client_ms":  round(p50,       3),
-        "p95_client_ms":  round(p95,       3),
-        "mean_took_ms":   round(mean(took_list),    3),
-        "mean_parse_ms":  round(m_parse,   3),
-        "mean_solve_ms":  round(m_solve,   3),
-        "mean_collect_ms":round(m_collect, 3),
-        "mean_rank_ms":   round(m_rank,    3),
+        "query":            query,
+        "label":            label,
+        "iterations":       iterations,
+        "total_hits":       actual_hits,
+        "mean_client_ms":   round(m_client,        3),
+        "p50_client_ms":    round(p50,             3),
+        "p95_client_ms":    round(p95,             3),
+        "mean_took_ms":     round(mean(took_list),  3),
+        "mean_parse_ms":    round(m_parse,          3),
+        "mean_solve_ms":    round(m_solve,          3),
+        "mean_collect_ms":  round(m_collect,        3),
+        "mean_rank_ms":     round(m_rank,           3),
     })
 
 print("─" * 102)
@@ -192,10 +207,10 @@ print("Columns (ms): client round-trip (mean/P50/P95) | server-side phase breakd
 
 if output_file:
     payload = {
-        "profile":             "query_pipeline",
-        "server_url":          server_url,
+        "profile":              "query_pipeline",
+        "server_url":           server_url,
         "iterations_per_query": iterations,
-        "samples":             samples,
+        "samples":              samples,
     }
     pathlib.Path(output_file).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"JSON written to {output_file}", file=sys.stderr)
