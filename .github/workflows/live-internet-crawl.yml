@@ -1,8 +1,9 @@
 name: Live Internet Crawl
 
 on:
-  schedule:
-    - cron: "0 5 * * *"
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
@@ -10,7 +11,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, avengine]
     timeout-minutes: 120
     permissions:
-      contents: write
+      contents: read
     env:
       LIVE_CRAWL_MINUTES: 30
       LIVE_SWARM_SIZE: 4
@@ -25,7 +26,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ python3 python3-pip ccache gh
+          sudo apt-get install -y g++ python3 python3-pip ccache
 
       - name: Install CMake
         shell: bash
@@ -68,6 +69,12 @@ jobs:
           docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
             /opt/avengine/bin/aggregate-corpus-index.sh
 
+      - name: Promote corpus profile snapshot
+        shell: bash
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
+            /usr/local/bin/av-promote-corpus-profile
+
       - name: Copy crawl artifacts locally
         shell: bash
         run: |
@@ -75,20 +82,20 @@ jobs:
           mkdir -p artifacts/live-crawl live-corpus
           docker cp avengine-runtime:/var/lib/avengine/logs/. artifacts/live-crawl/logs
           docker cp avengine-runtime:/var/lib/avengine/aggregate.log artifacts/live-crawl/aggregate.log
-          docker cp avengine-runtime:/var/lib/avengine/corpus-index/current/. live-corpus
+          docker cp avengine-runtime:/var/lib/avengine/corpus-profile/current/. live-corpus
 
-      - name: Validate aggregated corpus
+      - name: Validate promoted corpus profile
         shell: bash
         run: |
           count=$(find live-corpus -maxdepth 1 -type f -name '*.sfi' | wc -l | tr -d ' ')
-          echo "Live corpus shard count: ${count}"
-          echo "Live corpus shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Promoted corpus profile shard count: ${count}"
+          echo "Promoted corpus profile shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
           if [[ "${count}" -eq 0 ]]; then
-            echo "::error::Live crawl did not produce any .sfi shards"
+            echo "::error::Corpus promotion succeeded but /var/lib/avengine/corpus-profile/current is empty"
             exit 1
           fi
 
-      - name: Run corpus profile against live crawl
+      - name: Run corpus profile against promoted corpus
         shell: bash
         run: |
           bash profiling/scripts/profile_query_pipeline.sh \
@@ -96,13 +103,6 @@ jobs:
             --iterations "${CORPUS_PROFILE_ITERATIONS}" \
             --output artifacts/live-crawl/corpus_profile.json \
             2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Publish corpus index release
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bash profiling/scripts/upload_corpus_index.sh live-corpus
 
       - name: Upload live crawl artifacts
         uses: actions/upload-artifact@v4

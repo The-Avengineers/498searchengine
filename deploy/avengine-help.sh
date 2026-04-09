@@ -29,6 +29,8 @@ Commands:
   av-stop-crawlers    Stop crawler swarm
   av-start-aggregate  Start aggregate watcher
   av-stop-aggregate   Stop aggregate watcher
+  av-promote-corpus-profile
+                      Snapshot /data/corpus-index/current into /data/corpus-profile/current
 
 Examples:
   av-status
@@ -36,6 +38,7 @@ Examples:
   av-watch 2
   av-profile
   av-profile /data/profiling corpus
+  av-promote-corpus-profile
   av-serve 8080
   av-serve 8080 /corpus --daemon
 EOF

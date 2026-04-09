@@ -1,6 +1,6 @@
 # Profiling
 
-The profiling setup measures two independent workloads: the offline crawl-and-index pipeline, and the online search query pipeline. Both have small deterministic fixtures for CI and support pointing at a larger real-world corpus locally or in CI via a GitHub Release.
+The profiling setup measures two independent workloads: the offline crawl-and-index pipeline, and the online search query pipeline. Both have small deterministic fixtures for CI and support pointing at a larger real-world corpus locally or in CI.
 
 ## What gets measured
 
@@ -119,27 +119,30 @@ Outputs:
 
 The fixture corpus (`profiling/fixtures/search_corpus.tsv`) is tiny — good for correctness and fast CI, but not representative of real query latency. For realistic numbers use the full crawl index.
 
-### Uploading the corpus index to GitHub Releases
+### Persistent profiling corpus on the runtime container
 
-The `.sfi` shard files (100–200 MB each) are gitignored. Upload them once to a GitHub Release so CI can download them:
+The self-hosted runner now treats the runtime container volume as the source of truth for CI query profiling:
+
+- `/data/corpus-index/current` is the latest aggregated live crawl output
+- `/data/corpus-profile/current` is the promoted profiling snapshot used by the `corpus-profile` workflow
+
+Inside the container, promote the latest aggregated crawl into the persistent profiling location with:
 
 ```bash
-# From the repo root (where .sfi files live after a crawl):
-bash profiling/scripts/upload_corpus_index.sh
-
-# Or specify a different directory:
-bash profiling/scripts/upload_corpus_index.sh /path/to/shards
+av-promote-corpus-profile
 ```
 
-This creates (or replaces) a release tagged `corpus-index-latest` with all `.sfi` files as assets. Requires the `gh` CLI authenticated with write access to the repo.
+That command snapshots the current aggregated shard set into `/data/corpus-profile/current` using an atomic generation switch, so pull requests and manual profiling runs reuse a stable shard set until the next promotion.
 
-### Updating the corpus
+For clarity: in-container `av-profile ... corpus` still reads `/corpus` (the live aggregated corpus), while GitHub Actions `corpus-profile` reads the promoted snapshot from `/data/corpus-profile/current`.
 
-Re-run the upload script after a new crawl. If you want to guarantee CI doesn't use a stale cached copy, bump the tag:
+### Optional GitHub Release backup
 
-1. Edit the `TAG` variable in `upload_corpus_index.sh` (e.g., `corpus-index-v2`)
-2. Update `CORPUS_INDEX_TAG` in `.github/workflows/profiling.yml` to match
-3. Push — CI will download the new release on the next run
+If you still want a release-backed archive for backup or distribution, the upload helper remains available:
+
+```bash
+bash profiling/scripts/upload_corpus_index.sh /path/to/shards
+```
 
 ---
 
@@ -150,16 +153,17 @@ It runs on the repo's self-hosted runner for all pushes, pull requests, and manu
 
 `corpus-profile`:
 
-- restores or downloads the large `.sfi` shard set from the `corpus-index-latest` GitHub Release
+- copies the promoted `.sfi` shard set from `avengine-runtime:/var/lib/avengine/corpus-profile/current`
 - profiles `search_server` against those shards using `profiling/fixtures/live_search_queries.tsv`
 - uploads `artifacts/corpus_profile.json`
 - writes a Markdown summary table to the GitHub Actions step summary
+- fails fast if the runtime container is down or the promoted profiling corpus has not been built yet
 - fails if shards load successfully but every live query returns zero hits
 
-A separate scheduled/manual workflow lives at `.github/workflows/live-internet-crawl.yml`. It runs
-the crawler box against the public internet for a bounded interval, aggregates the resulting shards,
-profiles `search_server` against that live corpus, and refreshes the `corpus-index-latest` release
-used by `corpus-profile`.
+A separate push-to-`master` / manual workflow lives at `.github/workflows/live-internet-crawl.yml`.
+It runs the crawler box against the public internet for a bounded interval, aggregates the resulting
+shards, promotes them into `/data/corpus-profile/current`, and profiles `search_server` against that
+promoted corpus. Pull requests reuse the latest promoted snapshot instead of rebuilding it.
 
 ---
 

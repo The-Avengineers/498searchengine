@@ -64,6 +64,7 @@ COPY --from=builder /src/deploy/stop-crawler-swarm.sh /avengine/bin/stop-crawler
 COPY --from=builder /src/deploy/start-crawler-supervisor.sh /avengine/bin/start-crawler-supervisor.sh
 COPY --from=builder /src/deploy/stop-crawler-supervisor.sh /avengine/bin/stop-crawler-supervisor.sh
 COPY --from=builder /src/deploy/aggregate-corpus-index.sh /avengine/bin/aggregate-corpus-index.sh
+COPY --from=builder /src/deploy/promote-corpus-profile.sh /avengine/bin/promote-corpus-profile.sh
 COPY --from=builder /src/deploy/start-aggregate-watch.sh /avengine/bin/start-aggregate-watch.sh
 COPY --from=builder /src/deploy/stop-aggregate-watch.sh /avengine/bin/stop-aggregate-watch.sh
 COPY --from=builder /src/deploy/start-search-server.sh /avengine/bin/start-search-server.sh
@@ -96,6 +97,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     /avengine/bin/start-crawler-supervisor.sh \
     /avengine/bin/stop-crawler-supervisor.sh \
     /avengine/bin/aggregate-corpus-index.sh \
+    /avengine/bin/promote-corpus-profile.sh \
     /avengine/bin/start-aggregate-watch.sh \
     /avengine/bin/stop-aggregate-watch.sh \
     /avengine/bin/start-search-server.sh \
@@ -120,6 +122,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     && ln -s /avengine/bin/stop-crawler-swarm.sh /usr/local/bin/av-stop-crawlers \
     && ln -s /avengine/bin/start-aggregate-watch.sh /usr/local/bin/av-start-aggregate \
     && ln -s /avengine/bin/stop-aggregate-watch.sh /usr/local/bin/av-stop-aggregate \
+    && ln -s /avengine/bin/promote-corpus-profile.sh /usr/local/bin/av-promote-corpus-profile \
     && ln -s /avengine/bin/start-search-server.sh /usr/local/bin/av-serve \
     && ln -s /avengine/bin/stop-search-server.sh /usr/local/bin/av-stop-search \
     && ln -s /avengine/bin/avengine-status.sh /usr/local/bin/av-status \
@@ -133,7 +136,7 @@ if [[ $- == *i* ]]; then
   echo "  Commands: av-help  av-status  av-stats  av-watch [seconds]  av-profile"
   echo "            av-start  av-stop  av-serve [port] [index-dir] [--daemon]"
   echo "            av-start-crawlers  av-stop-crawler-supervisor  av-stop-crawlers"
-  echo "            av-start-aggregate  av-stop-aggregate  av-stop-search"
+  echo "            av-start-aggregate  av-stop-aggregate  av-promote-corpus-profile  av-stop-search"
   echo "  Nix: /avengine/flake.nix"
   echo
 fi

@@ -13,8 +13,6 @@ jobs:
   corpus-profile:
     runs-on: [self-hosted, linux, x64, avengine]
     timeout-minutes: 90
-    env:
-      CORPUS_INDEX_TAG: corpus-index-latest
     permissions:
       contents: read
 
@@ -25,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ python3 python3-pip ccache gh libssl-dev zlib1g-dev
+          sudo apt-get install -y g++ python3 python3-pip ccache libssl-dev zlib1g-dev
 
       - name: Install CMake
         run: |
@@ -41,32 +39,32 @@ jobs:
             ${{ runner.os }}-ccache-corpus-profile-
           max-size: 500M
 
-      - name: Restore corpus index from cache
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: corpus-index/
-          key: ${{ env.CORPUS_INDEX_TAG }}
-
-      - name: Download corpus index from release
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Copy persistent corpus profile from runtime container
         run: |
+          if ! docker inspect avengine-runtime >/dev/null 2>&1; then
+            echo "::error::Container avengine-runtime was not found. Start the runtime container and rebuild the profiling corpus on master first."
+            exit 1
+          fi
+          running=$(docker inspect -f '{{.State.Running}}' avengine-runtime)
+          if [[ "${running}" != "true" ]]; then
+            echo "::error::Container avengine-runtime is not running. Start the runtime container before running corpus-profile."
+            exit 1
+          fi
+          remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
+          if [[ "${remote_count}" -eq 0 ]]; then
+            echo "::error::No promoted profiling shards found at /var/lib/avengine/corpus-profile/current. Push to master or run the live crawl workflow to build the persistent corpus first."
+            exit 1
+          fi
+          rm -rf corpus-index
           mkdir -p corpus-index
-          gh release download "$CORPUS_INDEX_TAG" \
-            --repo "${{ github.repository }}" \
-            --dir corpus-index/ \
-            --pattern "*.sfi"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate corpus index
-        run: |
+          docker cp avengine-runtime:/var/lib/avengine/corpus-profile/current/. corpus-index
           count=$(ls corpus-index/*.sfi 2>/dev/null | wc -l | tr -d ' ')
           echo "Found ${count} .sfi shard(s) in corpus-index/"
           if [[ "${count}" -eq 0 ]]; then
-            echo "::error::No .sfi files found — corpus download failed or release has no assets. Run profiling/scripts/upload_corpus_index.sh to publish the index."
+            echo "::error::Promoted profiling corpus exists in the runtime container, but no shards were copied into the job workspace."
             exit 1
           fi
+          echo "Persistent corpus profile shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run corpus profile
         run: |
