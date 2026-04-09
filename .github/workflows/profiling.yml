@@ -6,70 +6,12 @@ concurrency:
 
 on:
   pull_request:
-    branches: [main, master]
-    paths:
-      - "CMakeLists.txt"
-      - "src/**"
-      - "include/**"
-      - "profiling/**"
-      - ".github/workflows/profiling.yml"
   push:
-    branches: [main, master]
-    paths:
-      - "CMakeLists.txt"
-      - "src/**"
-      - "include/**"
-      - "profiling/**"
-      - ".github/workflows/profiling.yml"
   workflow_dispatch:
 
 jobs:
-  # Fixture-based profile: correctness + baseline latency using the small test corpus.
-  # Runs on both PRs and pushes.
-  profile:
-    runs-on: [self-hosted, linux, x64, avengine]
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 ccache
-
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ runner.os }}-ccache-profile-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-profile-
-          max-size: 500M
-
-      - name: Configure
-        run: mkdir -p artifacts
-
-      - name: Run profiling suite
-        run: |
-          CRAWLER_REPETITIONS=80 SEARCH_ITERATIONS=12 \
-            bash profiling/run_profiles.sh artifacts build
-
-      - name: Render summary
-        run: |
-          cat artifacts/profile_summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload profiling artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: profiling-artifacts
-          path: artifacts/
-
-  # Corpus-based profile: realistic latency using the large crawl index.
-  # Runs only on pushes to avoid downloading ~1 GB on every PR.
   corpus-profile:
     runs-on: [self-hosted, linux, x64, avengine]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 90
     env:
       CORPUS_INDEX_TAG: corpus-index-latest
@@ -83,7 +25,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 ccache gh
+          sudo apt-get install -y g++ python3 python3-pip ccache gh
+
+      - name: Install CMake
+        run: |
+          python3 -m pip install --user "cmake>=3.20"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cmake" --version
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1

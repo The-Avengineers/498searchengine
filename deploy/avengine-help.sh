@@ -20,6 +20,9 @@ Commands:
   av-watch [seconds]  Refresh status and stats every few seconds
   av-start            Start crawler supervisor and aggregate watcher
   av-stop             Stop search server, aggregate watcher, crawler supervisor, and crawler swarm
+  av-profile [output-dir] [auto|fixture|corpus]
+                      Run crawler + search profiling inside the container
+                      Live corpus mode waits 60s, refreshes /corpus, then profiles
   av-serve [port] [index-dir] [--daemon]
                       Start search server on the given port
   av-stop-search      Stop background search server
@@ -31,6 +34,8 @@ Examples:
   av-status
   av-stats
   av-watch 2
+  av-profile
+  av-profile /data/profiling corpus
   av-serve 8080
   av-serve 8080 /corpus --daemon
 EOF

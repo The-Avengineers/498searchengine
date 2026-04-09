@@ -29,6 +29,8 @@ av-help
 av-status
 av-stats
 av-watch 2
+av-profile
+AVENGINE_LIVE_PROFILE_WAIT_SECONDS=60 av-profile /data/profiling corpus
 av-start
 av-start-crawlers
 av-stop
