@@ -1,6 +1,8 @@
 #include <avengine/crawler/url_normalizer.h>
 #include <avengine/html_parser/HtmlParser.h>
 #include <avengine/indexer/indexer.h>
+#include <avengine/string.h>
+#include <avengine/vector.h>
 
 #include <algorithm>
 #include <cctype>
@@ -14,7 +16,6 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
-#include <vector>
 
 namespace
 {
@@ -30,9 +31,9 @@ struct Args
 
 struct FixtureDocument
 {
-  std::string name;
-  std::string url;
-  std::string html;
+  avengine::string name;
+  avengine::string url;
+  avengine::string html;
 };
 
 struct Metrics
@@ -47,10 +48,9 @@ struct Metrics
   long long totalMs = 0;
 };
 
-std::string JsonEscape(const std::string& value)
+avengine::string JsonEscape(const avengine::string& value)
 {
-  std::string out;
-  out.reserve(value.size() + 8);
+  avengine::string out;
   for (char ch : value)
   {
     switch (ch)
@@ -71,7 +71,7 @@ std::string JsonEscape(const std::string& value)
       out += "\\t";
       break;
     default:
-      out.push_back(ch);
+      out.pushBack(ch);
       break;
     }
   }
@@ -93,7 +93,7 @@ Args ParseArgs(int argc, char** argv)
   Args args;
   for (int i = 1; i < argc; ++i)
   {
-    const std::string arg(argv[i]);
+    const avengine::string arg(argv[i]);
     if (arg == "--fixtures" && i + 1 < argc)
     {
       args.fixturesDir = fs::path(argv[++i]);
@@ -125,7 +125,7 @@ Args ParseArgs(int argc, char** argv)
   return args;
 }
 
-std::string ReadFile(const fs::path& path)
+avengine::string ReadFile(const fs::path& path)
 {
   std::ifstream in(path, std::ios::binary);
   if (!in)
@@ -135,33 +135,37 @@ std::string ReadFile(const fs::path& path)
   }
   std::ostringstream buffer;
   buffer << in.rdbuf();
-  return buffer.str();
+  const std::string contents = buffer.str();
+  return avengine::string(contents.c_str());
 }
 
-std::string MakeFixtureUrl(const fs::path& path)
+avengine::string MakeFixtureUrl(const fs::path& path)
 {
-  std::string stem = path.stem().string();
-  for (char& ch : stem)
+  avengine::string stem(path.stem().string().c_str());
+  for (size_t i = 0; i < stem.size(); ++i)
   {
+    char& ch = stem[i];
     if (!std::isalnum(static_cast<unsigned char>(ch)))
       ch = '-';
   }
-  return "https://profile.avengine.test/" + stem;
+  avengine::string url("https://profile.avengine.test/");
+  url += stem;
+  return url;
 }
 
-std::vector<FixtureDocument> LoadFixtures(const fs::path& fixturesDir)
+avengine::vector<FixtureDocument> LoadFixtures(const fs::path& fixturesDir)
 {
-  std::vector<FixtureDocument> fixtures;
+  avengine::vector<FixtureDocument> fixtures;
   for (const fs::directory_entry& entry : fs::directory_iterator(fixturesDir))
   {
     if (!entry.is_regular_file() || entry.path().extension() != ".html")
       continue;
 
     FixtureDocument doc;
-    doc.name = entry.path().filename().string();
+    doc.name = avengine::string(entry.path().filename().string().c_str());
     doc.url = MakeFixtureUrl(entry.path());
     doc.html = ReadFile(entry.path());
-    fixtures.push_back(doc);
+    fixtures.pushBack(doc);
   }
 
   std::sort(fixtures.begin(), fixtures.end(),
@@ -179,10 +183,13 @@ std::vector<FixtureDocument> LoadFixtures(const fs::path& fixturesDir)
 fs::path MakeTempIndexDir()
 {
   fs::path base = fs::temp_directory_path() / "avengine_crawler_profile_XXXXXX";
-  std::string pattern = base.string();
-  std::vector<char> writable(pattern.begin(), pattern.end());
-  writable.push_back('\0');
-  char* created = mkdtemp(writable.data());
+  const avengine::string pattern(base.string().c_str());
+  avengine::vector<char> writable;
+  writable.reserve(pattern.size() + 1);
+  for (char ch : pattern)
+    writable.pushBack(ch);
+  writable.pushBack('\0');
+  char* created = mkdtemp(writable.begin());
   if (!created)
   {
     std::perror("mkdtemp");
@@ -208,7 +215,7 @@ void RemoveTempDir(const fs::path& directory)
   fs::remove_all(directory, ec);
 }
 
-Metrics RunProfile(const Args& args, const std::vector<FixtureDocument>& fixtures)
+Metrics RunProfile(const Args& args, const avengine::vector<FixtureDocument>& fixtures)
 {
   Metrics metrics;
   metrics.documentCount = fixtures.size() * args.repetitions;
@@ -234,7 +241,7 @@ Metrics RunProfile(const Args& args, const std::vector<FixtureDocument>& fixture
     {
       metrics.totalBytes += fixture.html.size();
 
-      avengine::HtmlParser parser(fixture.html.c_str(), fixture.html.size());
+      avengine::HtmlParser parser(fixture.html.cstr(), fixture.html.size());
       if (parser.rejected)
       {
         std::cerr << "Fixture rejected by parser: " << fixture.name << "\n";
@@ -242,7 +249,7 @@ Metrics RunProfile(const Args& args, const std::vector<FixtureDocument>& fixture
       }
 
       DocumentMetadata metadata = {
-          .url = fixture.url.c_str(),
+          .url = fixture.url,
           .title = parser.fullTitle,
           .input = 0,
       };
@@ -304,7 +311,8 @@ void WriteJson(const Args& args, const Metrics& metrics)
   out << std::fixed << std::setprecision(3);
   out << "{\n";
   out << "  \"profile\": \"crawler_index\",\n";
-  out << "  \"fixtures_dir\": \"" << JsonEscape(args.fixturesDir.string()) << "\",\n";
+  out << "  \"fixtures_dir\": \"" << JsonEscape(avengine::string(args.fixturesDir.string().c_str()))
+      << "\",\n";
   out << "  \"repetitions\": " << args.repetitions << ",\n";
   out << "  \"document_count\": " << metrics.documentCount << ",\n";
   out << "  \"total_bytes\": " << metrics.totalBytes << ",\n";
@@ -324,7 +332,7 @@ void WriteJson(const Args& args, const Metrics& metrics)
 int main(int argc, char** argv)
 {
   const Args args = ParseArgs(argc, argv);
-  const std::vector<FixtureDocument> fixtures = LoadFixtures(args.fixturesDir);
+  const avengine::vector<FixtureDocument> fixtures = LoadFixtures(args.fixturesDir);
   const Metrics metrics = RunProfile(args, fixtures);
   WriteJson(args, metrics);
 
