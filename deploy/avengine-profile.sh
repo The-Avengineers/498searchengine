@@ -4,7 +4,8 @@ set -euo pipefail
 DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
 BIN_ROOT="${AVENGINE_BIN_ROOT:-/avengine/bin}"
 PROFILE_ROOT="${DATA_ROOT}/profiling"
-QUERIES_FILE="/profiling/fixtures/search_queries.tsv"
+FIXTURE_QUERIES_FILE="/profiling/fixtures/search_queries.tsv"
+LIVE_QUERIES_FILE="/profiling/fixtures/live_search_queries.tsv"
 SEARCH_FIXTURE="/profiling/fixtures/search_corpus.tsv"
 CRAWL_FIXTURES="/profiling/fixtures/crawl_pages"
 LIVE_PROFILE_WAIT_SECONDS="${AVENGINE_LIVE_PROFILE_WAIT_SECONDS:-60}"
@@ -22,16 +23,19 @@ echo "Running crawler fixture profile..."
 
 SEARCH_ARGS=()
 USING_LIVE_CORPUS=0
+QUERIES_FILE="${FIXTURE_QUERIES_FILE}"
 if [[ "${BUILD_MODE}" == "fixture" ]]; then
   SEARCH_ARGS+=(--index-builder "${BIN_ROOT}/index_builder" --fixture "${SEARCH_FIXTURE}")
 elif [[ "${BUILD_MODE}" == "corpus" ]]; then
   SEARCH_ARGS+=(--index-dir /corpus)
   USING_LIVE_CORPUS=1
+  QUERIES_FILE="${LIVE_QUERIES_FILE}"
 else
   if find -L /corpus -maxdepth 1 -type f -name '*.sfi' | grep -q .; then
     echo "Using live corpus shards from /corpus for search profile"
     SEARCH_ARGS+=(--index-dir /corpus)
     USING_LIVE_CORPUS=1
+    QUERIES_FILE="${LIVE_QUERIES_FILE}"
   else
     echo "No live corpus shards in /corpus; building fixture index for search profile"
     SEARCH_ARGS+=(--index-builder "${BIN_ROOT}/index_builder" --fixture "${SEARCH_FIXTURE}")
@@ -44,6 +48,8 @@ if [[ "${USING_LIVE_CORPUS}" -eq 1 ]]; then
   echo "Refreshing aggregated corpus before profiling..."
   "${BIN_ROOT}/aggregate-corpus-index.sh"
 fi
+
+echo "Using query fixture ${QUERIES_FILE}"
 
 echo "Running search HTTP profile..."
 python3 /profiling/scripts/run_search_http_profile.py \

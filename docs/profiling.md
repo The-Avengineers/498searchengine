@@ -38,6 +38,10 @@ The HTTP query profile reads its query set from `profiling/fixtures/search_queri
 defines a label, query text, and limit; profiles report the observed hit counts from the corpus
 being tested.
 
+For live-corpus profiling, use `profiling/fixtures/live_search_queries.tsv` instead of the fixture
+query set. The live query fixture is intended for real crawl shards and should not be expected to
+produce deterministic hit counts across runs.
+
 ---
 
 ## Local usage
@@ -141,14 +145,16 @@ Re-run the upload script after a new crawl. If you want to guarantee CI doesn't 
 
 ## CI
 
-Two jobs are defined in `.github/workflows/profiling.yml`:
+The profiling workflow now runs a single `corpus-profile` job in `.github/workflows/profiling.yml`.
+It runs on the repo's self-hosted runner for all pushes, pull requests, and manual dispatches.
 
-| Job | Trigger | What it does |
-|-----|---------|-------------|
-| `profile` | PRs + pushes to main/master | Full crawler + HTTP search profile using fixture corpus; uploads JSON + Markdown summary |
-| `corpus-profile` | Pushes to main/master only | Downloads the large corpus index from GitHub Releases (cached), runs 50 iterations per query, uploads `corpus_profile.json` |
+`corpus-profile`:
 
-The `corpus-profile` job is skipped on PRs to avoid downloading ~1 GB of index data on every review cycle. Both jobs upload their artifacts so you can download the full reports from the Actions run page.
+- restores or downloads the large `.sfi` shard set from the `corpus-index-latest` GitHub Release
+- profiles `search_server` against those shards using `profiling/fixtures/live_search_queries.tsv`
+- uploads `artifacts/corpus_profile.json`
+- writes a Markdown summary table to the GitHub Actions step summary
+- fails if shards load successfully but every live query returns zero hits
 
 A separate scheduled/manual workflow lives at `.github/workflows/live-internet-crawl.yml`. It runs
 the crawler box against the public internet for a bounded interval, aggregates the resulting shards,
@@ -163,4 +169,5 @@ used by `corpus-profile`.
 |------|---------|
 | `profiling/fixtures/search_corpus.tsv` | `search_http_profile`, `profile_query_pipeline` (default) |
 | `profiling/fixtures/search_queries.tsv` | `search_http_profile`, `profile_query_pipeline` |
+| `profiling/fixtures/live_search_queries.tsv` | live corpus profiling in CI and `av-profile ... corpus` |
 | `profiling/fixtures/crawl_pages/` | `crawler_index_profile` |

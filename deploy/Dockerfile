@@ -87,6 +87,7 @@ COPY --from=builder /src/profiling/scripts/run_search_http_profile.py /avengine/
 COPY --from=builder /src/profiling/scripts/query_fixture.py /avengine/profiling/scripts/query_fixture.py
 COPY --from=builder /src/profiling/fixtures/search_corpus.tsv /avengine/profiling/fixtures/search_corpus.tsv
 COPY --from=builder /src/profiling/fixtures/search_queries.tsv /avengine/profiling/fixtures/search_queries.tsv
+COPY --from=builder /src/profiling/fixtures/live_search_queries.tsv /avengine/profiling/fixtures/live_search_queries.tsv
 COPY --from=builder /src/profiling/fixtures/crawl_pages /avengine/profiling/fixtures/crawl_pages
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \

@@ -22,7 +22,7 @@ Commands:
   av-stop             Stop search server, aggregate watcher, crawler supervisor, and crawler swarm
   av-profile [output-dir] [auto|fixture|corpus]
                       Run crawler + search profiling inside the container
-                      Live corpus mode waits 60s, refreshes /corpus, then profiles
+                      Live corpus mode waits 60s, refreshes /corpus, then profiles with live queries
   av-serve [port] [index-dir] [--daemon]
                       Start search server on the given port
   av-stop-search      Stop background search server

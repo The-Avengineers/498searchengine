@@ -36,6 +36,10 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def query_hit_value(sample: dict) -> float:
+    return float(sample.get("mean_total_hits", sample.get("total_hits", 0)))
+
+
 def wait_for_port(server: subprocess.Popen[str], port: int, timeout_s: float = 10.0) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -206,6 +210,7 @@ def main() -> int:
             "iterations_per_query": args.iterations,
             "query_count": len(samples),
             "shard_count": len(shards),
+            "nonzero_hit_query_count": sum(1 for sample in samples if query_hit_value(sample) > 0),
             "mean_client_ms": statistics.fmean(all_latencies) if all_latencies else 0.0,
             "p50_client_ms": percentile(all_latencies, 0.50),
             "p95_client_ms": percentile(all_latencies, 0.95),

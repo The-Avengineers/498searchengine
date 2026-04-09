@@ -108,6 +108,8 @@ PYEOF
   echo "Server ready at ${SERVER_URL}" >&2
 fi
 
+echo "Using queries from ${QUERIES_FILE}" >&2
+
 # ── All measurement and reporting delegated to Python ────────────────────────
 python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" "${QUERIES_FILE}" "${SCRIPT_DIR}" <<'PYEOF'
 from __future__ import annotations
