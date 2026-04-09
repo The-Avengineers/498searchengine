@@ -148,7 +148,6 @@ void testSolverQueries()
   EXPECT(page2.Limit == 1u);
   expectUrls(page2, {"doc://apollo"});
 
-
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
   expectUrls(service.Search("banana cherry", 10), {"doc://fruit-b", "doc://fruit-a"});
   expectUrls(service.Search("apple | brown", 10),

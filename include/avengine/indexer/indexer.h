@@ -35,7 +35,6 @@ constexpr size_t INDEX_SLOT_COUNT = 8;
 // document, etc). It MUST be plain old data, no pointers.
 using RankingInput = uint64_t;
 
-
 struct PostingList
 {
   PostingList() = default;
