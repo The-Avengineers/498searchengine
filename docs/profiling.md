@@ -149,7 +149,7 @@ bash profiling/scripts/upload_corpus_index.sh /path/to/shards
 ## CI
 
 The profiling workflow now runs a single `corpus-profile` job in `.github/workflows/profiling.yml`.
-It runs on the repo's self-hosted runner for all pushes, pull requests, and manual dispatches.
+It runs on the repo's dedicated `avengine-runtime` self-hosted runner for all pushes, pull requests, and manual dispatches.
 
 `corpus-profile`:
 
@@ -161,9 +161,11 @@ It runs on the repo's self-hosted runner for all pushes, pull requests, and manu
 - fails if shards load successfully but every live query returns zero hits
 
 A separate push-to-`master` / manual workflow lives at `.github/workflows/live-internet-crawl.yml`.
-It runs the crawler box against the public internet for a bounded interval, aggregates the resulting
-shards, promotes them into `/data/corpus-profile/current`, and profiles `search_server` against that
-promoted corpus. Pull requests reuse the latest promoted snapshot instead of rebuilding it.
+It talks to the already-running crawler service on that same dedicated runtime runner, refreshes the
+aggregated corpus, promotes it into `/data/corpus-profile/current`, and profiles `search_server`
+against that promoted corpus. Pull requests reuse the latest promoted snapshot instead of rebuilding it.
+
+The long-lived runtime service itself is deployed by `.github/workflows/deploy-avengine.yml` on push to `master` or by manual dispatch.
 
 ---
 

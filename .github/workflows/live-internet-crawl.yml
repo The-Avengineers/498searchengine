@@ -8,14 +8,11 @@ on:
 
 jobs:
   live-crawl:
-    runs-on: [self-hosted, linux, x64, avengine]
+    runs-on: [self-hosted, linux, x64, avengine-runtime]
     timeout-minutes: 120
     permissions:
       contents: read
     env:
-      LIVE_CRAWL_MINUTES: 30
-      LIVE_SWARM_SIZE: 4
-      LIVE_CRAWLER_WORKERS: 64
       CORPUS_PROFILE_ITERATIONS: 50
 
     steps:
@@ -35,45 +32,37 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/cmake" --version
 
-      - name: Launch crawler box
+      - name: Validate long-lived runtime service
         shell: bash
-        env:
-          AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY || '' }}
-          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
-          AVENGINE_AUTO_SWARM: "0"
-          AVENGINE_SWARM_SIZE: ${{ env.LIVE_SWARM_SIZE }}
-          AVENGINE_CRAWLER_WORKERS: ${{ env.LIVE_CRAWLER_WORKERS }}
         run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml up -d --build --remove-orphans
+          if ! docker inspect avengine-runtime >/dev/null 2>&1; then
+            echo "::error::Container avengine-runtime was not found on this runner. Deploy the long-lived runtime service to the dedicated avengine-runtime self-hosted runner first."
+            exit 1
+          fi
+          running=$(docker inspect -f '{{.State.Running}}' avengine-runtime)
+          if [[ "${running}" != "true" ]]; then
+            echo "::error::Container avengine-runtime is not running. Restore the long-lived runtime service before refreshing the profiling corpus."
+            exit 1
+          fi
+          docker exec avengine-runtime /usr/local/bin/av-status | tee /tmp/avengine-status.txt
+          if ! grep -q "crawler supervisor: running" /tmp/avengine-status.txt; then
+            echo "::error::Crawler supervisor is not running inside avengine-runtime. The live crawl service must run continuously on the runtime host."
+            exit 1
+          fi
+          if ! grep -q "aggregate watcher: running" /tmp/avengine-status.txt; then
+            echo "::error::Aggregate watcher is not running inside avengine-runtime. The runtime host must keep the live corpus refreshed continuously."
+            exit 1
+          fi
 
-      - name: Reset crawler swarm
+      - name: Refresh aggregated corpus from the live runtime service
         shell: bash
         run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
-            bash -lc "AVENGINE_SWARM_SIZE=${LIVE_SWARM_SIZE} AVENGINE_CRAWLER_WORKERS=${LIVE_CRAWLER_WORKERS} /opt/avengine/bin/start-crawler-swarm.sh --reset"
-
-      - name: Let the crawler hit the internet
-        shell: bash
-        run: |
-          sleep "$(( LIVE_CRAWL_MINUTES * 60 ))"
-
-      - name: Stop crawler swarm
-        shell: bash
-        run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
-            /opt/avengine/bin/stop-crawler-swarm.sh
-
-      - name: Aggregate corpus shards
-        shell: bash
-        run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
-            /opt/avengine/bin/aggregate-corpus-index.sh
+          docker exec avengine-runtime /opt/avengine/bin/aggregate-corpus-index.sh
 
       - name: Promote corpus profile snapshot
         shell: bash
         run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
-            /usr/local/bin/av-promote-corpus-profile
+          docker exec avengine-runtime /usr/local/bin/av-promote-corpus-profile
 
       - name: Copy crawl artifacts locally
         shell: bash

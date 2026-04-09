@@ -12,6 +12,7 @@ The deployed Docker container now acts as a long-lived crawler box:
 - the merged corpus lives at `/var/lib/avengine/corpus-index/current`
 - the promoted profiling corpus lives at `/var/lib/avengine/corpus-profile/current`
 - SSH access is granted through `AVENGINE_SSH_PUBKEY` when the container starts
+- the GitHub Actions runner that hosts this service should have a dedicated label such as `avengine-runtime`
 
 When you SSH in, the container exposes a simplified layout at the filesystem root:
 
@@ -41,6 +42,13 @@ av-stop-search
 ```
 
 To enable SSH access on the runtime box, set `AVENGINE_SSH_PUBKEY` to one or more newline-separated public keys before `docker compose up`. The default compose file no longer bind-mounts `infra/deploy/authorized_keys`, which avoids Docker Desktop file-sharing failures on the self-hosted runner.
+
+The intended operating model is:
+
+- `deploy-avengine.yml` deploys or refreshes the long-lived runtime service on the dedicated `avengine-runtime` runner
+- the crawler supervisor and aggregate watcher keep running in the background on that host
+- `live-internet-crawl.yml` no longer boots or tears down the service; it refreshes the aggregated corpus, promotes `/var/lib/avengine/corpus-profile/current`, and profiles that snapshot
+- `profiling.yml` reads only the promoted snapshot from the same dedicated runtime runner
 
 `av-profile ... corpus` still profiles the live `/corpus` view. CI `corpus-profile` instead reuses the promoted snapshot at `/var/lib/avengine/corpus-profile/current`.
 
