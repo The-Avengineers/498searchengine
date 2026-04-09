@@ -21,7 +21,9 @@ inline vector<uint8_t> encodeFrontierBatch(const vector<FullURLEntry>& entries)
     const FullURLEntry& e = entries[i];
     w.writeString(e.entry.url);
     w.writeString(e.anchorText);
-    w.writeU64(e.entry.depth);
+    w.writeU64(static_cast<uint64_t>(e.entry.depth));
+    w.writeU64(static_cast<uint64_t>(e.entry.seedDomainDepth));
+    w.writeU64(static_cast<uint64_t>(e.entry.seedSourceLine));
   }
   return w.release();
 }
@@ -43,11 +45,21 @@ inline bool decodeFrontierBatch(const vector<uint8_t>& buf, vector<FullURLEntry>
 
     string url = r.readString();
     string anchorText = r.readString();
+
+    if (r.remaining() < 24)
+    {
+      return false;
+    }
+
     uint64_t depth = r.readU64();
+    uint64_t seedDomainDepth = r.readU64();
+    uint64_t seedSourceLine = r.readU64();
 
     FullURLEntry entry;
     entry.entry.url = url;
     entry.entry.depth = static_cast<int>(depth);
+    entry.entry.seedDomainDepth = static_cast<int>(seedDomainDepth);
+    entry.entry.seedSourceLine = static_cast<int>(seedSourceLine);
     entry.anchorText = anchorText;
     out.pushBack(entry);
   }

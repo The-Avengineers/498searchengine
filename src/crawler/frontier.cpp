@@ -141,12 +141,25 @@ void frontier::seed(const vector<string>& seedURLs)
     size_t owner = hashString(seedURLs[i]) % numPeers;
     if (owner == localNodeId)
     {
-      add(seedURLs[i], 0);
+      add(seedURLs[i], 0, 0, 0);
     }
   }
 }
 
-void frontier::add(const string& url, int depth)
+void frontier::seed(const vector<urlEntry>& seedEntries)
+{
+  for (size_t i = 0; i < seedEntries.size(); ++i)
+  {
+    const urlEntry& seedEntry = seedEntries[i];
+    size_t owner = hashString(seedEntry.url) % numPeers;
+    if (owner == localNodeId)
+    {
+      add(seedEntry.url, seedEntry.depth, seedEntry.seedDomainDepth, seedEntry.seedSourceLine);
+    }
+  }
+}
+
+void frontier::add(const string& url, int depth, int seedDomainDepth, int seedSourceLine)
 {
   if (alreadySeen(url))
   {
@@ -159,6 +172,8 @@ void frontier::add(const string& url, int depth)
   entry.url = url;
   entry.domain = extractDomain(url);
   entry.depth = depth;
+  entry.seedDomainDepth = seedDomainDepth;
+  entry.seedSourceLine = seedSourceLine;
 
   masterList.pushBack(entry);
 }
@@ -223,13 +238,32 @@ vector<urlEntry> frontier::nextBatch(size_t sampleSize, size_t batchSize)
     return batch;
   }
 
-  // Insertion sort sample by depth in ascending order (closer to seed first)
+  // Insertion sort sample by crawl priority in ascending order:
+  //   (distance from seed list * 12) + distance from seed domain.
   for (size_t i = 1; i < sample.size(); ++i)
   {
     urlEntry key = sample[i];
+    const int keyPriority = key.depth * 12 + key.seedDomainDepth;
     size_t j = i;
-    while (j > 0 && sample[j - 1].depth > key.depth)
+    while (j > 0)
     {
+      const int prevPriority = sample[j - 1].depth * 12 + sample[j - 1].seedDomainDepth;
+      if (prevPriority < keyPriority)
+      {
+        break;
+      }
+      if (prevPriority == keyPriority)
+      {
+        if (sample[j - 1].depth < key.depth)
+        {
+          break;
+        }
+        if (sample[j - 1].depth == key.depth &&
+            sample[j - 1].seedDomainDepth <= key.seedDomainDepth)
+        {
+          break;
+        }
+      }
       sample[j] = sample[j - 1];
       --j;
     }
@@ -303,6 +337,20 @@ expected<void, error> frontier::saveCheckpoint(const string& path) const
     }
 
     res = logging_helpers::writeVal(entry.depth, f);
+    if (!res.hasValue())
+    {
+      cleanupTemp();
+      return res;
+    }
+
+    res = logging_helpers::writeVal(entry.seedDomainDepth, f);
+    if (!res.hasValue())
+    {
+      cleanupTemp();
+      return res;
+    }
+
+    res = logging_helpers::writeVal(entry.seedSourceLine, f);
     if (!res.hasValue())
     {
       cleanupTemp();
@@ -393,6 +441,21 @@ expected<void, error> frontier::loadCheckpoint(const string& path)
     {
       return res;
     }
+
+    // get seed-domain distance
+    res = logging_helpers::readVal(entry.seedDomainDepth, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
+    // get seed source line
+    res = logging_helpers::readVal(entry.seedSourceLine, f);
+    if (!res.hasValue())
+    {
+      return res;
+    }
+
     masterList.pushBack(entry);
   }
 

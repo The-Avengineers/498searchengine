@@ -183,7 +183,8 @@ string https_url_helper(URLNormalizer& normalizer, const string& url)
 }
 
 // Populates the seeds vector with URLs in the file
-void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* path)
+void fill_seeds(frontier& theFrontier, vector<urlEntry>& seeds, URLNormalizer& normalizer,
+                const char* path)
 {
   std::ifstream in(path);
   if (!in.is_open())
@@ -192,8 +193,10 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
   }
 
   char line[1024];
+  int lineNumber = 0;
   while (in.getline(line, sizeof(line)))
   {
+    ++lineNumber;
     if (line[0] == '\0' || line[0] == '#')
     {
       continue;
@@ -204,7 +207,14 @@ void fill_seeds(vector<string>& seeds, URLNormalizer& normalizer, const char* pa
     {
       continue;
     }
-    seeds.pushBack(normalized);
+
+    urlEntry seed;
+    seed.url = normalized;
+    seed.domain = theFrontier.extractDomain(normalized);
+    seed.depth = 0;
+    seed.seedDomainDepth = 0;
+    seed.seedSourceLine = lineNumber;
+    seeds.pushBack(seed);
   }
 }
 
@@ -251,8 +261,23 @@ vector<urlEntry> nextBatchShortFrontierLock(frontier& theFrontier, mutex& fronti
     return batch;
   }
 
-  // Sort sample by depth in ascending order (closer to seed first).
-  sample.sort([](const urlEntry& lhs, const urlEntry& rhs) { return lhs.depth < rhs.depth; });
+  // Sort sample by crawl priority in ascending order:
+  //   (distance from seed list * 12) + distance from seed domain.
+  sample.sort(
+      [](const urlEntry& lhs, const urlEntry& rhs)
+      {
+        const int lhsPriority = lhs.depth * 12 + lhs.seedDomainDepth;
+        const int rhsPriority = rhs.depth * 12 + rhs.seedDomainDepth;
+        if (lhsPriority != rhsPriority)
+        {
+          return lhsPriority < rhsPriority;
+        }
+        if (lhs.depth != rhs.depth)
+        {
+          return lhs.depth < rhs.depth;
+        }
+        return lhs.seedDomainDepth < rhs.seedDomainDepth;
+      });
 
   const size_t actualBatchSize = (batchSize < sample.size()) ? batchSize : sample.size();
   batch.reserve(actualBatchSize);
@@ -359,17 +384,29 @@ void mergeDiscoveredIntoFrontier(globalCrawlerState& state)
 // node owns the URL it is added directly to the local frontier; otherwise it
 // is enqueued in the appropriate outbound buffer so that the network-dispatch
 // thread can forward it to the owning peer.
-void routeURLToPeer(const string& normalized, int depth,
+void routeURLToPeer(const string& normalized, const urlEntry& parentEntry,
                     const vector<string_slice>& anchorTextSlices, globalCrawlerState& state,
                     vector<urlEntry>& localLinks)
 {
+  const string childDomain = state.theFrontier->extractDomain(normalized);
+  int childSeedDomainDepth = parentEntry.seedDomainDepth;
+  if (childDomain != parentEntry.domain)
+  {
+    ++childSeedDomainDepth;
+  }
+
+  const int childDepth = parentEntry.depth + 1;
+  const int childSeedSourceLine = parentEntry.seedSourceLine;
+
   size_t owner = hashString(normalized) % numPeers;
   if (owner == localNodeId)
   {
     urlEntry entry;
     entry.url = normalized;
-    entry.domain = state.theFrontier->extractDomain(normalized);
-    entry.depth = depth;
+    entry.domain = childDomain;
+    entry.depth = childDepth;
+    entry.seedDomainDepth = childSeedDomainDepth;
+    entry.seedSourceLine = childSeedSourceLine;
 
     localLinks.pushBack(entry);
 
@@ -390,7 +427,10 @@ void routeURLToPeer(const string& normalized, int depth,
     crawler::FullURLEntry outEntry;
     outEntry.entry.url = normalized;
     outEntry.anchorText = anchorText;
-    outEntry.entry.depth = depth;
+    outEntry.entry.domain = childDomain;
+    outEntry.entry.depth = childDepth;
+    outEntry.entry.seedDomainDepth = childSeedDomainDepth;
+    outEntry.entry.seedSourceLine = childSeedSourceLine;
 
     state.outboundMu.lock();
     state.outbound[owner].pushBack(outEntry);
@@ -579,7 +619,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       continue;
     }
 
-    routeURLToPeer(normalized, entry.depth + 1, parser.links[j].anchorText, state, preparedURLs);
+    routeURLToPeer(normalized, entry, parser.links[j].anchorText, state, preparedURLs);
     ++routedLinks;
   }
 }
@@ -790,14 +830,14 @@ int main()
   if (!resumedFromCheckpoint)
   {
     // ── Seed URLs ──
-    vector<string> seeds;
-    fill_seeds(seeds, normalizer, "seed_list.txt");
+    vector<urlEntry> seeds;
+    fill_seeds(theFrontier, seeds, normalizer, "seed_list.txt");
 
     // Filter domains of the seed list
-    vector<string> filteredSeeds;
+    vector<urlEntry> filteredSeeds;
     for (size_t i = 0; i < seeds.size(); ++i)
     {
-      if (!filter.isBlocked(seeds[i]))
+      if (!filter.isBlocked(seeds[i].url))
       {
         filteredSeeds.pushBack(seeds[i]);
       }
@@ -883,6 +923,8 @@ int main()
           entry.url = inboundUrl;
           entry.domain = theFrontier.extractDomain(inboundUrl);
           entry.depth = received[i].entry.depth;
+          entry.seedDomainDepth = received[i].entry.seedDomainDepth;
+          entry.seedSourceLine = received[i].entry.seedSourceLine;
           toAppend.pushBack(entry);
         }
         workerState.seenMu.unlock();
