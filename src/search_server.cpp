@@ -2,7 +2,9 @@
 #include <avengine/search/search_service.h>
 
 #include <arpa/inet.h>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -43,6 +45,23 @@ bool StartsWith(const string& text, const char* prefix)
   return true;
 }
 
+bool EndsWith(const string& text, const char* suffix)
+{
+  size_t suffixLength = 0;
+  while (suffix[suffixLength] != '\0')
+    ++suffixLength;
+  if (suffixLength > text.size())
+    return false;
+
+  const size_t start = text.size() - suffixLength;
+  for (size_t i = 0; i < suffixLength; ++i)
+  {
+    if (text[start + i] != suffix[i])
+      return false;
+  }
+  return true;
+}
+
 string DecodeQueryValue(const string& encoded)
 {
   string decoded;
@@ -65,6 +84,72 @@ string DecodeQueryValue(const string& encoded)
     decoded.pushBack(encoded[i]);
   }
   return decoded;
+}
+
+string StripQueryString(const string& target)
+{
+  const size_t queryStart = FindChar(target, '?');
+  if (queryStart == string::npos)
+    return target;
+  return CopyRange(target, 0, queryStart);
+}
+
+bool IsSafeStaticPath(const string& path)
+{
+  if (path.size() == 0 || path[0] != '/')
+    return false;
+
+  for (size_t i = 0; i < path.size(); ++i)
+  {
+    if (path[i] == '\\')
+      return false;
+    if (path[i] == '.' && i + 1 < path.size() && path[i + 1] == '.')
+      return false;
+  }
+  return true;
+}
+
+string ResolveStaticPath(const string& target)
+{
+  const string path = StripQueryString(target);
+  if (!IsSafeStaticPath(path))
+    return string();
+
+  if (path == string("/"))
+    return string("frontend/index.html");
+
+  string resolved("frontend");
+  resolved += path;
+  return resolved;
+}
+
+const char* GuessContentType(const string& path)
+{
+  if (EndsWith(path, ".html"))
+    return "text/html; charset=utf-8";
+  if (EndsWith(path, ".css"))
+    return "text/css; charset=utf-8";
+  if (EndsWith(path, ".js"))
+    return "application/javascript; charset=utf-8";
+  if (EndsWith(path, ".png"))
+    return "image/png";
+  if (EndsWith(path, ".jpg") || EndsWith(path, ".jpeg"))
+    return "image/jpeg";
+  if (EndsWith(path, ".svg"))
+    return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+bool ReadFile(const string& path, string& out)
+{
+  std::ifstream in(path.cstr(), std::ios::binary);
+  if (!in)
+    return false;
+
+  char ch = '\0';
+  while (in.get(ch))
+    out.pushBack(ch);
+  return in.good() || in.eof();
 }
 
 void AppendJsonString(string& out, const string& value)
@@ -95,10 +180,26 @@ void AppendJsonString(string& out, const string& value)
   out.pushBack('"');
 }
 
+void AppendJsonNumber(string& out, double value)
+{
+  char buffer[64];
+  const int length = std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+  if (length <= 0)
+  {
+    out += string("0");
+    return;
+  }
+
+  for (int i = 0; i < length && i < static_cast<int>(sizeof(buffer)); ++i)
+    out.pushBack(buffer[i]);
+}
+
 string MakeJsonResponse(const search::SearchResponse& response)
 {
   string body("{\"query\":");
   AppendJsonString(body, response.Query);
+  body += string(",\"page\":");
+  search::AppendUnsigned(body, response.Page);
   body += string(",\"limit\":");
   search::AppendUnsigned(body, response.Limit);
   body += string(",\"total_hits\":");
@@ -133,19 +234,23 @@ string MakeJsonResponse(const search::SearchResponse& response)
     AppendJsonString(body, response.Results[i].Url);
     body += string(",\"title\":");
     AppendJsonString(body, response.Results[i].Title);
-    body += string(",\"score\":1}");
+    body += string(",\"score\":");
+    AppendJsonNumber(body, response.Results[i].Score);
+    body.pushBack('}');
   }
   body += string("]}");
   return body;
 }
 
-void SendResponse(int clientFd, int statusCode, const char* statusText, const string& body)
+void SendResponse(int clientFd, int statusCode, const char* statusText, const char* contentType,
+                  const string& body)
 {
   string headers("HTTP/1.1 ");
   search::AppendUnsigned(headers, static_cast<size_t>(statusCode));
   headers += string(" ");
   headers += string(statusText);
-  headers += string("\r\nContent-Type: application/json");
+  headers += string("\r\nContent-Type: ");
+  headers += string(contentType);
   headers += string("\r\nAccess-Control-Allow-Origin: *");
   headers += string("\r\nAccess-Control-Allow-Methods: GET, OPTIONS");
   headers += string("\r\nAccess-Control-Allow-Headers: Accept, Content-Type");
@@ -154,6 +259,11 @@ void SendResponse(int clientFd, int statusCode, const char* statusText, const st
   headers += string("\r\nConnection: close\r\n\r\n");
   headers += body;
   send(clientFd, headers.cstr(), headers.size(), 0);
+}
+
+void SendJsonResponse(int clientFd, int statusCode, const char* statusText, const string& body)
+{
+  SendResponse(clientFd, statusCode, statusText, "application/json", body);
 }
 
 void HandleClient(int clientFd, const search::SearchService& service)
@@ -174,27 +284,46 @@ void HandleClient(int clientFd, const search::SearchService& service)
   if (methodEnd == string::npos || targetEnd == string::npos || methodEnd >= lineEnd ||
       targetEnd > lineEnd || (!isGet && !isOptions))
   {
-    SendResponse(clientFd, 405, "Method Not Allowed",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
-                 "\"results\":[]}");
+    SendJsonResponse(
+        clientFd, 405, "Method Not Allowed",
+        "{\"query\":\"\",\"page\":1,\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+        "\"results\":[]}");
     return;
   }
 
   const string target = CopyRange(request, methodEnd + 1, targetEnd);
-  if (!StartsWith(target, "/api/search"))
+  if (isOptions)
   {
-    SendResponse(clientFd, 404, "Not Found",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}");
+    SendResponse(clientFd, 204, "No Content", "text/plain; charset=utf-8", string());
     return;
   }
 
-  if (isOptions)
+  if (!StartsWith(target, "/api/search"))
   {
-    SendResponse(clientFd, 204, "No Content", string());
+    const string staticPath = ResolveStaticPath(target);
+    if (staticPath.size() == 0)
+    {
+      SendJsonResponse(clientFd, 404, "Not Found",
+                       "{\"query\":\"\",\"page\":1,\"errors\":[{\"message\":\"not found\"}],"
+                       "\"results\":[]}");
+      return;
+    }
+
+    string body;
+    if (!ReadFile(staticPath, body))
+    {
+      SendJsonResponse(clientFd, 404, "Not Found",
+                       "{\"query\":\"\",\"page\":1,\"errors\":[{\"message\":\"not found\"}],"
+                       "\"results\":[]}");
+      return;
+    }
+
+    SendResponse(clientFd, 200, "OK", GuessContentType(staticPath), body);
     return;
   }
 
   string query;
+  size_t page = 1;
   size_t limit = 10;
   const size_t queryStart = FindChar(target, '?');
   if (queryStart != string::npos)
@@ -214,6 +343,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
 
       if (key == string("q"))
         query = DecodeQueryValue(value);
+      else if (key == string("page") && value.size() != 0)
+        page = static_cast<size_t>(strtoul(value.cstr(), nullptr, 10));
       else if (key == string("limit") && value.size() != 0)
         limit = search::ClampSearchLimit(static_cast<size_t>(strtoul(value.cstr(), nullptr, 10)));
 
@@ -223,8 +354,8 @@ void HandleClient(int clientFd, const search::SearchService& service)
     }
   }
 
-  const search::SearchResponse response = service.Search(query, limit);
-  SendResponse(clientFd, 200, "OK", MakeJsonResponse(response));
+  const search::SearchResponse response = service.SearchPage(query, page, limit);
+  SendJsonResponse(clientFd, 200, "OK", MakeJsonResponse(response));
 }
 
 } // namespace

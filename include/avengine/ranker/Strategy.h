@@ -8,6 +8,155 @@
 
 using namespace avengine;
 
+namespace ranking_strategy_detail
+{
+
+inline bool HasExactPhrase(const vector<vector<size_t>>& term_positions)
+{
+  if (term_positions.size() < 2)
+    return true;
+
+  for (const auto& positions : term_positions)
+  {
+    if (positions.empty())
+      return false;
+  }
+
+  vector<size_t> indices(term_positions.size(), 0);
+  while (indices[0] < term_positions[0].size())
+  {
+    const size_t base = term_positions[0][indices[0]];
+    bool is_phrase = true;
+
+    for (size_t term_idx = 1; term_idx < term_positions.size(); ++term_idx)
+    {
+      const size_t target = base + term_idx;
+      while (indices[term_idx] < term_positions[term_idx].size() &&
+             term_positions[term_idx][indices[term_idx]] < target)
+      {
+        ++indices[term_idx];
+      }
+
+      if (indices[term_idx] >= term_positions[term_idx].size() ||
+          term_positions[term_idx][indices[term_idx]] != target)
+      {
+        is_phrase = false;
+        break;
+      }
+    }
+
+    if (is_phrase)
+      return true;
+
+    ++indices[0];
+  }
+
+  return false;
+}
+
+inline double OrderingScore(const vector<vector<size_t>>& term_positions)
+{
+  const size_t query_len = term_positions.size();
+  if (query_len == 0)
+    return 0.0;
+  if (query_len == 1)
+    return 1.0;
+
+  size_t best_len = 0;
+  size_t best_span = 0;
+
+  for (size_t start_term = 0; start_term < query_len; ++start_term)
+  {
+    const vector<size_t>& starts = term_positions[start_term];
+    if (starts.empty())
+      continue;
+
+    for (size_t si = 0; si < starts.size(); ++si)
+    {
+      size_t start_pos = starts[si];
+      size_t prev_pos = start_pos;
+      size_t end_pos = start_pos;
+      size_t len = 1;
+
+      for (size_t term_idx = start_term + 1; term_idx < query_len; ++term_idx)
+      {
+        const vector<size_t>& positions = term_positions[term_idx];
+        if (positions.empty())
+          break;
+
+        bool found = false;
+        for (size_t pi = 0; pi < positions.size(); ++pi)
+        {
+          if (positions[pi] > prev_pos)
+          {
+            prev_pos = positions[pi];
+            end_pos = prev_pos;
+            ++len;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found)
+          break;
+      }
+
+      const size_t span = end_pos - start_pos;
+      if (len > best_len || (len == best_len && span < best_span))
+      {
+        best_len = len;
+        best_span = span;
+      }
+    }
+  }
+
+  if (best_len < 2)
+    return 0.0;
+
+  const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
+  const size_t min_span = best_len - 1;
+  const size_t slack = best_span > min_span ? (best_span - min_span) : 0;
+  const double proximity = 1.0 / (1.0 + static_cast<double>(slack));
+  return length_ratio * proximity;
+}
+
+inline double CoverageScore(const vector<vector<size_t>>& term_positions)
+{
+  const size_t query_len = term_positions.size();
+  if (query_len == 0)
+    return 0.0;
+
+  size_t present = 0;
+  for (const auto& positions : term_positions)
+  {
+    if (!positions.empty())
+      ++present;
+  }
+
+  return static_cast<double>(present) / static_cast<double>(query_len);
+}
+
+inline double EarlyMatchScore(const vector<vector<size_t>>& term_positions)
+{
+  if (term_positions.empty())
+    return 0.0;
+
+  double score = 0.0;
+  size_t valid_terms = 0;
+  for (const auto& positions : term_positions)
+  {
+    if (!positions.empty())
+    {
+      score += 1.0 / log2(2.0 + positions[0]);
+      ++valid_terms;
+    }
+  }
+
+  return valid_terms == 0 ? 0.0 : (score / valid_terms);
+}
+
+} // namespace ranking_strategy_detail
+
 class DomainStrat : public Ranker::Strategy
 {
 public:
@@ -95,59 +244,12 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    (void)signals;
-
-    if (term_positions.size() < 2)
-      return 1.0;
-
-    for (const auto& positions : term_positions)
-    {
-      if (positions.empty())
-        return 0.0;
-    }
-
-    size_t n = term_positions.size();
-    avengine::vector<size_t> indices(n, 0);
-    avengine::vector<size_t> absolute(n, 0);
-
-    for (size_t i = 0; i < n; ++i)
-    {
-      absolute[i] = term_positions[i][0];
-    }
-
-    while (true)
-    {
-      size_t min_term = 0;
-      size_t min_val = absolute[0];
-      bool is_phrase = true;
-      for (size_t i = 1; i < n; ++i)
-      {
-        if (absolute[i] != absolute[0] + i)
-        {
-          is_phrase = false;
-        }
-
-        if (absolute[i] + min_term < min_val + i)
-        {
-          min_val = absolute[i];
-          min_term = i;
-        }
-      }
-
-      if (is_phrase)
-      {
-        return 1.0;
-      }
-
-      indices[min_term]++;
-
-      if (indices[min_term] >= term_positions[min_term].size())
-      {
-        return 0.0;
-      }
-
-      absolute[min_term] += term_positions[min_term][indices[min_term]];
-    }
+    const double body = ranking_strategy_detail::HasExactPhrase(term_positions) ? 1.0 : 0.0;
+    const double title = (signals.title_term_positions != nullptr &&
+                          ranking_strategy_detail::HasExactPhrase(*signals.title_term_positions))
+                             ? 1.0
+                             : 0.0;
+    return body + (0.9 * title);
   }
 };
 
@@ -160,112 +262,12 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    (void)signals;
-
-    const size_t query_len = term_positions.size();
-    if (query_len == 0)
-    {
-      return 0.0;
-    }
-    if (query_len == 1)
-    {
-      return 1.0;
-    }
-
-    vector<vector<size_t>> abs_positions;
-    abs_positions = BuildAbsolutePositions(term_positions);
-
-    size_t best_len = 0;
-    size_t best_span = 0;
-
-    for (size_t start_term = 0; start_term < query_len; ++start_term)
-    {
-      const vector<size_t>& starts = abs_positions[start_term];
-      if (starts.size() == 0)
-      {
-        continue;
-      }
-
-      for (size_t si = 0; si < starts.size(); ++si)
-      {
-        size_t start_pos = starts[si];
-        size_t prev_pos = start_pos;
-        size_t end_pos = start_pos;
-        size_t len = 1;
-
-        for (size_t term_idx = start_term + 1; term_idx < query_len; ++term_idx)
-        {
-          const vector<size_t>& positions = abs_positions[term_idx];
-          if (positions.size() == 0)
-          {
-            break;
-          }
-
-          size_t next_pos = 0;
-          bool found = false;
-          for (size_t pi = 0; pi < positions.size(); ++pi)
-          {
-            if (positions[pi] > prev_pos)
-            {
-              next_pos = positions[pi];
-              found = true;
-              break;
-            }
-          }
-
-          if (!found)
-          {
-            break;
-          }
-
-          prev_pos = next_pos;
-          end_pos = next_pos;
-          ++len;
-        }
-
-        size_t span = end_pos - start_pos;
-        if (len > best_len || (len == best_len && span < best_span))
-        {
-          best_len = len;
-          best_span = span;
-        }
-      }
-    }
-
-    if (best_len < 2)
-    {
-      return 0.0;
-    }
-
-    const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
-    const size_t min_span = best_len - 1;
-    const size_t slack = best_span > min_span ? (best_span - min_span) : 0;
-    const double proximity = 1.0 / (1.0 + static_cast<double>(slack));
-
-    return length_ratio * proximity;
-  }
-
-private:
-  vector<vector<size_t>> BuildAbsolutePositions(const vector<vector<size_t>>& term_positions) const
-  {
-    vector<vector<size_t>> abs_positions(term_positions.size());
-
-    for (size_t i = 0; i < term_positions.size(); ++i)
-    {
-      const vector<size_t>& rel_positions = term_positions[i];
-      vector<size_t> abs_list;
-      size_t absolute = 0;
-
-      for (size_t j = 0; j < rel_positions.size(); ++j)
-      {
-        absolute += rel_positions[j];
-        abs_list.pushBack(absolute);
-      }
-
-      abs_positions[i] = abs_list;
-    }
-
-    return abs_positions;
+    const double body = ranking_strategy_detail::OrderingScore(term_positions);
+    const double title =
+        signals.title_term_positions == nullptr
+            ? 0.0
+            : ranking_strategy_detail::OrderingScore(*signals.title_term_positions);
+    return body + (0.8 * title);
   }
 };
 
@@ -327,8 +329,8 @@ private:
 
 class QueryOccurrence : public Ranker::Strategy
 {
-  // prefer URLs that contain longer in-order query term runs with smaller gaps.
-  // Longer matches boost relevance; scattered matches are downweighted.
+  // prefer URLs that contain more query terms, with a smaller extra bonus when
+  // those terms also appear in-order and close together.
 public:
   explicit QueryOccurrence(const vector<avengine::string>& query_terms) : QueryTerms(query_terms) {}
 
@@ -343,6 +345,13 @@ public:
     if (query_len == 0)
     {
       return 0.0;
+    }
+
+    size_t present_terms = 0;
+    for (size_t i = 0; i < query_len; ++i)
+    {
+      if (QueryTerms[i].size() != 0 && url.find(QueryTerms[i].cstr(), 0) != avengine::string::npos)
+        ++present_terms;
     }
 
     size_t best_len = 0;
@@ -398,13 +407,15 @@ public:
 
     if (best_len == 0)
     {
-      return 0.0;
+      return static_cast<double>(present_terms) / static_cast<double>(query_len);
     }
 
+    const double presence_ratio =
+        static_cast<double>(present_terms) / static_cast<double>(query_len);
     const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
     const double proximity = 1.0 / (1.0 + static_cast<double>(best_gap));
-
-    return length_ratio * proximity;
+    const double ordered_bonus = length_ratio * proximity;
+    return 0.6 * presence_ratio + 0.4 * ordered_bonus;
   }
 
 private:
@@ -420,44 +431,12 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    const size_t query_len = term_positions.size();
-    if (query_len == 0)
-    {
-      return 0.0;
-    }
-
-    double body_score = 0.0;
-    size_t valid_terms = 0;
-    for (const auto& positions : term_positions)
-    {
-      if (!positions.empty())
-      {
-        body_score += 1.0 / log2(2.0 + positions[0]);
-        ++valid_terms;
-      }
-    }
-
-    body_score = (valid_terms > 0) ? body_score / valid_terms : 0.0;
-
-    if (signals.title_term_positions == nullptr)
-    {
-      return body_score;
-    }
-
-    const vector<vector<size_t>>& title_positions = *signals.title_term_positions;
-    size_t matched_title_terms = 0;
-    for (size_t i = 0; i < query_len; ++i)
-    {
-      if (i < title_positions.size() && !title_positions[i].empty())
-      {
-        ++matched_title_terms;
-      }
-    }
-
-    const double title_bonus =
-        0.25 * static_cast<double>(matched_title_terms) / static_cast<double>(query_len);
-    const double combined = body_score + title_bonus;
-    return combined >= 1.0 ? 1.0 : combined;
+    const double body_score = ranking_strategy_detail::EarlyMatchScore(term_positions);
+    const double title_score =
+        signals.title_term_positions == nullptr
+            ? 0.0
+            : ranking_strategy_detail::EarlyMatchScore(*signals.title_term_positions);
+    return body_score + (0.7 * title_score);
   }
 };
 
@@ -470,22 +449,11 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    (void)signals;
-    const size_t query_len = term_positions.size();
-    if (query_len == 0)
-    {
-      return 0.0;
-    }
-
-    size_t present = 0;
-    for (const auto& positions : term_positions)
-    {
-      if (!positions.empty())
-      {
-        ++present;
-      }
-    }
-
-    return static_cast<double>(present) / static_cast<double>(query_len);
+    const double body = ranking_strategy_detail::CoverageScore(term_positions);
+    const double title =
+        signals.title_term_positions == nullptr
+            ? 0.0
+            : ranking_strategy_detail::CoverageScore(*signals.title_term_positions);
+    return body + (0.6 * title);
   }
 };

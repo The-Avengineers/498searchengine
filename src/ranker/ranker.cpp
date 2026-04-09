@@ -3,12 +3,22 @@
 namespace avengine
 {
 
+Ranker::Ranker(size_t maxResults)
+{
+  SetMaxResults(maxResults);
+}
+
 void Ranker::AddStrategy(const Strategy* strategy, double weight)
 {
   WeightedStrategy entry;
   entry.strategy = strategy;
   entry.weight = weight;
   Strategies.pushBack(entry);
+}
+
+void Ranker::SetMaxResults(size_t maxResults)
+{
+  MaxResults_ = maxResults == 0 ? 10 : maxResults;
 }
 
 void Ranker::ClearStrategies()
@@ -18,54 +28,43 @@ void Ranker::ClearStrategies()
 
 void Ranker::ResetResults()
 {
-  Top10.clear();
-  insertionCount_ = 0;
+  TopResults_.clear();
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
-                      const vector<vector<size_t>>& term_positions, const RankSignals& signals)
+                      const vector<vector<size_t>>& term_positions,
+                      const RankSignals& signals) // keep a bounded top-k with insertion sort
 {
-  // Deduplicate: skip URLs already tracked since same URL can appear across shards.
-  const vector<RankedResult>& heap = Top10.serializeHeap();
-  for (size_t i = 0; i < heap.size(); ++i)
+  // Skip URLs already tracked since the same URL can appear across shards.
+  for (size_t i = 0; i < TopResults_.size(); ++i)
   {
-    if (heap[i].entry.url == entry.url)
+    if (TopResults_[i].entry.url == entry.url)
       return;
   }
-
-  // When full skip scoring entirely if this candidate can't beat the weakest result.
-  const double new_score = Score(entry, term_positions, signals);
-  if (Top10.size() == 10 && new_score <= Top10.top().score)
-    return;
 
   RankedResult candidate;
   candidate.entry = entry;
   candidate.title = title;
-  candidate.score = new_score;
-  candidate.insertionIndex = insertionCount_++;
+  candidate.score = Score(entry, term_positions, signals);
 
-  Top10.push(candidate);
-
-  if (Top10.size() > 10)
-    Top10.pop();
-}
-
-vector<Ranker::RankedResult> Ranker::TopResults() const
-{
-  // Copy the heap and drain it (pops ascending: worst first).
-  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
-  vector<RankedResult> ascending;
-  while (!copy.empty())
+  size_t insert_pos = 0;
+  while (insert_pos < TopResults_.size() && TopResults_[insert_pos].score >= candidate.score)
   {
-    ascending.pushBack(copy.top());
-    copy.pop();
+    ++insert_pos;
   }
 
-  // Reverse to return highest score first.
-  vector<RankedResult> result;
-  for (size_t i = ascending.size(); i > 0; --i)
-    result.pushBack(ascending[i - 1]);
-  return result;
+  if (TopResults_.size() >= MaxResults_ && insert_pos >= MaxResults_)
+    return;
+
+  TopResults_.insert(insert_pos, candidate);
+
+  if (TopResults_.size() > MaxResults_)
+    TopResults_.popBack();
+}
+
+const vector<Ranker::RankedResult>& Ranker::TopResults() const
+{
+  return TopResults_;
 }
 
 double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,

@@ -3,7 +3,6 @@
 
 #include <cstddef>
 
-#include <avengine/avengine_lib/PriorityQueue.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
@@ -22,6 +21,8 @@ namespace avengine
 class Ranker
 {
 public:
+  explicit Ranker(size_t maxResults = 10);
+
   struct RankSignals
   {
     size_t outlink_count{0};
@@ -62,12 +63,17 @@ public:
   void AddStrategy(const Strategy* strategy, double weight = 1.0);
 
   /**
+   * Change the maximum number of retained results.
+   */
+  void SetMaxResults(size_t maxResults);
+
+  /**
    * Remove all strategies.
    */
   void ClearStrategies();
 
   /**
-   * resets top 10 results list before next query
+   * resets the retained top-k results list before next query
    */
   void ResetResults();
 
@@ -82,20 +88,6 @@ public:
     urlEntry entry;
     string title;
     double score{0.0};
-    size_t insertionIndex{0};
-
-    // Min-heap ordering
-    // Evict lower scores first and for equal scores evict newer items bc found later in index
-    bool operator<(const RankedResult& other) const
-    {
-      if (score != other.score)
-        return score < other.score;
-      return insertionIndex > other.insertionIndex;
-    }
-    bool operator>(const RankedResult& other) const
-    {
-      return other < *this;
-    }
   };
 
   /**
@@ -107,7 +99,7 @@ public:
   /**
    * Return the current top results (highest score first).
    */
-  vector<RankedResult> TopResults() const;
+  const vector<RankedResult>& TopResults() const;
 
 private:
   struct WeightedStrategy
@@ -117,8 +109,8 @@ private:
   };
 
   vector<WeightedStrategy> Strategies;
-  priorityQueue<RankedResult, greater<RankedResult>> Top10;
-  size_t insertionCount_{0};
+  vector<RankedResult> TopResults_;
+  size_t MaxResults_ = 10;
 };
 
 class ConstantScoreStrategy : public Ranker::Strategy
