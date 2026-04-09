@@ -191,6 +191,23 @@ string URLNormalizer::normalizeIndividual(const string& url)
 {
   string localUrl = url;
 
+  // Unwrap Wayback URLs by keeping everything from the embedded original
+  // absolute URL onward (e.g. .../web/20240101/http://example.com -> http://example.com).
+  if (localUrl.find("https://web.archive.org/web/http") == 0)
+  {
+    const size_t waybackPrefixLen = sizeof("https://web.archive.org/web/") - 1;
+    size_t originalPos = localUrl.find("http://", waybackPrefixLen);
+    if (originalPos == string::npos)
+    {
+      originalPos = localUrl.find("https://", waybackPrefixLen);
+    }
+    if (originalPos == string::npos)
+    {
+      return string();
+    }
+    localUrl = substr(localUrl, originalPos, localUrl.size());
+  }
+
   // Repair malformed absolute URLs with extra slashes after scheme:
   // https:///www.google.com -> https://www.google.com
   size_t schemePos = localUrl.find("://");
