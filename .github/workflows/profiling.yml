@@ -32,7 +32,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3
+          sudo apt-get install -y cmake g++ python3 ccache
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ runner.os }}-ccache-profile-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-profile-
+          max-size: 500M
 
       - name: Configure
         run: mkdir -p artifacts
@@ -69,7 +77,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3
+          sudo apt-get install -y cmake g++ python3 ccache
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ runner.os }}-ccache-corpus-profile-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-corpus-profile-
+          max-size: 500M
 
       - name: Restore corpus index from cache
         id: cache
@@ -89,6 +105,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Validate corpus index
+        run: |
+          count=$(ls corpus-index/*.sfi 2>/dev/null | wc -l | tr -d ' ')
+          echo "Found ${count} .sfi shard(s) in corpus-index/"
+          if [[ "${count}" -eq 0 ]]; then
+            echo "::error::No .sfi files found — corpus download failed or release has no assets. Run profiling/scripts/upload_corpus_index.sh to publish the index."
+            exit 1
+          fi
+
       - name: Run corpus profile
         run: |
           mkdir -p artifacts
@@ -96,7 +121,7 @@ jobs:
             --index-dir corpus-index/ \
             --iterations 50 \
             --output artifacts/corpus_profile.json \
-            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY" || true
+            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload corpus profile artifact
         uses: actions/upload-artifact@v4

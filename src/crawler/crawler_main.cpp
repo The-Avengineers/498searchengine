@@ -28,6 +28,9 @@ using namespace avengine::crawler;
 
 // TODO THREAD POOL AROUND ALL THIS
 
+// When crawling about 300 pages/s it checkpoints every 10 minutes
+static const size_t CHECKPOINT_INTERVAL = 180000;
+
 namespace
 {
 
@@ -50,6 +53,56 @@ bool hasValidHost(URLNormalizer& normalizer, const string& url)
 {
   URL parsed = normalizer.parseURL(url);
   return parsed.host.size() > 0;
+}
+
+// Returns true if the URL's path ends with a common non-HTML extension that we
+// should not crawl (images, archives, executables, etc.).
+bool hasBlockedExtension(URLNormalizer& normalizer, const string& url)
+{
+  URL parsed = normalizer.parseURL(url);
+  const string& path = parsed.path;
+  size_t pathLen = path.size();
+  if (pathLen == 0)
+    return false;
+
+  // Walk backwards to find the last '.'
+  size_t dotPos = string::npos;
+  for (size_t i = pathLen; i-- > 0;)
+  {
+    if (path[i] == '.')
+    {
+      dotPos = i;
+      break;
+    }
+    // Stop at a path separator — no extension in this segment
+    if (path[i] == '/')
+      break;
+  }
+
+  if (dotPos == string::npos)
+    return false;
+
+  // Build a lower-cased extension (without the dot)
+  string ext;
+  for (size_t i = dotPos + 1; i < pathLen; ++i)
+  {
+    char c = path[i];
+    if (c >= 'A' && c <= 'Z')
+      c = static_cast<char>(c + ('a' - 'A'));
+    ext.pushBack(c);
+  }
+
+  // Blocked extensions list
+  const char* blocked[] = {"jpg", "jpeg", "png",  "gif", "svg",  "pdf",  "gz",  "zip",
+                           "msi", "dmg",  "exe",  "xz",  "ogg",  "mp3",  "wav", "aac",
+                           "mp4", "mkv",  "mov",  "dll", "so",   "ttf",  "otf", "woff",
+                           "csv", "xls",  "xlsx", "ppt", "pptx", nullptr};
+  for (size_t i = 0; blocked[i] != nullptr; ++i)
+  {
+    if (ext == blocked[i])
+      return true;
+  }
+  return false;
 }
 
 // Making sure every URL contains "HTTPS" to maintain consistency
@@ -217,6 +270,12 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
+  if (hasBlockedExtension(normalizer, crawlUrl))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED EXTENSION");
+    return;
+  }
+
   const bool allowed =
       state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
 
@@ -308,6 +367,12 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     if (!hasValidHost(normalizer, normalized))
     {
       state.crawlLogger->log(normalized, "SKIP, INVALID NORMALIZED URL");
+      continue;
+    }
+
+    if (hasBlockedExtension(normalizer, normalized))
+    {
+      state.crawlLogger->log(normalized, "SKIP, BLOCKED EXTENSION");
       continue;
     }
 
@@ -424,7 +489,7 @@ int main()
   // Crawling metadata
   atomic_counter processedCount(0);
   atomic_counter indexedCount(0);
-  size_t checkpointInterval = 100;
+  size_t checkpointInterval = CHECKPOINT_INTERVAL;
   const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsAgent(kRobotsUserAgent);
 
@@ -556,7 +621,7 @@ int main()
     // Checkpoint all of our progress and log stats.
     if (processedSnapshot >= checkpointInterval)
     {
-      checkpointInterval += 100;
+      checkpointInterval += CHECKPOINT_INTERVAL;
       workerState.frontierMu.lock();
       theFrontier.saveCheckpoint(checkpointPath);
       const size_t seenSnapshot = theFrontier.seenCount();
