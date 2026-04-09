@@ -111,7 +111,7 @@ fi
 echo "Using queries from ${QUERIES_FILE}" >&2
 
 # ── All measurement and reporting delegated to Python ────────────────────────
-python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" "${QUERIES_FILE}" "${SCRIPT_DIR}" <<'PYEOF'
+python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" "${QUERIES_FILE}" "${SCRIPT_DIR}" "${INDEX_DIR}" <<'PYEOF'
 from __future__ import annotations
 import json, pathlib, statistics, sys, time, urllib.request, urllib.parse
 
@@ -120,6 +120,7 @@ iterations   = int(sys.argv[2])
 output_file  = sys.argv[3]  # empty string means no file output
 queries_file = pathlib.Path(sys.argv[4]).resolve()
 script_dir   = pathlib.Path(sys.argv[5]).resolve()
+index_dir    = pathlib.Path(sys.argv[6]).resolve()
 
 sys.path.insert(0, str(script_dir))
 from query_fixture import load_search_queries  # noqa: E402
@@ -154,6 +155,9 @@ def pct(vals: list[float], p: float) -> float:
 def mean(vals: list[float]) -> float:
     return statistics.fmean(vals) if vals else 0.0
 
+def shard_count(path: pathlib.Path) -> int:
+    return len(list(path.glob("*.sfi")))
+
 COL_W = 44
 print()
 print(f"{'Query':<{COL_W}}  {'Hits':>4}  {'Mean':>7}  {'P50':>7}  {'P95':>7}"
@@ -161,6 +165,7 @@ print(f"{'Query':<{COL_W}}  {'Hits':>4}  {'Mean':>7}  {'P50':>7}  {'P95':>7}"
 print("─" * 102)
 
 samples = []
+all_client_means: list[float] = []
 for spec in QUERIES:
     fetch(spec.query, spec.limit)  # warmup (discarded)
 
@@ -195,16 +200,19 @@ for spec in QUERIES:
     print(f"{spec.label:<{COL_W}}  {actual_hits:>4}  {m_client:>7.1f}  {p50:>7.1f}  {p95:>7.1f}"
           f"  {m_parse:>7.1f}  {m_solve:>7.1f}  {m_collect:>7.1f}  {m_rank:>7.1f}", flush=True)
 
+    all_client_means.append(m_client)
     samples.append({
         "query":            spec.query,
         "label":            spec.label,
         "limit":            spec.limit,
         "iterations":       iterations,
         "total_hits":       actual_hits,
+        "mean_total_hits":  round(float(actual_hits), 3),
         "mean_client_ms":   round(m_client,        3),
         "p50_client_ms":    round(p50,             3),
         "p95_client_ms":    round(p95,             3),
         "mean_took_ms":     round(mean(took_list),  3),
+        "mean_server_took_ms": round(mean(took_list), 3),
         "mean_parse_ms":    round(m_parse,          3),
         "mean_solve_ms":    round(m_solve,          3),
         "mean_collect_ms":  round(m_collect,        3),
@@ -219,8 +227,15 @@ if output_file:
     payload = {
         "profile":              "query_pipeline",
         "server_url":           server_url,
+        "index_dir":            str(index_dir),
         "queries_file":         str(queries_file),
         "iterations_per_query": iterations,
+        "query_count":          len(samples),
+        "shard_count":          shard_count(index_dir),
+        "nonzero_hit_query_count": sum(1 for sample in samples if sample["mean_total_hits"] > 0),
+        "mean_client_ms":       round(mean(all_client_means), 3),
+        "p50_client_ms":        round(pct(all_client_means, 0.50), 3),
+        "p95_client_ms":        round(pct(all_client_means, 0.95), 3),
         "samples":              samples,
     }
     pathlib.Path(output_file).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
