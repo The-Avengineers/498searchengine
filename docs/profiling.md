@@ -34,6 +34,10 @@ Per-query timing fields returned by the server and recorded in the profile:
 
 Reported statistics per query: mean client round-trip, P50, P95, plus the server-side phase breakdown above.
 
+The HTTP query profile reads its query set from `profiling/fixtures/search_queries.tsv`. Each row
+defines a label, query text, and limit; profiles report the observed hit counts from the corpus
+being tested.
+
 ---
 
 ## Local usage
@@ -63,6 +67,7 @@ Options:
 | `--server-url URL` | — | Connect to a running server instead of starting one |
 | `--index-dir DIR` | — | Use pre-built `.sfi` shards from DIR instead of building from fixture |
 | `--build-dir DIR` | `build-profiling` | CMake build directory |
+| `--queries-file FILE` | `profiling/fixtures/search_queries.tsv` | TSV query fixture with labels, queries, and limits |
 | `--iterations N` | `20` | Query iterations per term (first is warmup, discarded) |
 | `--output FILE` | — | Write JSON summary to FILE |
 
@@ -145,6 +150,11 @@ Two jobs are defined in `.github/workflows/profiling.yml`:
 
 The `corpus-profile` job is skipped on PRs to avoid downloading ~1 GB of index data on every review cycle. Both jobs upload their artifacts so you can download the full reports from the Actions run page.
 
+A separate scheduled/manual workflow lives at `.github/workflows/live-internet-crawl.yml`. It runs
+the crawler box against the public internet for a bounded interval, aggregates the resulting shards,
+profiles `search_server` against that live corpus, and refreshes the `corpus-index-latest` release
+used by `corpus-profile`.
+
 ---
 
 ## Fixtures
@@ -152,4 +162,5 @@ The `corpus-profile` job is skipped on PRs to avoid downloading ~1 GB of index d
 | Path | Used by |
 |------|---------|
 | `profiling/fixtures/search_corpus.tsv` | `search_http_profile`, `profile_query_pipeline` (default) |
+| `profiling/fixtures/search_queries.tsv` | `search_http_profile`, `profile_query_pipeline` |
 | `profiling/fixtures/crawl_pages/` | `crawler_index_profile` |

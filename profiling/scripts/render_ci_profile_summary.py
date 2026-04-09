@@ -53,7 +53,7 @@ def main() -> int:
 
     for sample in search["samples"]:
         lines.append(
-            f"| `{sample['query']}` | {sample['expected_total_hits']} |"
+            f"| `{sample['query']}` | {sample.get('mean_total_hits', sample.get('total_hits', 0)):.2f} |"
             f" {sample['mean_client_ms']:.2f} |"
             f" {sample['p50_client_ms']:.2f} |"
             f" {sample['p95_client_ms']:.2f} |"

@@ -17,6 +17,9 @@ bash profiling/run_profiles.sh
 bash profiling/scripts/profile_query_pipeline.sh --index-dir /path/to/shards
 ```
 
+The search query set is defined in `fixtures/search_queries.tsv`. It is shared by local and CI
+profiling, and the reported hit counts come from the corpus actually being profiled.
+
 ## Directory layout
 
 | Path | Description |
@@ -25,6 +28,8 @@ bash profiling/scripts/profile_query_pipeline.sh --index-dir /path/to/shards
 | `scripts/profile_query_pipeline.sh` | Ad-hoc query latency profiler with per-phase breakdown |
 | `scripts/upload_corpus_index.sh` | Upload local `.sfi` shards to GitHub Releases for CI use |
 | `scripts/run_search_http_profile.py` | HTTP search profiler used by `run_profiles.sh` |
+| `scripts/query_fixture.py` | Shared TSV loader for search query fixtures |
 | `scripts/render_ci_profile_summary.py` | Renders JSON results as a Markdown table |
 | `fixtures/search_corpus.tsv` | Small deterministic search corpus for fixture runs |
+| `fixtures/search_queries.tsv` | Shared search query fixture used by local/CI profiling |
 | `fixtures/crawl_pages/` | HTML fixtures for the crawler + indexer profile |
