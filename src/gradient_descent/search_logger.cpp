@@ -26,10 +26,10 @@ string generateSessionId()
   return string(buf);
 }
 
-}
+} // namespace
 
 SearchLogger::SearchLogger(const string& log_file_path)
-  : log_file_(fopen(log_file_path.cstr(), "a"))
+    : log_file_(fopen(log_file_path.cstr(), "a"))
 {
 }
 
@@ -39,8 +39,7 @@ SearchLogger::~SearchLogger()
     fclose(log_file_);
 }
 
-string SearchLogger::logSearch(const string& query,
-                               const vector<Ranker::RankedResult>& results)
+string SearchLogger::logSearch(const string& query, const vector<Ranker::RankedResult>& results)
 {
   SearchLog log;
   log.session_id = generateSessionId();
@@ -52,7 +51,7 @@ string SearchLogger::logSearch(const string& query,
   {
     log.urls_shown.pushBack(results[i].entry.url);
     log.final_scores.pushBack(results[i].score);
-    log.feature_scores.pushBack(vector<double>()); 
+    log.feature_scores.pushBack(vector<double>());
   }
 
   lock_guard<mutex> guard(mu_);
@@ -77,31 +76,31 @@ void SearchLogger::logClick(const string& session_id, int clicked_index)
   }
 }
 
-// session_id\ttimestamp\tquery\tclicked_index\tdoc_count\turl\tfinal_score\tfeat_count\tf0 f1...\t...
+// session_id\ttimestamp\tquery\tclicked_index\tdoc_count\turl\tfinal_score\tfeat_count\tf0
+// f1...\t...
 void SearchLogger::writeSample(const SearchLog& log) const
 {
-  if (!log_file_) return;
-  if (log.clicked_index < 0 ||
-      static_cast<size_t>(log.clicked_index) >= log.urls_shown.size())
+  if (!log_file_)
+    return;
+  if (log.clicked_index < 0 || static_cast<size_t>(log.clicked_index) >= log.urls_shown.size())
     return;
 
   // Only write up to and including the clicked result —
   // docs ranked below the click are never used by the tuner.
   size_t docs_to_write = static_cast<size_t>(log.clicked_index + 1);
 
-  fprintf(log_file_, "%s\t%ld\t%s\t%d\t%zu",
-          log.session_id.cstr(), log.timestamp,
-          log.query.cstr(), log.clicked_index,
-          docs_to_write);
+  fprintf(log_file_, "%s\t%ld\t%s\t%d\t%zu", log.session_id.cstr(), log.timestamp, log.query.cstr(),
+          log.clicked_index, docs_to_write);
 
   for (size_t i = 0; i < docs_to_write; ++i)
   {
     const vector<double>& feats = log.feature_scores[i];
-    fprintf(log_file_, "\t%s\t%.15g\t%zu\t",
-            log.urls_shown[i].cstr(), log.final_scores[i], feats.size());
+    fprintf(log_file_, "\t%s\t%.15g\t%zu\t", log.urls_shown[i].cstr(), log.final_scores[i],
+            feats.size());
     for (size_t j = 0; j < feats.size(); ++j)
     {
-      if (j > 0) fputc(' ', log_file_);
+      if (j > 0)
+        fputc(' ', log_file_);
       fprintf(log_file_, "%.15g", feats[j]);
     }
   }
@@ -115,9 +114,9 @@ vector<TrainingSample> TrainingDataBuilder::build(const string& log_file_path) c
   vector<TrainingSample> samples;
 
   FILE* f = fopen(log_file_path.cstr(), "r");
-  if (!f) return samples;
+  if (!f)
+    return samples;
 
-  
   char buf[65536];
   while (fgets(buf, sizeof(buf), f))
   {
@@ -128,10 +127,12 @@ vector<TrainingSample> TrainingDataBuilder::build(const string& log_file_path) c
     vector<string> fields = string(buf).split('\t');
 
     // Minimum: session_id, timestamp, query, clicked_index, doc_count = 5 fields.
-    if (fields.size() < 5) continue;
+    if (fields.size() < 5)
+      continue;
 
     int clicked_index = static_cast<int>(strtol(fields[3].cstr(), nullptr, 10));
-    if (clicked_index <= 0) continue; // no click or top result clicked — no negatives
+    if (clicked_index <= 0)
+      continue; // no click or top result clicked — no negatives
 
     int doc_count = static_cast<int>(strtol(fields[4].cstr(), nullptr, 10));
 
@@ -147,14 +148,16 @@ vector<TrainingSample> TrainingDataBuilder::build(const string& log_file_path) c
       {
         char* end;
         double v = strtod(p, &end);
-        if (end == p) break;
+        if (end == p)
+          break;
         feats.pushBack(v);
         p = end;
       }
       all_features.pushBack(feats);
     }
 
-    if (clicked_index >= static_cast<int>(all_features.size())) continue;
+    if (clicked_index >= static_cast<int>(all_features.size()))
+      continue;
 
     TrainingSample sample;
     sample.positive_features = all_features[clicked_index];

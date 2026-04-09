@@ -38,7 +38,7 @@ public:
   double totalLoss(const vector<TrainingSample>& data) const;
 
   // Run coordinate-descent gradient descent and return the tuned weights.
-  // Weights are clamped to [0, ∞) after training 
+  // Weights are clamped to [0, ∞) after training
   // no negative weights and a strategy scoring high should never hurt ranking.
   vector<double> train(const vector<TrainingSample>& data);
 

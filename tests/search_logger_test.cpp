@@ -29,7 +29,6 @@ using avengine::gradient_descent::SearchLogger;
 using avengine::gradient_descent::TrainingDataBuilder;
 using avengine::gradient_descent::TrainingSample;
 
-
 // Returns a temp file path, leaves the file empty and closed.
 const char* makeTempFile()
 {
@@ -44,11 +43,11 @@ const char* makeTempFile()
 Ranker::RankedResult makeResult(const char* url, double score)
 {
   Ranker::RankedResult r;
-  r.entry.url    = string(url);
+  r.entry.url = string(url);
   r.entry.domain = string("");
-  r.entry.depth  = 1;
-  r.title        = string("title");
-  r.score        = score;
+  r.entry.depth = 1;
+  r.title = string("title");
+  r.score = score;
   r.insertionIndex = 0;
   return r;
 }
@@ -56,7 +55,8 @@ Ranker::RankedResult makeResult(const char* url, double score)
 int countLines(const char* path)
 {
   FILE* f = fopen(path, "r");
-  if (!f) return -1;
+  if (!f)
+    return -1;
   int count = 0;
   char buf[65536];
   while (fgets(buf, sizeof(buf), f))
@@ -98,7 +98,6 @@ void testOneLineOnClick()
   EXPECT(countLines(path) == 1);
   unlink(path);
 }
-
 
 void testMultipleClicksWriteMultipleLines()
 {
@@ -181,7 +180,8 @@ void testLineFormat()
 
   int tab_count = 0;
   for (size_t i = 0; buf[i]; ++i)
-    if (buf[i] == '\t') ++tab_count;
+    if (buf[i] == '\t')
+      ++tab_count;
   EXPECT(tab_count >= 4);
 
   unlink(path);
@@ -221,9 +221,9 @@ void testBuilderBasic()
   {
     SearchLogger logger(spath);
     vector<Ranker::RankedResult> results;
-    results.pushBack(makeResult("https://example.com/neg0", 1.5)); 
+    results.pushBack(makeResult("https://example.com/neg0", 1.5));
     results.pushBack(makeResult("https://example.com/neg1", 1.3));
-    results.pushBack(makeResult("https://example.com/pos",  1.1)); 
+    results.pushBack(makeResult("https://example.com/pos", 1.1));
     string sid = logger.logSearch(string("test query"), results);
     logger.logClick(sid, 2);
   }
@@ -256,7 +256,6 @@ void testBuilderSkipsTopClick()
   EXPECT(samples.size() == 0);
   unlink(path);
 }
-
 
 void testBuilderEmptyFile()
 {

@@ -28,8 +28,8 @@ struct SearchLog
 // One sample ready for the tuner.
 struct TrainingSample
 {
-  vector<double> positive_features;         
-  vector<vector<double>> negative_features; 
+  vector<double> positive_features;
+  vector<vector<double>> negative_features;
 };
 
 // Logs clickthrough data to a single append-only file.
@@ -37,8 +37,10 @@ struct TrainingSample
 //  logSearch: inserts a SearchLog into an in-memory vector. No file write.
 //   logClick:  finds the session by linear scan, writes one complete line to
 //                the file, then removes it. Never reads from disk.
-//  File format: one line per useful training sample, tab-delimited because | and , can be part of query
-//   session_id\ttimestamp\tquery\tclicked_index\tdoc_count\turl\tfinal_score\tfeat_count\tf0 f1...\t...
+//  File format: one line per useful training sample, tab-delimited because | and , can be part of
+//  query
+//   session_id\ttimestamp\tquery\tclicked_index\tdoc_count\turl\tfinal_score\tfeat_count\tf0
+//   f1...\t...
 
 class SearchLogger
 {

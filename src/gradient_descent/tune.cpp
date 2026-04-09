@@ -21,10 +21,12 @@ static constexpr size_t kMinSamples = 100;
 int main(int argc, char* argv[])
 {
   const char* weights_path = "weights.cfg";
-  const char* log_file     = "search.log";
+  const char* log_file = "search.log";
 
-  if (argc >= 2) weights_path = argv[1];
-  if (argc >= 3) log_file     = argv[2];
+  if (argc >= 2)
+    weights_path = argv[1];
+  if (argc >= 3)
+    log_file = argv[2];
 
   // Load current weights.
   vector<StrategyWeight> strategy_weights = loadWeights(string(weights_path));
@@ -66,10 +68,10 @@ int main(int argc, char* argv[])
     double old_w = initial_weights[i];
     double new_w = new_weights[i];
     double delta = new_w - old_w;
-    if (delta != 0.0) any_change = true;
+    if (delta != 0.0)
+      any_change = true;
 
-    printf("%-22s %10.4f %10.4f %12.4f\n",
-           strategy_weights[i].name.cstr(), old_w, new_w, delta);
+    printf("%-22s %10.4f %10.4f %12.4f\n", strategy_weights[i].name.cstr(), old_w, new_w, delta);
   }
   printf("\n");
 

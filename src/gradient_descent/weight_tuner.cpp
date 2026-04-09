@@ -86,7 +86,8 @@ vector<StrategyWeight> loadWeights(const string& path)
   vector<StrategyWeight> result;
 
   FILE* f = fopen(path.cstr(), "r");
-  if (!f) return result;
+  if (!f)
+    return result;
 
   char buf[256];
   while (fgets(buf, sizeof(buf), f))
@@ -98,14 +99,17 @@ vector<StrategyWeight> loadWeights(const string& path)
 
     // Skip leading whitespace.
     const char* p = buf;
-    while (*p == ' ' || *p == '\t') ++p;
+    while (*p == ' ' || *p == '\t')
+      ++p;
 
-    if (*p == '\0' || *p == '#') continue;
+    if (*p == '\0' || *p == '#')
+      continue;
 
     // Parse "StrategyName weight"
     char name[128] = {};
     double weight = 1.0;
-    if (sscanf(p, "%127s %lf", name, &weight) < 2) continue;
+    if (sscanf(p, "%127s %lf", name, &weight) < 2)
+      continue;
 
     StrategyWeight sw;
     sw.name = avengine::string(name);
@@ -120,7 +124,8 @@ vector<StrategyWeight> loadWeights(const string& path)
 void saveWeights(const string& path, const vector<StrategyWeight>& weights)
 {
   FILE* f = fopen(path.cstr(), "w");
-  if (!f) return;
+  if (!f)
+    return;
 
   fprintf(f, "# weights.cfg\n");
   fprintf(f, "# format: StrategyName weight\n");
