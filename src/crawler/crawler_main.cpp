@@ -769,29 +769,50 @@ int main()
   domainFilter filter("banned_urls.txt", "banned_words.txt");
   CrawlLogger& crawlLogger = globalCrawlLogger();
 
-  // ── Seed URLs ──
-  vector<string> seeds;
-  fill_seeds(seeds, normalizer, "seed_list.txt");
+  const string checkpointPath = "frontier_checkpoint.bin";
 
-  // Filter domains of the seed list
-  vector<string> filteredSeeds;
-  for (size_t i = 0; i < seeds.size(); ++i)
+  bool resumedFromCheckpoint = false;
+  if (access(checkpointPath.cstr(), F_OK) == 0)
   {
-    if (!filter.isBlocked(seeds[i]))
+    auto loadRes = theFrontier.loadCheckpoint(checkpointPath);
+    if (loadRes.hasValue())
     {
-      filteredSeeds.pushBack(seeds[i]);
+      resumedFromCheckpoint = true;
+      crawlLogger.log("RESUME", "LOADED CHECKPOINT", checkpointPath, theFrontier.size(),
+                      theFrontier.seenCount());
+    }
+    else
+    {
+      crawlLogger.log("RESUME", "CHECKPOINT LOAD FAILED", checkpointPath, loadRes.error().msg);
     }
   }
 
-  // Seed URLs to URLFrontier
-  theFrontier.seed(filteredSeeds);
+  if (!resumedFromCheckpoint)
+  {
+    // ── Seed URLs ──
+    vector<string> seeds;
+    fill_seeds(seeds, normalizer, "seed_list.txt");
+
+    // Filter domains of the seed list
+    vector<string> filteredSeeds;
+    for (size_t i = 0; i < seeds.size(); ++i)
+    {
+      if (!filter.isBlocked(seeds[i]))
+      {
+        filteredSeeds.pushBack(seeds[i]);
+      }
+    }
+
+    // Seed URLs to URLFrontier
+    theFrontier.seed(filteredSeeds);
+    crawlLogger.log("RESUME", "SEEDED FRONTIER", filteredSeeds.size());
+  }
 
   // Crawling metadata
   atomic_counter processedCount(0);
   atomic_counter indexedCount(0);
   size_t checkpointInterval = CHECKPOINT_INTERVAL;
   atomic_counter failedCount(0);
-  const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsAgent(kRobotsUserAgent);
 
   globalCrawlerState workerState;
