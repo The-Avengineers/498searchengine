@@ -206,11 +206,6 @@ size_t ComputeWindowStart(size_t page, size_t limit)
   return (page - 1) * limit;
 }
 
-size_t ClockToMs(clock_t ticks)
-{
-  return static_cast<size_t>((static_cast<unsigned long>(ticks) * 1000u) / CLOCKS_PER_SEC);
-}
-
 } // namespace
 
 SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
