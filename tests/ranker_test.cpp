@@ -356,7 +356,8 @@ void testTermCoverage()
       nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals),
                   1.0666666666666667));
 }
-void testTermCoverage()
+
+void testTermCoveragePresenceCases()
 {
   TermCoverage strat;
   Ranker::RankSignals signals;
@@ -396,5 +397,6 @@ int main()
   testQueryOccurrence();
   testEarlyQueryTermMatch();
   testTermCoverage();
+  testTermCoveragePresenceCases();
   return 0;
 }
