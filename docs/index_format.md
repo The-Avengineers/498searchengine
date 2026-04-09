@@ -59,6 +59,7 @@ a metadata section after the position delta stream:
 - For each document (in posting order):
   - `url`: varint-encoded byte length, then raw bytes (no NUL)
   - `title`: varint-encoded byte length, then raw bytes (no NUL)
+  - `description`: varint-encoded byte length, then raw bytes (no NUL)
   - `ranking_input`: `u64` (little-endian, `RankingInput`)
 
 The position deltas for `DOCUMENT_END` encode per-document token counts.

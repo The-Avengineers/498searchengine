@@ -393,6 +393,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
   DocumentMetadata documentMetadata = DocumentMetadata{
       .url = crawlUrl,
       .title = parser.rawTitle,
+      .description = parser.rawDescription,
       .input = ranking_input::Pack(entry.depth < 0 ? 0u : static_cast<uint32_t>(entry.depth),
                                    static_cast<uint32_t>(crawlUrl.size()),
                                    ranking_input::CountWords(parser.rawTitle)),

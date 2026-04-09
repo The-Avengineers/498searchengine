@@ -63,6 +63,7 @@ int main()
   EXPECT(strEq(parser.titleWords[1], "engine"));
   EXPECT(strEq(parser.fullTitle, "search engine"));
   EXPECT(strEq(parser.rawTitle, "Search Engine"));
+  EXPECT(strEq(parser.rawDescription, ""));
 
   // Links and anchor text
   EXPECT(parser.links.size() == 2);
@@ -123,6 +124,24 @@ int main()
   EXPECT(!containsWord(parser2.words, "style"));
   EXPECT(!containsWord(parser2.words, "svg"));
   EXPECT(!containsWord(parser2.words, "script"));
+
+  // Description extraction precedence: name=description > og:description > twitter:description.
+  // Also verifies case-insensitive matching and single-quoted attributes.
+  const char htmlDesc[] = "<html><head>"
+                          "<meta PROPERTY='OG:DESCRIPTION' content='From OG'>"
+                          "<meta name='twitter:description' content='From Twitter'>"
+                          "<meta NAME='description' content='From Name Description'>"
+                          "<meta name='description' content='Ignored second description'>"
+                          "</head><body></body></html>";
+  avengine::HtmlParser parserDesc(htmlDesc, strlen(htmlDesc));
+  EXPECT(strEq(parserDesc.rawDescription, "From Name Description"));
+
+  // If `name=description` is absent, Open Graph should win over Twitter.
+  const char htmlDescFallback[] =
+      "<html><head><meta name='twitter:description' content='Twitter only'>"
+      "<meta property='og:description' content='OG wins'></head><body></body></html>";
+  avengine::HtmlParser parserDescFallback(htmlDescFallback, strlen(htmlDescFallback));
+  EXPECT(strEq(parserDescFallback.rawDescription, "OG wins"));
 
   // Normalization: lowercase + remove non-alpha + accent folding.
   const char html3[] =

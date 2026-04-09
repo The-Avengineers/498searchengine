@@ -250,6 +250,8 @@ bool IndexShardSource::ParseDocumentMetadata()
   {
     const avengine::string url = r.readString();
     const avengine::string title = r.readString();
+    const avengine::string description = r.readString();
+
     RankingInput rankingInput = 0;
     if (r.remaining() >= sizeof(uint64_t))
       rankingInput = r.readU64();
@@ -261,6 +263,7 @@ bool IndexShardSource::ParseDocumentMetadata()
         {static_cast<uint32_t>(docId), start, end, titleLength, urlLength, rankingInput});
     documentUrls_.pushBack(url);
     documentTitles_.pushBack(title);
+    documentDescriptions_.pushBack(description);
     start = end + 1;
   }
 
@@ -296,6 +299,7 @@ void IndexShardSource::Reset()
   documents_.clear();
   documentUrls_.clear();
   documentTitles_.clear();
+  documentDescriptions_.clear();
   postingsStart_ = 0;
   fileSize_ = 0;
 

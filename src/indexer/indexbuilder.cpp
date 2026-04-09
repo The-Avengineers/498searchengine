@@ -173,6 +173,7 @@ int main(int argc, char** argv)
       DocumentMetadata metadata = {
           .url = "(none)",
           .title = title,
+          .description = "",
           .input = ranking_input::Pack(0u, 6u, ranking_input::CountWords(title)),
       };
       avengine::vector<avengine::string_slice> phrases;

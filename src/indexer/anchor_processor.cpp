@@ -221,7 +221,8 @@ static void buildTsvMap(avengine::string_slice content,
 //   [doc_freq u64][coll_freq u64][skip_count u64]
 //   [skip stream:     skip_count × 3 varints (posIdx, posVal, byteOff)]
 //   [position stream: coll_freq varints, delta-encoded]
-//   [metadata:        doc_freq × (url string, title string, 8-byte RankingInput)]
+//   [metadata:        doc_freq × (url string, title string, description string,
+//                                   8-byte RankingInput)]
 static bool parseDocEnd(const uint8_t* data, size_t fileSize,
                         avengine::vector<DocumentMetadata>& docMetas)
 {
@@ -337,12 +338,17 @@ static bool parseDocEnd(const uint8_t* data, size_t fileSize,
       return false;
     cursor = nx;
 
+    avengine::string description = readLPString(cursor, pEnd, &nx);
+    if (!nx)
+      return false;
+    cursor = nx;
+
     if (cursor + 8 > pEnd)
       return false;
     uint64_t rankInput = readU64Le(cursor);
     cursor += 8;
 
-    docMetas.pushBack({url, title, rankInput});
+    docMetas.pushBack({url, title, description, rankInput});
   }
 
   return true;
@@ -415,6 +421,7 @@ static void processShards(const avengine::vector<avengine::string>& sfiFiles,
       DocumentMetadata meta;
       meta.url = doc.url;
       meta.title = doc.title;
+      meta.description = doc.description;
       meta.input = static_cast<RankingInput>(doc.input);
 
       anchorIndex->beginDocument(meta);

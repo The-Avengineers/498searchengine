@@ -125,6 +125,7 @@ static void encodePostingList(const PostingList& pl,
 
       metaWriter.writeString(doc.url);
       metaWriter.writeString(doc.title);
+      metaWriter.writeString(doc.description);
       metaWriter.writeBytes(reinterpret_cast<const uint8_t*>(&doc.input), sizeof(doc.input));
     }
   }

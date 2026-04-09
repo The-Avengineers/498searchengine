@@ -251,6 +251,7 @@ Metrics RunProfile(const Args& args, const avengine::vector<FixtureDocument>& fi
       DocumentMetadata metadata = {
           .url = fixture.url,
           .title = parser.fullTitle,
+          .description = parser.rawDescription,
           .input = 0,
       };
       metrics.totalWords += indexDocument(metadata, parser.words);

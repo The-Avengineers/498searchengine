@@ -68,8 +68,9 @@ Ranking can boost `#`/`/` prefixed matches independently.
 - Skip pointers are sampled at every `floor(sqrt(collection_frequency))` positions;
   not emitted when stride <= 1.
 - The special `DOCUMENT_END` term stores one posting per document; its position
-  deltas encode per-document token counts, and document metadata is appended
-  inline after the position delta stream.
+  deltas encode per-document token counts, and document metadata (`url`, `title`,
+  `description`, `ranking_input`) is appended inline after the position delta
+  stream.
 
 ## Known Issues
 
@@ -85,3 +86,4 @@ Ranking can boost `#`/`/` prefixed matches independently.
 - `src/indexer/indexer.cpp` builds `index.sfi` via `Index::serialize()`.
 - `headerSize()` computes the exact header byte size as:
   `5 * 8 + sum over terms of (4 * 8 + len(word))`
+ len(word))`

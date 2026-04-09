@@ -50,7 +50,8 @@ TEST_CASE("Dictionary ISR factory methods return owned heap objects")
 TEST_CASE("parsePostingBlobHeader matches the current writer format")
 {
   Index index;
-  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
+  index.beginDocument(
+      {.url = "doc://serialize", .title = "Serialize", .description = "", .input = 0});
   index.ingest("alpha");
   index.endDocument();
 
