@@ -1,10 +1,11 @@
 #include <avengine/search/search_service.h>
+#include <avengine/string.h>
+#include <avengine/vector.h>
 
 #include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <string>
-#include <vector>
 
 // Prevent the compiler from eliminating the search work as dead code.
 static volatile size_t g_sink = 0;
@@ -26,7 +27,7 @@ int main(int argc, char** argv)
 
   for (int i = 1; i < argc; ++i)
   {
-    const std::string arg(argv[i]);
+    const avengine::string arg(argv[i]);
     if (arg == "--index-dir" && i + 1 < argc)
       indexDir = argv[++i];
     else if (arg == "--queries" && i + 1 < argc)
@@ -48,7 +49,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::vector<std::string> queries;
+  avengine::vector<avengine::string> queries;
   {
     std::ifstream ifs(queriesFile);
     if (!ifs)
@@ -60,7 +61,7 @@ int main(int argc, char** argv)
     while (std::getline(ifs, line))
     {
       if (!line.empty())
-        queries.push_back(line);
+        queries.pushBack(avengine::string(line.c_str()));
     }
   }
 
@@ -76,23 +77,23 @@ int main(int argc, char** argv)
   // Warmup passes — results discarded so the caches are hot before timing.
   for (int w = 0; w < warmup; ++w)
   {
-    for (const std::string& q : queries)
+    for (const avengine::string& q : queries)
     {
-      const auto r = service.Search(avengine::string(q.c_str()), 10);
+      const auto r = service.Search(q, 10);
       g_sink += r.TotalHits;
     }
   }
 
   struct Stats
   {
-    std::string query;
+    avengine::string query;
     double meanMs = 0.0;
     double minMs = 0.0;
     double maxMs = 0.0;
     size_t totalHits = 0;
   };
 
-  std::vector<Stats> results(queries.size());
+  avengine::vector<Stats> results(queries.size());
   for (size_t qi = 0; qi < queries.size(); ++qi)
     results[qi].query = queries[qi];
 
@@ -101,7 +102,7 @@ int main(int argc, char** argv)
     for (size_t qi = 0; qi < queries.size(); ++qi)
     {
       const auto t0 = std::chrono::steady_clock::now();
-      const auto r = service.Search(avengine::string(queries[qi].c_str()), 10);
+      const auto r = service.Search(queries[qi], 10);
       const double ms =
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
@@ -120,7 +121,7 @@ int main(int argc, char** argv)
   std::printf("%-40s  %6s  %8s  %8s  %8s\n", "-----", "----", "-------", "------", "------");
   for (const Stats& s : results)
   {
-    std::printf("%-40s  %6zu  %8.3f  %8.3f  %8.3f\n", s.query.c_str(), s.totalHits,
+    std::printf("%-40s  %6zu  %8.3f  %8.3f  %8.3f\n", s.query.cstr(), s.totalHits,
                 s.meanMs / static_cast<double>(iterations), s.minMs, s.maxMs);
   }
 
