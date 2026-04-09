@@ -89,6 +89,7 @@ public:
   string_slice base;
   string fullTitle;
   string rawTitle;
+  string rawDescription;
   bool rejected;
 
 private:
@@ -100,6 +101,9 @@ private:
   bool curr_in_title;
   bool curr_in_anchor;
   bool seen_base;
+  string metaDescription;
+  string metaOgDescription;
+  string metaTwitterDescription;
   enum class tag_result
   {
     not_tag,
@@ -352,89 +356,154 @@ private:
       curr++;
     }
   }
-  // get src
+  static bool is_attr_name_char(char c)
+  {
+    const unsigned char u = static_cast<unsigned char>(c);
+    return is_ascii_alpha(u) || (u >= '0' && u <= '9') || c == '-' || c == '_' || c == ':';
+  }
+
+  static bool eq_ci(string_slice lhs, string_slice rhs)
+  {
+    if (lhs.size() != rhs.size())
+    {
+      return false;
+    }
+    for (size_t i = 0; i < lhs.size(); ++i)
+    {
+      if (lower_ascii(static_cast<unsigned char>(lhs[i])) !=
+          lower_ascii(static_cast<unsigned char>(rhs[i])))
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Returns the value of the first attribute whose name matches `attrName`
+  // (ASCII case-insensitive). Supports quoted and unquoted attribute values.
+  string_slice get_attr_value_ci(const char* start, const char* tag_end, string_slice attrName)
+  {
+    const char* p = start;
+
+    while (p < tag_end)
+    {
+      while (p < tag_end && is_whitespace(*p))
+      {
+        ++p;
+      }
+      if (p >= tag_end)
+      {
+        break;
+      }
+
+      if (!is_attr_name_char(*p))
+      {
+        ++p;
+        continue;
+      }
+
+      const char* nameStart = p;
+      while (p < tag_end && is_attr_name_char(*p))
+      {
+        ++p;
+      }
+      const char* nameEnd = p;
+
+      while (p < tag_end && is_whitespace(*p))
+      {
+        ++p;
+      }
+
+      if (p >= tag_end || *p != '=')
+      {
+        continue;
+      }
+      ++p;
+
+      while (p < tag_end && is_whitespace(*p))
+      {
+        ++p;
+      }
+
+      const char* valueStart = p;
+      const char* valueEnd = p;
+
+      if (p < tag_end && (*p == '"' || *p == '\''))
+      {
+        const char quote = *p;
+        ++p;
+        valueStart = p;
+        while (p < tag_end && *p != quote)
+        {
+          ++p;
+        }
+        valueEnd = p;
+        if (p < tag_end)
+        {
+          ++p;
+        }
+      }
+      else
+      {
+        while (p < tag_end && !is_whitespace(*p))
+        {
+          ++p;
+        }
+        valueEnd = p;
+      }
+
+      if (eq_ci(makeSlice(nameStart, nameEnd), attrName))
+      {
+        return makeSlice(valueStart, valueEnd);
+      }
+    }
+
+    return string_slice();
+  }
+
   string_slice get_src(const char* start, const char* tag_end)
   {
-    const char* s = start;
-
-    while (s + 3 <= tag_end)
-    {
-      if ((s == start || is_whitespace(*(s - 1))) && lower_ascii((unsigned char)*s) == 's' &&
-          lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'c')
-      {
-        s += 3;
-
-        while (s < tag_end && is_whitespace(*s))
-        {
-          s++;
-        }
-
-        if (s < tag_end && *s == '=')
-        {
-          s++;
-
-          while (s < tag_end && is_whitespace(*s))
-          {
-            s++;
-          }
-
-          if (s < tag_end && *s == '"')
-          {
-            s++;
-            const char* valueStart = s;
-            while (s < tag_end && *s != '"')
-            {
-              s++;
-            }
-            return makeSlice(valueStart, s);
-          }
-        }
-      }
-      s++;
-    }
-    return string_slice();
+    return get_attr_value_ci(start, tag_end, string_slice("src"));
   }
-  // get href
+
   string_slice get_href(const char* start, const char* tag_end)
   {
-    const char* s = start;
-
-    while (s + 4 <= tag_end)
-    {
-      if ((s == start || is_whitespace(*(s - 1))) && lower_ascii((unsigned char)*s) == 'h' &&
-          lower_ascii((unsigned char)s[1]) == 'r' && lower_ascii((unsigned char)s[2]) == 'e' &&
-          lower_ascii((unsigned char)s[3]) == 'f')
-      {
-        s += 4;
-        while (s < tag_end && is_whitespace(*s))
-        {
-          s++;
-        }
-        if (s < tag_end && *s == '=')
-        {
-          s++;
-
-          while (s < tag_end && is_whitespace(*s))
-          {
-            s++;
-          }
-
-          if (s < tag_end && *s == '"')
-          {
-            s++;
-            const char* value_start = s;
-            while (s < tag_end && *s != '"')
-            {
-              s++;
-            }
-            return makeSlice(value_start, s);
-          }
-        }
-      }
-      s++;
-    }
-    return string_slice();
+    return get_attr_value_ci(start, tag_end, string_slice("href"));
   }
+
+  void maybe_capture_meta_description(const char* attr_start, const char* tag_end)
+  {
+    const string_slice content = get_attr_value_ci(attr_start, tag_end, string_slice("content"));
+    if (content.empty())
+    {
+      return;
+    }
+
+    const string_slice nameAttr = get_attr_value_ci(attr_start, tag_end, string_slice("name"));
+    const string_slice propertyAttr =
+        get_attr_value_ci(attr_start, tag_end, string_slice("property"));
+
+    if (eq_ci(nameAttr, string_slice("description")) && metaDescription.size() == 0)
+    {
+      metaDescription = content.toString();
+      return;
+    }
+
+    if (eq_ci(propertyAttr, string_slice("og:description")) && metaOgDescription.size() == 0)
+    {
+      metaOgDescription = content.toString();
+      return;
+    }
+
+    if ((eq_ci(nameAttr, string_slice("twitter:description")) ||
+         eq_ci(propertyAttr, string_slice("twitter:description"))) &&
+        metaTwitterDescription.size() == 0)
+    {
+      metaTwitterDescription = content.toString();
+      return;
+    }
+  }
+
   // proccess the tag
   tag_result process_tag()
   {
@@ -568,6 +637,10 @@ private:
     switch (action)
     {
     case DesiredAction::Discard:
+      if (!is_closing && eq_ci(makeSlice(start_of_name, name_end), string_slice("meta")))
+      {
+        maybe_capture_meta_description(attr_start, tag_end);
+      }
       break;
 
     case DesiredAction::DiscardSection:
@@ -717,9 +790,10 @@ public:
   // all the HTML tags and producing the list of words in body,
   // words in title, and links found on the page.
   HtmlParser(const char* buffer, size_t length)
-      : words(), titleWords(), links(), base(), fullTitle(), rawTitle(), rejected(false),
-        curr(buffer), end(buffer + length), normalizedStorage(), curr_in_title(false),
-        curr_in_anchor(false), seen_base(false)
+      : words(), titleWords(), links(), base(), fullTitle(), rawTitle(), rawDescription(),
+        rejected(false), curr(buffer), end(buffer + length), normalizedStorage(),
+        curr_in_title(false), curr_in_anchor(false), seen_base(false), metaDescription(),
+        metaOgDescription(), metaTwitterDescription()
   {
     if (should_reject_page(buffer, length))
     {
@@ -798,6 +872,22 @@ public:
     if (start_word_ptr)
     {
       add_to_words(start_word_ptr, curr, curr_in_title, idx);
+    }
+
+    // Deterministic description precedence: HTML `description` first,
+    // then Open Graph, then Twitter. Within each source, keep the first
+    // non-empty value encountered.
+    if (metaDescription.size() > 0)
+    {
+      rawDescription = metaDescription;
+    }
+    else if (metaOgDescription.size() > 0)
+    {
+      rawDescription = metaOgDescription;
+    }
+    else if (metaTwitterDescription.size() > 0)
+    {
+      rawDescription = metaTwitterDescription;
     }
   }
 };

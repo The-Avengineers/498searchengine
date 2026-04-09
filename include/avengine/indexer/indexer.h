@@ -53,7 +53,8 @@ struct DocumentMetadata
 {
   avengine::string url;
   avengine::string title;
-  // NOTE: If we choose to add a description for pages it will be passed here.
+  avengine::string description;
+  // Input to static-rank computation (distance from seeds, etc.).
   RankingInput input;
 };
 struct Index

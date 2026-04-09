@@ -65,6 +65,12 @@ private:
   vector<DocumentInfo> documents_;
   vector<string> documentUrls_;
   vector<string> documentTitles_;
+  vector<string> documentDescriptions_;
+
+  // Per-query cache: populated lazily by OpenTermIsr, cleared via ClearTermCache()
+  // after each shard's work is done. Declared mutable so const OpenTermIsr can write it.
+  mutable unordered_map<vector<Location>> termPositionCache_;
+  mutable unordered_map<uint32_t> termDocFreqCache_;
 };
 
 } // namespace search

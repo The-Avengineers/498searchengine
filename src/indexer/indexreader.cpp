@@ -148,6 +148,7 @@ static bool parse_docend_posting(const uint8_t* data, size_t fileSize, size_t po
   {
     const avengine::string url = r.readString();
     const avengine::string title = r.readString();
+    (void)r.readString(); // description
     r.skip(8);
 
     uint64_t endPos = (i < boundaryPositions.size()) ? boundaryPositions[i] : UINT64_MAX;

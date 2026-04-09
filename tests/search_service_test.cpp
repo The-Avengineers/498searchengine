@@ -69,6 +69,7 @@ void writeShard(const char* path, std::initializer_list<TestDocument> docs)
     string title(doc.Title);
     index.beginDocument({.url = url,
                          .title = title,
+                         .description = "",
                          .input = ranking_input::Pack(0u, static_cast<uint32_t>(url.size()),
                                                       ranking_input::CountWords(title))});
     ingestBody(index, doc.Body);

@@ -90,14 +90,16 @@ void testIndexIngestAcrossDocuments()
 {
   Index index;
 
-  uint32_t doc0 = index.beginDocument({.url = "doc://0", .title = "Doc 0", .input = 0});
+  uint32_t doc0 =
+      index.beginDocument({.url = "doc://0", .title = "Doc 0", .description = "", .input = 0});
   EXPECT(doc0 == 0u);
   index.ingest("apple");
   index.ingest("banana");
   index.ingest("apple");
   index.endDocument();
 
-  uint32_t doc1 = index.beginDocument({.url = "doc://1", .title = "Doc 1", .input = 0});
+  uint32_t doc1 =
+      index.beginDocument({.url = "doc://1", .title = "Doc 1", .description = "", .input = 0});
   EXPECT(doc1 == 1u);
   index.ingest("apple");
   index.endDocument();
@@ -129,7 +131,8 @@ void testIndexIngestAcrossDocuments()
 void testIndexDocumentTokenization()
 {
   char text[] = "Alpha, beta! ALPHA?? 123 gamma.";
-  DocumentMetadata meta{.url = "doc://tokenized", .title = "Title Case", .input = 0};
+  DocumentMetadata meta{
+      .url = "doc://tokenized", .title = "Title Case", .description = "", .input = 0};
   avengine::vector<avengine::string_slice> phrases;
   phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
   const size_t words = indexDocument(meta, phrases);
@@ -174,7 +177,10 @@ void testIndexDocumentTokenization()
 void testSerializationHeaderAndSkipPointers()
 {
   Index index;
-  index.beginDocument({.url = "doc://serialize", .title = "Serialize", .input = 0});
+  index.beginDocument({.url = "doc://serialize",
+                       .title = "Serialize",
+                       .description = "Serialized description",
+                       .input = 7});
   for (uint32_t i = 0; i < 10u; ++i)
   {
     (void)i;
@@ -228,6 +234,7 @@ void testSerializationHeaderAndSkipPointers()
   EXPECT(rankingInputSizeVal == sizeof(RankingInput));
 
   uint64_t alphaPostingOffset = UINT64_MAX;
+  uint64_t docEndPostingOffset = UINT64_MAX;
   for (uint64_t i = 0; i < uniqueWordsVal; ++i)
   {
     avengine::string word = fileHeader.readString();
@@ -241,9 +248,16 @@ void testSerializationHeaderAndSkipPointers()
       EXPECT(postingsCount == 1u);
       alphaPostingOffset = postingOffset;
     }
+    if (word == avengine::string(DOCEND_TOKEN))
+    {
+      EXPECT(positionsCount == 1u);
+      EXPECT(postingsCount == 1u);
+      docEndPostingOffset = postingOffset;
+    }
   }
 
   EXPECT(alphaPostingOffset != UINT64_MAX);
+  EXPECT(docEndPostingOffset != UINT64_MAX);
 
   const size_t postingsStart = static_cast<size_t>(fileHeader.cursor() - bytes);
   const size_t alphaStart = postingsStart + static_cast<size_t>(alphaPostingOffset);
@@ -284,6 +298,19 @@ void testSerializationHeaderAndSkipPointers()
   for (int i = 0; i < 9; ++i)
     checkVar(1u); // remaining position deltas
 
+  const size_t docEndStart = postingsStart + static_cast<size_t>(docEndPostingOffset);
+  EXPECT(docEndStart + 24u <= fileSize);
+
+  avengine::Reader docEndReader(bytes + docEndStart, fileSize - docEndStart);
+  EXPECT(docEndReader.readU64() == 1u);
+  EXPECT(docEndReader.readU64() == 1u);
+  EXPECT(docEndReader.readU64() == 0u);
+  EXPECT(docEndReader.readVarU32() == 10u);
+  EXPECT(docEndReader.readString() == avengine::string("doc://serialize"));
+  EXPECT(docEndReader.readString() == avengine::string("Serialize"));
+  EXPECT(docEndReader.readString() == avengine::string("Serialized description"));
+  EXPECT(docEndReader.readU64() == 7u);
+
   std::free(bytes);
 }
 
@@ -298,8 +325,8 @@ static void* concurrentIngestThread(void* arg)
 {
   ConcurrentThreadArgs* a = static_cast<ConcurrentThreadArgs*>(arg);
   pthread_mutex_lock(&a->slot->mutex);
-  a->docId =
-      a->slot->index->beginDocument({.url = "doc://thread", .title = "Thread Doc", .input = 0});
+  a->docId = a->slot->index->beginDocument(
+      {.url = "doc://thread", .title = "Thread Doc", .description = "", .input = 0});
   for (int i = 0; i < a->wordCount; ++i)
     a->slot->index->ingest("token");
   a->slot->index->endDocument();
