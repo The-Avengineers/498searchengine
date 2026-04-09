@@ -48,3 +48,13 @@ artifacts/
 
 # Large files
 data/
+
+# Crawler runtime state (large, not for version control)
+crawl_log.csv
+ac_log.tsv
+frontier_checkpoint.bin
+frontier_checkpoint.bin.tmp
+
+# Misc local artifacts
+profile.json.gz
+utils/

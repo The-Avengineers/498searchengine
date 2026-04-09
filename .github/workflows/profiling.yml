@@ -20,6 +20,8 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Fixture-based profile: correctness + baseline latency using the small test corpus.
+  # Runs on both PRs and pushes.
   profile:
     runs-on: ubuntu-latest
 
@@ -50,8 +52,15 @@ jobs:
           name: profiling-artifacts
           path: artifacts/
 
-  cpu-profile:
+  # Corpus-based profile: realistic latency using the large crawl index.
+  # Runs only on pushes to avoid downloading ~1 GB on every PR.
+  corpus-profile:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    env:
+      CORPUS_INDEX_TAG: corpus-index-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -60,24 +69,37 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 graphviz \
-            linux-tools-common linux-tools-generic || true
-          pip3 install --quiet gprof2dot
-          git clone --depth 1 https://github.com/brendangregg/FlameGraph /opt/FlameGraph
-          echo "/opt/FlameGraph" >> "$GITHUB_PATH"
+          sudo apt-get install -y cmake g++ python3
 
-      - name: Run CPU profile
+      - name: Restore corpus index from cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: corpus-index/
+          key: ${{ env.CORPUS_INDEX_TAG }}
+
+      - name: Download corpus index from release
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          sudo sysctl -w kernel.perf_event_paranoia=1 || true
-          BENCHMARK_ITERATIONS=500 BENCHMARK_WARMUP=5 \
-            bash profiling/scripts/run_cpu_profile.sh \
-              artifacts/cpu_profile build-cpu-profile
+          mkdir -p corpus-index
+          gh release download "$CORPUS_INDEX_TAG" \
+            --repo "${{ github.repository }}" \
+            --dir corpus-index/ \
+            --pattern "*.sfi"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show gprof flat profile
-        run: head -60 artifacts/cpu_profile/gprof_report.txt >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Run corpus profile
+        run: |
+          mkdir -p artifacts
+          bash profiling/scripts/profile_query_pipeline.sh \
+            --index-dir corpus-index/ \
+            --iterations 50 \
+            --output artifacts/corpus_profile.json \
+            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY" || true
 
-      - name: Upload CPU profiling artifacts
+      - name: Upload corpus profile artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cpu-profiling-artifacts
-          path: artifacts/cpu_profile/
+          name: corpus-profile
+          path: artifacts/corpus_profile.json
