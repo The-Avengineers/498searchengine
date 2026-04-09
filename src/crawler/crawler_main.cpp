@@ -767,7 +767,7 @@ int main()
   frontier theFrontier;
   URLNormalizer normalizer;
   domainFilter filter("banned_urls.txt", "banned_words.txt");
-  CrawlLogger crawlLogger("crawl_log.csv");
+  CrawlLogger& crawlLogger = globalCrawlLogger();
 
   // ── Seed URLs ──
   vector<string> seeds;

@@ -22,5 +22,11 @@ void CrawlLogger::writeTimestamp()
   logFile << buf;
 }
 
+CrawlLogger& globalCrawlLogger()
+{
+  static CrawlLogger logger("crawl_log.csv");
+  return logger;
+}
+
 } // namespace crawler
 } // namespace avengine
