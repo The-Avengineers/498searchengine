@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_ROOT="${AVENGINE_DATA_ROOT:-/var/lib/avengine}"
+DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
 WATCH=0
 INTERVAL="${AVENGINE_AGGREGATE_INTERVAL_SECONDS:-300}"
 

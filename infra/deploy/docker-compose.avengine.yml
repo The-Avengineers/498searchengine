@@ -16,7 +16,8 @@ services:
     ports:
       - "${AVENGINE_SSH_PORT:-2222}:22"
     volumes:
-      - avengine-data:/var/lib/avengine
+      - avengine-data:/data
+      - ./authorized_keys:/run/avengine/authorized_keys:ro
 
 volumes:
   avengine-data:

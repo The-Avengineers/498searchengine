@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_ROOT="${AVENGINE_DATA_ROOT:-/var/lib/avengine}"
-CONFIG_ROOT="${AVENGINE_CONFIG_ROOT:-/opt/avengine/config}"
-BIN_ROOT="${AVENGINE_BIN_ROOT:-/opt/avengine/bin}"
+DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
+CONFIG_ROOT="${AVENGINE_CONFIG_ROOT:-/config}"
+BIN_ROOT="${AVENGINE_BIN_ROOT:-/avengine/bin}"
 SWARM_SIZE="${AVENGINE_SWARM_SIZE:-4}"
 CRAWLER_WORKERS="${AVENGINE_CRAWLER_WORKERS:-64}"
 RESET=0

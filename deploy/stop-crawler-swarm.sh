@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_ROOT="${AVENGINE_DATA_ROOT:-/var/lib/avengine}"
+DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
 QUIET=0
 
 if [[ "${1:-}" == "--quiet" ]]; then

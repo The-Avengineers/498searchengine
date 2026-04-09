@@ -10,21 +10,37 @@ The deployed Docker container now acts as a long-lived crawler box:
 - multiple `crawler_main` processes start automatically in the background
 - each worker writes to `/var/lib/avengine/crawlers/<id>`
 - the merged corpus lives at `/var/lib/avengine/corpus-index/current`
+- teammates can be granted access by adding their public keys to `infra/deploy/authorized_keys`
+
+When you SSH in, the container exposes a simplified layout at the filesystem root:
+
+- `/avengine` for binaries and project assets
+- `/config` for seed and block lists
+- `/data` for persistent runtime state
+- `/logs` for crawler and search logs
+- `/crawlers` for per-worker crawl outputs
+- `/corpus` for the live merged shard directory
+- `/profiling` for profiling scripts and fixtures
 
 Common SSH-side commands:
 
 ```bash
-ps -ef | grep crawler_main
-ls /var/lib/avengine/logs
-find /var/lib/avengine/corpus-index/current -maxdepth 1 -name '*.sfi' | wc -l
-/opt/avengine/bin/search_server 8080 /var/lib/avengine/corpus-index/current
+av-help
+av-status
+av-start
+av-stop
+av-serve 8080
+av-serve 8080 /corpus --daemon
+av-stop-search
 ```
 
 Swarm helper scripts:
 
 ```bash
-/opt/avengine/bin/start-crawler-swarm.sh
-/opt/avengine/bin/start-crawler-swarm.sh --reset
-/opt/avengine/bin/stop-crawler-swarm.sh
-/opt/avengine/bin/aggregate-corpus-index.sh
+av-start
+/avengine/bin/start-crawler-swarm.sh --reset
+av-stop-crawlers
+av-start-aggregate
+av-stop-aggregate
+/avengine/bin/aggregate-corpus-index.sh
 ```
