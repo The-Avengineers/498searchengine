@@ -11,7 +11,7 @@ The deployed Docker container now acts as a long-lived crawler box:
 - each worker writes to `/var/lib/avengine/crawlers/<id>`
 - the merged corpus lives at `/var/lib/avengine/corpus-index/current`
 - the promoted profiling corpus lives at `/var/lib/avengine/corpus-profile/current`
-- teammates can be granted access by adding their public keys to `infra/deploy/authorized_keys`
+- SSH access is granted through `AVENGINE_SSH_PUBKEY` when the container starts
 
 When you SSH in, the container exposes a simplified layout at the filesystem root:
 
@@ -39,6 +39,8 @@ av-serve 8080
 av-serve 8080 /corpus --daemon
 av-stop-search
 ```
+
+To enable SSH access on the runtime box, set `AVENGINE_SSH_PUBKEY` to one or more newline-separated public keys before `docker compose up`. The default compose file no longer bind-mounts `infra/deploy/authorized_keys`, which avoids Docker Desktop file-sharing failures on the self-hosted runner.
 
 `av-profile ... corpus` still profiles the live `/corpus` view. CI `corpus-profile` instead reuses the promoted snapshot at `/var/lib/avengine/corpus-profile/current`.
 
