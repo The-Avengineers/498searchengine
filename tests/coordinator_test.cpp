@@ -19,13 +19,13 @@ void fail(const char* expr, int line)
       fail(#expr, __LINE__);                                                                       \
   } while (false)
 
+using avengine::string;
+using avengine::vector;
 using avengine::search::ComputeOverfetchLimit;
 using avengine::search::MergeResponses;
 using avengine::search::SearchHit;
 using avengine::search::SearchResponse;
 using avengine::search::SearchSource;
-using avengine::string;
-using avengine::vector;
 
 void testComputeOverfetchLimit()
 {
