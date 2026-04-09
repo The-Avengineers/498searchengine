@@ -671,8 +671,7 @@ void HandleClient(int clientFd, SearchServerState& state)
 
   while (totalBytes < kRecvBufSize - 1)
   {
-    const ssize_t n =
-        recv(clientFd, buffer + totalBytes, kRecvBufSize - 1 - totalBytes, 0);
+    const ssize_t n = recv(clientFd, buffer + totalBytes, kRecvBufSize - 1 - totalBytes, 0);
     if (n <= 0)
       break;
     totalBytes += static_cast<size_t>(n);

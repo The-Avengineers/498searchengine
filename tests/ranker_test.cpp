@@ -369,8 +369,8 @@ void testTermCoverage()
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {3}, {7}}, signals), 1.0));
 
   // No term has any positions → 0.0
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{}, {}, {}}, signals), 0.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{}, {}, {}}, signals),
+                     0.0));
 
   // One of three terms missing → 2/3
   const double partial =
@@ -378,8 +378,7 @@ void testTermCoverage()
   EXPECT(nearlyEqual(partial, 2.0 / 3.0));
 
   // Single term present → 1.0
-  EXPECT(
-      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{42}}, signals), 1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{42}}, signals), 1.0));
 }
 } // namespace
 
