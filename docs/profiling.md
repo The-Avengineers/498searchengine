@@ -1,6 +1,6 @@
 # Profiling
 
-The profiling setup measures two independent workloads: the offline crawl-and-index pipeline, and the online search query pipeline. Both have small deterministic fixtures for CI and support pointing at a larger real-world corpus locally or in CI via a GitHub Release.
+The profiling setup measures two independent workloads: the offline crawl-and-index pipeline, and the online search query pipeline. Both have small deterministic fixtures for CI and support pointing at a larger real-world corpus locally or in CI.
 
 ## What gets measured
 
@@ -34,6 +34,14 @@ Per-query timing fields returned by the server and recorded in the profile:
 
 Reported statistics per query: mean client round-trip, P50, P95, plus the server-side phase breakdown above.
 
+The HTTP query profile reads its query set from `profiling/fixtures/search_queries.tsv`. Each row
+defines a label, query text, and limit; profiles report the observed hit counts from the corpus
+being tested.
+
+For live-corpus profiling, use `profiling/fixtures/live_search_queries.tsv` instead of the fixture
+query set. The live query fixture is intended for real crawl shards and should not be expected to
+produce deterministic hit counts across runs.
+
 ---
 
 ## Local usage
@@ -63,6 +71,7 @@ Options:
 | `--server-url URL` | — | Connect to a running server instead of starting one |
 | `--index-dir DIR` | — | Use pre-built `.sfi` shards from DIR instead of building from fixture |
 | `--build-dir DIR` | `build-profiling` | CMake build directory |
+| `--queries-file FILE` | `profiling/fixtures/search_queries.tsv` | TSV query fixture with labels, queries, and limits |
 | `--iterations N` | `20` | Query iterations per term (first is warmup, discarded) |
 | `--output FILE` | — | Write JSON summary to FILE |
 
@@ -110,40 +119,51 @@ Outputs:
 
 The fixture corpus (`profiling/fixtures/search_corpus.tsv`) is tiny — good for correctness and fast CI, but not representative of real query latency. For realistic numbers use the full crawl index.
 
-### Uploading the corpus index to GitHub Releases
+### Persistent profiling corpus on the runtime container
 
-The `.sfi` shard files (100–200 MB each) are gitignored. Upload them once to a GitHub Release so CI can download them:
+The self-hosted runner now treats the runtime container volume as the source of truth for CI query profiling:
+
+- `/data/corpus-index/current` is the latest aggregated live crawl output
+- `/data/corpus-profile/current` is the promoted profiling snapshot used by the `corpus-profile` workflow
+
+Inside the container, promote the latest aggregated crawl into the persistent profiling location with:
 
 ```bash
-# From the repo root (where .sfi files live after a crawl):
-bash profiling/scripts/upload_corpus_index.sh
-
-# Or specify a different directory:
-bash profiling/scripts/upload_corpus_index.sh /path/to/shards
+av-promote-corpus-profile
 ```
 
-This creates (or replaces) a release tagged `corpus-index-latest` with all `.sfi` files as assets. Requires the `gh` CLI authenticated with write access to the repo.
+That command snapshots the current aggregated shard set into `/data/corpus-profile/current` using an atomic generation switch, so pull requests and manual profiling runs reuse a stable shard set until the next promotion.
 
-### Updating the corpus
+For clarity: in-container `av-profile ... corpus` still reads `/corpus` (the live aggregated corpus), while GitHub Actions `corpus-profile` reads the promoted snapshot from `/data/corpus-profile/current`.
 
-Re-run the upload script after a new crawl. If you want to guarantee CI doesn't use a stale cached copy, bump the tag:
+### Optional GitHub Release backup
 
-1. Edit the `TAG` variable in `upload_corpus_index.sh` (e.g., `corpus-index-v2`)
-2. Update `CORPUS_INDEX_TAG` in `.github/workflows/profiling.yml` to match
-3. Push — CI will download the new release on the next run
+If you still want a release-backed archive for backup or distribution, the upload helper remains available:
+
+```bash
+bash profiling/scripts/upload_corpus_index.sh /path/to/shards
+```
 
 ---
 
 ## CI
 
-Two jobs are defined in `.github/workflows/profiling.yml`:
+The profiling workflow now runs a single `corpus-profile` job in `.github/workflows/profiling.yml`.
+It runs on the repo's self-hosted runner for all pushes, pull requests, and manual dispatches.
 
-| Job | Trigger | What it does |
-|-----|---------|-------------|
-| `profile` | PRs + pushes to main/master | Full crawler + HTTP search profile using fixture corpus; uploads JSON + Markdown summary |
-| `corpus-profile` | Pushes to main/master only | Downloads the large corpus index from GitHub Releases (cached), runs 50 iterations per query, uploads `corpus_profile.json` |
+`corpus-profile`:
 
-The `corpus-profile` job is skipped on PRs to avoid downloading ~1 GB of index data on every review cycle. Both jobs upload their artifacts so you can download the full reports from the Actions run page.
+- copies the promoted `.sfi` shard set from `avengine-runtime:/var/lib/avengine/corpus-profile/current`
+- profiles `search_server` against those shards using `profiling/fixtures/live_search_queries.tsv`
+- uploads `artifacts/corpus_profile.json`
+- writes a Markdown summary table to the GitHub Actions step summary
+- fails fast if the runtime container is down or the promoted profiling corpus has not been built yet
+- fails if shards load successfully but every live query returns zero hits
+
+A separate push-to-`master` / manual workflow lives at `.github/workflows/live-internet-crawl.yml`.
+It runs the crawler box against the public internet for a bounded interval, aggregates the resulting
+shards, promotes them into `/data/corpus-profile/current`, and profiles `search_server` against that
+promoted corpus. Pull requests reuse the latest promoted snapshot instead of rebuilding it.
 
 ---
 
@@ -152,4 +172,6 @@ The `corpus-profile` job is skipped on PRs to avoid downloading ~1 GB of index d
 | Path | Used by |
 |------|---------|
 | `profiling/fixtures/search_corpus.tsv` | `search_http_profile`, `profile_query_pipeline` (default) |
+| `profiling/fixtures/search_queries.tsv` | `search_http_profile`, `profile_query_pipeline` |
+| `profiling/fixtures/live_search_queries.tsv` | live corpus profiling in CI and `av-profile ... corpus` |
 | `profiling/fixtures/crawl_pages/` | `crawler_index_profile` |

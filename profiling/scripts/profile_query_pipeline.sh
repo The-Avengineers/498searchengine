@@ -8,6 +8,7 @@
 #   --server-url URL     Base URL of a running search_server (skip auto-start)
 #   --index-dir DIR      Use pre-built .sfi shards from DIR instead of building a fresh index
 #   --build-dir DIR      Directory containing built binaries (default: <repo>/build-profiling)
+#   --queries-file FILE  TSV query fixture (default: profiling/fixtures/search_queries.tsv)
 #   --iterations N       Queries per term (default: 20)
 #   --output FILE        Write JSON summary to FILE (stdout only by default)
 
@@ -16,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 FIXTURE="${REPO_ROOT}/profiling/fixtures/search_corpus.tsv"
+QUERIES_FILE="${REPO_ROOT}/profiling/fixtures/search_queries.tsv"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 SERVER_URL=""
@@ -32,11 +34,16 @@ while [[ $# -gt 0 ]]; do
     --server-url) SERVER_URL="$2"; shift 2 ;;
     --index-dir)  INDEX_DIR="$2";  shift 2 ;;
     --build-dir)  BUILD_DIR="$2";  shift 2 ;;
+    --queries-file) QUERIES_FILE="$2"; shift 2 ;;
     --iterations) ITERATIONS="$2"; shift 2 ;;
     --output)     OUTPUT_FILE="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ "${BUILD_DIR}" != /* ]]; then
+  BUILD_DIR="${PWD}/${BUILD_DIR}"
+fi
 
 if ! command -v python3 &>/dev/null; then
   echo "python3 is required" >&2
@@ -101,27 +108,27 @@ PYEOF
   echo "Server ready at ${SERVER_URL}" >&2
 fi
 
+echo "Using queries from ${QUERIES_FILE}" >&2
+
 # ── All measurement and reporting delegated to Python ────────────────────────
-python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" <<'PYEOF'
+python3 - "${SERVER_URL}" "${ITERATIONS}" "${OUTPUT_FILE}" "${QUERIES_FILE}" "${SCRIPT_DIR}" "${INDEX_DIR}" <<'PYEOF'
 from __future__ import annotations
-import json, statistics, sys, time, urllib.request, urllib.parse, pathlib
+import json, pathlib, statistics, sys, time, urllib.request, urllib.parse
 
 server_url   = sys.argv[1]
 iterations   = int(sys.argv[2])
 output_file  = sys.argv[3]  # empty string means no file output
+queries_file = pathlib.Path(sys.argv[4]).resolve()
+script_dir   = pathlib.Path(sys.argv[5]).resolve()
+index_dir    = pathlib.Path(sys.argv[6]).resolve()
 
-QUERIES = [
-    # (label, raw_query)
-    ("apple (common)",                      "apple"),
-    ("search ranking (multi-term)",         "search ranking"),
-    ("distributed search ranking (phrase)", "\"distributed search ranking\""),
-    ("telemetry (single hit)",              "telemetry"),
-    ("kiwi (no results)",                   "kiwi"),
-    ("banana cherry (AND)",                 "banana cherry"),
-]
+sys.path.insert(0, str(script_dir))
+from query_fixture import load_search_queries  # noqa: E402
 
-def fetch(query: str) -> dict:
-    url = server_url + "/api/search?" + urllib.parse.urlencode({"q": query, "limit": 10})
+QUERIES = load_search_queries(queries_file)
+
+def fetch(query: str, limit: int) -> dict:
+    url = server_url + "/api/search?" + urllib.parse.urlencode({"q": query, "limit": limit})
     start = time.perf_counter()
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
@@ -148,6 +155,9 @@ def pct(vals: list[float], p: float) -> float:
 def mean(vals: list[float]) -> float:
     return statistics.fmean(vals) if vals else 0.0
 
+def shard_count(path: pathlib.Path) -> int:
+    return len(list(path.glob("*.sfi")))
+
 COL_W = 44
 print()
 print(f"{'Query':<{COL_W}}  {'Hits':>4}  {'Mean':>7}  {'P50':>7}  {'P95':>7}"
@@ -155,8 +165,9 @@ print(f"{'Query':<{COL_W}}  {'Hits':>4}  {'Mean':>7}  {'P50':>7}  {'P95':>7}"
 print("─" * 102)
 
 samples = []
-for label, query in QUERIES:
-    fetch(query)  # warmup (discarded)
+all_client_means: list[float] = []
+for spec in QUERIES:
+    fetch(spec.query, spec.limit)  # warmup (discarded)
 
     client_ms_list: list[float] = []
     took_list:      list[float] = []
@@ -164,16 +175,18 @@ for label, query in QUERIES:
     solve_list:     list[float] = []
     collect_list:   list[float] = []
     rank_list:      list[float] = []
+    error_count_list: list[int] = []
     actual_hits = 0
 
     for _ in range(iterations):
-        r = fetch(query)
+        r = fetch(spec.query, spec.limit)
         client_ms_list.append(float(r.get("client_ms", 0)))
         took_list.append(    float(r.get("took_ms",    0)))
         parse_list.append(   float(r.get("parse_ms",   0)))
         solve_list.append(   float(r.get("solve_ms",   0)))
         collect_list.append( float(r.get("collect_ms", 0)))
         rank_list.append(    float(r.get("rank_ms",    0)))
+        error_count_list.append(len(r.get("errors", [])))
         actual_hits = int(r.get("total_hits", 0))
 
     m_client  = mean(client_ms_list)
@@ -184,22 +197,27 @@ for label, query in QUERIES:
     m_collect = mean(collect_list)
     m_rank    = mean(rank_list)
 
-    print(f"{label:<{COL_W}}  {actual_hits:>4}  {m_client:>7.1f}  {p50:>7.1f}  {p95:>7.1f}"
+    print(f"{spec.label:<{COL_W}}  {actual_hits:>4}  {m_client:>7.1f}  {p50:>7.1f}  {p95:>7.1f}"
           f"  {m_parse:>7.1f}  {m_solve:>7.1f}  {m_collect:>7.1f}  {m_rank:>7.1f}", flush=True)
 
+    all_client_means.append(m_client)
     samples.append({
-        "query":            query,
-        "label":            label,
+        "query":            spec.query,
+        "label":            spec.label,
+        "limit":            spec.limit,
         "iterations":       iterations,
         "total_hits":       actual_hits,
+        "mean_total_hits":  round(float(actual_hits), 3),
         "mean_client_ms":   round(m_client,        3),
         "p50_client_ms":    round(p50,             3),
         "p95_client_ms":    round(p95,             3),
         "mean_took_ms":     round(mean(took_list),  3),
+        "mean_server_took_ms": round(mean(took_list), 3),
         "mean_parse_ms":    round(m_parse,          3),
         "mean_solve_ms":    round(m_solve,          3),
         "mean_collect_ms":  round(m_collect,        3),
         "mean_rank_ms":     round(m_rank,           3),
+        "mean_error_count": round(mean(error_count_list), 3),
     })
 
 print("─" * 102)
@@ -209,7 +227,15 @@ if output_file:
     payload = {
         "profile":              "query_pipeline",
         "server_url":           server_url,
+        "index_dir":            str(index_dir),
+        "queries_file":         str(queries_file),
         "iterations_per_query": iterations,
+        "query_count":          len(samples),
+        "shard_count":          shard_count(index_dir),
+        "nonzero_hit_query_count": sum(1 for sample in samples if sample["mean_total_hits"] > 0),
+        "mean_client_ms":       round(mean(all_client_means), 3),
+        "p50_client_ms":        round(pct(all_client_means, 0.50), 3),
+        "p95_client_ms":        round(pct(all_client_means, 0.95), 3),
         "samples":              samples,
     }
     pathlib.Path(output_file).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

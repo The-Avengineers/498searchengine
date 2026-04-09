@@ -1,0 +1,111 @@
+name: Live Internet Crawl
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  live-crawl:
+    runs-on: [self-hosted, linux, x64, avengine]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      LIVE_CRAWL_MINUTES: 30
+      LIVE_SWARM_SIZE: 4
+      LIVE_CRAWLER_WORKERS: 64
+      CORPUS_PROFILE_ITERATIONS: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3 python3-pip ccache
+
+      - name: Install CMake
+        shell: bash
+        run: |
+          python3 -m pip install --user "cmake>=3.20"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cmake" --version
+
+      - name: Launch crawler box
+        shell: bash
+        env:
+          AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY || '' }}
+          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
+          AVENGINE_AUTO_SWARM: "0"
+          AVENGINE_SWARM_SIZE: ${{ env.LIVE_SWARM_SIZE }}
+          AVENGINE_CRAWLER_WORKERS: ${{ env.LIVE_CRAWLER_WORKERS }}
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml up -d --build --remove-orphans
+
+      - name: Reset crawler swarm
+        shell: bash
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
+            bash -lc "AVENGINE_SWARM_SIZE=${LIVE_SWARM_SIZE} AVENGINE_CRAWLER_WORKERS=${LIVE_CRAWLER_WORKERS} /opt/avengine/bin/start-crawler-swarm.sh --reset"
+
+      - name: Let the crawler hit the internet
+        shell: bash
+        run: |
+          sleep "$(( LIVE_CRAWL_MINUTES * 60 ))"
+
+      - name: Stop crawler swarm
+        shell: bash
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
+            /opt/avengine/bin/stop-crawler-swarm.sh
+
+      - name: Aggregate corpus shards
+        shell: bash
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
+            /opt/avengine/bin/aggregate-corpus-index.sh
+
+      - name: Promote corpus profile snapshot
+        shell: bash
+        run: |
+          docker compose -f infra/deploy/docker-compose.avengine.yml exec -T avengine \
+            /usr/local/bin/av-promote-corpus-profile
+
+      - name: Copy crawl artifacts locally
+        shell: bash
+        run: |
+          rm -rf artifacts/live-crawl live-corpus
+          mkdir -p artifacts/live-crawl live-corpus
+          docker cp avengine-runtime:/var/lib/avengine/logs/. artifacts/live-crawl/logs
+          docker cp avengine-runtime:/var/lib/avengine/aggregate.log artifacts/live-crawl/aggregate.log
+          docker cp avengine-runtime:/var/lib/avengine/corpus-profile/current/. live-corpus
+
+      - name: Validate promoted corpus profile
+        shell: bash
+        run: |
+          count=$(find live-corpus -maxdepth 1 -type f -name '*.sfi' | wc -l | tr -d ' ')
+          echo "Promoted corpus profile shard count: ${count}"
+          echo "Promoted corpus profile shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${count}" -eq 0 ]]; then
+            echo "::error::Corpus promotion succeeded but /var/lib/avengine/corpus-profile/current is empty"
+            exit 1
+          fi
+
+      - name: Run corpus profile against promoted corpus
+        shell: bash
+        run: |
+          bash profiling/scripts/profile_query_pipeline.sh \
+            --index-dir live-corpus \
+            --iterations "${CORPUS_PROFILE_ITERATIONS}" \
+            --output artifacts/live-crawl/corpus_profile.json \
+            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload live crawl artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-internet-crawl
+          path: artifacts/live-crawl/

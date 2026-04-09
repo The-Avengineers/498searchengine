@@ -1,0 +1,107 @@
+label	query	limit
+apple (common)	apple	10
+banana cherry (AND)	banana cherry	10
+distributed search ranking (phrase)	"distributed search ranking"	10
+kiwi (no results)	kiwi	10
+telemetry (single hit)	telemetry	10
+search ranking (multi-term)	search ranking	10
+latency 001	apple banana	10
+latency 002	apple OR banana	10
+latency 003	banana OR kiwi	10
+latency 004	"apple banana"	10
+latency 005	"search ranking"	10
+latency 006	distributed search	10
+latency 007	distributed OR ranking	10
+latency 008	fox apple	10
+latency 009	crawler lab	10
+latency 010	"crawler lab"	10
+latency 011	crawler freshness checks	10
+latency 012	cluster rollout	10
+latency 013	index recovery	10
+latency 014	warehouse systems	10
+latency 015	freshness checks	10
+latency 016	apple operations manual	10
+latency 017	brown fox	10
+latency 018	"brown fox"	10
+latency 019	apple crate	10
+latency 020	crate orchard	10
+latency 021	inventory page	10
+latency 022	banana inventory	10
+latency 023	manual cluster rollout	10
+latency 024	nonexistent token	10
+latency 025	telemetry ranking	10
+latency 026	distributed systems	10
+latency 027	ranking signals	10
+latency 028	query parser	10
+latency 029	constraint solver	10
+latency 030	title words	10
+latency 031	document metadata	10
+latency 032	apple orchard	10
+latency 033	banana orchard	10
+latency 034	cherry orchard	10
+latency 035	fruit basket	10
+latency 036	fruit basket apple	10
+latency 037	"fruit basket apple"	10
+latency 038	quickly past	10
+latency 039	"quickly past"	10
+latency 040	common term	10
+latency 041	index shards	10
+latency 042	shard solve	10
+latency 043	http search	10
+latency 044	api search	10
+latency 045	search server	10
+latency 046	parse solve collect	10
+latency 047	search timeout	10
+latency 048	ranking top k	10
+latency 049	query timed out	10
+latency 050	empty query	10
+latency 051	english content	10
+latency 052	html content	10
+latency 053	content language	10
+latency 054	robots disallow	10
+latency 055	crawl checkpoint	10
+latency 056	checkpoint recovery	10
+latency 057	cluster rollout crawl	10
+latency 058	search indexing	10
+latency 059	index serialization	10
+latency 060	atomic rename	10
+latency 061	posting list	10
+latency 062	posting offset	10
+latency 063	document count	10
+latency 064	token offset	10
+latency 065	ranking input	10
+latency 066	crawler scheduling	10
+latency 067	parser throughput	10
+latency 068	indexing checkpoints	10
+latency 069	distributed crawl	10
+latency 070	peer inbound	10
+latency 071	peer outbound	10
+latency 072	invalid normalized url	10
+latency 073	blocked anchor text	10
+latency 074	blocked extension	10
+latency 075	blocked response	10
+latency 076	non english html	10
+latency 077	non html content	10
+latency 078	bad resp	10
+latency 079	too much non ascii	10
+latency 080	failed fetching	10
+latency 081	robots fetch failed	10
+latency 082	search ranking OR telemetry	10
+latency 083	apple banana cherry	10
+latency 084	apple banana cherry orchard	10
+latency 085	"apple banana cherry orchard"	10
+latency 086	apple OR banana OR cherry	10
+latency 087	search ranking telemetry	10
+latency 088	distributed search ranking telemetry	10
+latency 089	kiwi OR telemetry	10
+latency 090	telemetry OR kiwi	10
+latency 091	apple apple apple	10
+latency 092	banana banana cherry	10
+latency 093	distributed distributed search	10
+latency 094	phrase adjacency test	10
+latency 095	"unterminated phrase	10
+latency 096	OR apple	10
+latency 097	apple OR	10
+latency 098	"search ranking" OR telemetry	10
+latency 099	search ranking OR "distributed search ranking"	10
+latency 100	telemetry OR "distributed search ranking"	10

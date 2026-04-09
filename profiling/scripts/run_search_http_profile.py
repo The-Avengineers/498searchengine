@@ -15,16 +15,29 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from query_fixture import load_search_queries
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--index-builder", required=True)
+    parser.add_argument("--index-builder")
+    parser.add_argument("--index-dir")
     parser.add_argument("--search-server", required=True)
-    parser.add_argument("--fixture", required=True)
+    parser.add_argument("--fixture")
+    parser.add_argument("--queries-file")
     parser.add_argument("--output", required=True)
     parser.add_argument("--iterations", type=int, default=12)
     parser.add_argument("--port", type=int)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.index_dir and not args.index_builder:
+        parser.error("one of --index-dir or --index-builder is required")
+    if not args.index_dir and not args.fixture:
+        parser.error("--fixture is required when building a fresh index")
+    return args
+
+
+def query_hit_value(sample: dict) -> float:
+    return float(sample.get("mean_total_hits", sample.get("total_hits", 0)))
 
 
 def wait_for_port(server: subprocess.Popen[str], port: int, timeout_s: float = 10.0) -> None:
@@ -78,47 +91,38 @@ def percentile(values: list[float], pct: float) -> float:
 def main() -> int:
     args = parse_args()
     repo_root = pathlib.Path(__file__).resolve().parents[2]
-    fixture_path = pathlib.Path(args.fixture).resolve()
+    fixture_path = pathlib.Path(args.fixture).resolve() if args.fixture else None
+    queries_path = pathlib.Path(args.queries_file).resolve() if args.queries_file else (
+        repo_root / "profiling" / "fixtures" / "search_queries.tsv"
+    )
     output_path = pathlib.Path(args.output).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    queries = [
-        # Single common term — many hits, exercises ISR decode + collect
-        {"query": "apple", "limit": 10, "expected_total_hits": 4},
-        # Multi-term AND — intersection, smaller hit set
-        {"query": "banana cherry", "limit": 10, "expected_total_hits": 2},
-        # Phrase query — exact adjacency matching, exercises ISRPhrase
-        {"query": "\"distributed search ranking\"", "limit": 10, "expected_total_hits": 1},
-        # No-results query — exercises early-exit path
-        {"query": "kiwi", "limit": 10, "expected_total_hits": 0},
-        # Single term with a single hit
-        {"query": "telemetry", "limit": 10, "expected_total_hits": 1},
-        # Multi-word phrase covering multiple shards
-        {"query": "search ranking", "limit": 10, "expected_total_hits": 2},
-    ]
+    queries = load_search_queries(queries_path)
 
     samples: list[dict] = []
     with tempfile.TemporaryDirectory(prefix="avengine_search_profile_") as tmpdir:
-        tmpdir_path = pathlib.Path(tmpdir)
+        if args.index_dir:
+            index_dir = pathlib.Path(args.index_dir).resolve()
+        else:
+            index_dir = pathlib.Path(tmpdir)
+            subprocess.run(
+                [os.path.abspath(args.index_builder), str(fixture_path)],
+                cwd=index_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
-        subprocess.run(
-            [os.path.abspath(args.index_builder), str(fixture_path)],
-            cwd=tmpdir,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        shards = sorted(tmpdir_path.glob("*.sfi"))
+        shards = sorted(index_dir.glob("*.sfi"))
         if not shards:
-            raise RuntimeError("index_builder did not produce any .sfi shards")
+            raise RuntimeError(f"no .sfi shards found in {index_dir}")
 
         server = None
         port = None
         last_error: Exception | None = None
         for candidate in candidate_ports(args.port):
             server = subprocess.Popen(
-                [os.path.abspath(args.search_server), str(candidate), tmpdir],
+                [os.path.abspath(args.search_server), str(candidate), str(index_dir)],
                 cwd=repo_root,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -144,12 +148,7 @@ def main() -> int:
 
         try:
             for spec in queries:
-                warmup = query_once(port, spec["query"], spec["limit"])
-                if warmup["response"]["total_hits"] != spec["expected_total_hits"]:
-                    raise RuntimeError(
-                        f"Warmup mismatch for query {spec['query']!r}: "
-                        f"expected {spec['expected_total_hits']}, got {warmup['response']['total_hits']}"
-                    )
+                warmup = query_once(port, spec.query, spec.limit)
 
                 latencies: list[float] = []
                 server_took_ms: list[int] = []
@@ -157,26 +156,28 @@ def main() -> int:
                 solve_ms: list[int] = []
                 collect_ms: list[int] = []
                 rank_ms: list[int] = []
+                error_counts: list[int] = []
+                actual_hits: list[int] = []
                 for _ in range(args.iterations):
-                    sample = query_once(port, spec["query"], spec["limit"])
+                    sample = query_once(port, spec.query, spec.limit)
                     response = sample["response"]
-                    if response["total_hits"] != spec["expected_total_hits"]:
-                        raise RuntimeError(
-                            f"Unexpected result count for query {spec['query']!r}: "
-                            f"expected {spec['expected_total_hits']}, got {response['total_hits']}"
-                        )
+                    total_hits = int(response.get("total_hits", 0))
                     latencies.append(sample["client_ms"])
                     server_took_ms.append(int(response.get("took_ms", 0)))
                     parse_ms.append(int(response.get("parse_ms", 0)))
                     solve_ms.append(int(response.get("solve_ms", 0)))
                     collect_ms.append(int(response.get("collect_ms", 0)))
                     rank_ms.append(int(response.get("rank_ms", 0)))
+                    error_counts.append(len(response.get("errors", [])))
+                    actual_hits.append(total_hits)
 
                 samples.append(
                     {
-                        "query": spec["query"],
+                        "label": spec.label,
+                        "query": spec.query,
+                        "limit": spec.limit,
                         "iterations": args.iterations,
-                        "expected_total_hits": spec["expected_total_hits"],
+                        "mean_total_hits": statistics.fmean(actual_hits),
                         "mean_client_ms": statistics.fmean(latencies),
                         "p50_client_ms": percentile(latencies, 0.50),
                         "p95_client_ms": percentile(latencies, 0.95),
@@ -186,6 +187,8 @@ def main() -> int:
                         "mean_solve_ms": statistics.fmean(solve_ms),
                         "mean_collect_ms": statistics.fmean(collect_ms),
                         "mean_rank_ms": statistics.fmean(rank_ms),
+                        "mean_error_count": statistics.fmean(error_counts),
+                        "max_error_count": max(error_counts),
                     }
                 )
         finally:
@@ -200,11 +203,14 @@ def main() -> int:
         all_latencies = [sample["mean_client_ms"] for sample in samples]
         payload = {
             "profile": "search_http",
-            "fixture": str(fixture_path),
+            "fixture": str(fixture_path) if fixture_path else None,
+            "index_dir": str(index_dir),
+            "queries_file": str(queries_path),
             "port": port,
             "iterations_per_query": args.iterations,
             "query_count": len(samples),
             "shard_count": len(shards),
+            "nonzero_hit_query_count": sum(1 for sample in samples if query_hit_value(sample) > 0),
             "mean_client_ms": statistics.fmean(all_latencies) if all_latencies else 0.0,
             "p50_client_ms": percentile(all_latencies, 0.50),
             "p95_client_ms": percentile(all_latencies, 0.95),
