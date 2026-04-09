@@ -103,9 +103,10 @@ enum class PhraseKind
 
 size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx, PhraseKind kind);
 
-// Tokenizes `phrases` (ASCII alnum sequences, lowercased in-place) and ingests
-// each token into the active document. Tokens with more than 4 digits are
-// dropped. `phrases` must be a writable buffer.
+// Tokenizes `phrases` and ingests each normalized token into the active
+// document. Non-alphanumeric characters split words, except apostrophes and
+// selected common hyphenated prefixes, which are joined in-token.
+// Tokens with more than 4 digits are dropped.
 // Title terms are copied from document metadata and stored with a '#' prefix.
 // Returns the number of tokens ingested.
 size_t indexDocument(DocumentMetadata& document_metadata,
