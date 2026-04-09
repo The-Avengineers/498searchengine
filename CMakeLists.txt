@@ -53,7 +53,9 @@ add_library(
   src/crawler/url_normalizer.cpp
   src/crawler/domain_filter.cpp
   src/crawler/fetcher.cpp
-  src/node.cpp)
+  src/node.cpp
+  src/gradient_descent/search_logger.cpp
+  src/gradient_descent/weight_tuner.cpp)
 
 target_include_directories(avengine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -111,6 +113,11 @@ target_link_libraries(search_benchmark PRIVATE avengine)
 target_include_directories(search_benchmark
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Offline weight tuner to update weights.cfg.
+add_executable(tune src/gradient_descent/tune.cpp)
+target_link_libraries(tune PRIVATE avengine)
+target_include_directories(tune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Optional warnings
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
@@ -121,6 +128,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(search_server PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(search_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(tune PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(ENABLE_PROFILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
