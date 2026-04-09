@@ -103,8 +103,9 @@ enum class PhraseKind
 
 size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx, PhraseKind kind);
 
-// Tokenizes `phrases` (ASCII alpha sequences, lowercased in-place) and ingests
-// each token into the active document. `phrases` must be a writable buffer.
+// Tokenizes `phrases` (ASCII alnum sequences, lowercased in-place) and ingests
+// each token into the active document. Tokens with more than 4 digits are
+// dropped. `phrases` must be a writable buffer.
 // Title terms are copied from document metadata and stored with a '#' prefix.
 // Returns the number of tokens ingested.
 size_t indexDocument(DocumentMetadata& document_metadata,

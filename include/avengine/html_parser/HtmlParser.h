@@ -6,6 +6,7 @@
 #include "../Utf8.h"
 #include "../avengine_lib/string_slice.h"
 #include "../avengine_lib/vector.h"
+#include "../indexer/token_rules.h"
 #include "HtmlTags.h"
 
 namespace avengine
@@ -230,7 +231,7 @@ private:
       unsigned char c = *p;
       if (c < 0x80)
       {
-        if (is_ascii_alpha(c))
+        if (avengine::is_index_token_char(c))
         {
           normalizedStorage.pushBack(lower_ascii(c));
         }

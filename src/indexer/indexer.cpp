@@ -3,8 +3,8 @@
 #include <avengine/codec.h>
 #include <avengine/indexer/anchor_indexer.h>
 #include <avengine/indexer/indexer.h>
+#include <avengine/indexer/token_rules.h>
 #include <cassert>
-#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -254,11 +254,13 @@ static std::atomic<size_t> g_nextSlot{0};
 static avengine::vector<pthread_t> g_serializeThreads;
 static pthread_mutex_t g_serializeThreadsMutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
+// Walks `texts`, lowercases each token in-place via the mutable slice, and
 // ingests each resulting token into `idx` with the given field decorator.
+// Token characters are ASCII alnum. Tokens with more than 4 total digits are
+// dropped.
 // BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
-// Returns the number of tokens found.
+// Returns the number of tokens ingested.
 size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx, PhraseKind kind)
 {
   size_t words = 0;
@@ -267,35 +269,50 @@ size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
   {
     size_t i = 0;
 
-    while (i < text.size() && !isalpha(text[i]))
+    while (i < text.size() && !avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
       i++;
 
     while (i < text.size())
     {
       size_t wordStart = i;
+      size_t digitCount = 0;
 
-      while (i < text.size() && isalpha(text[i]))
+      while (i < text.size() && avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
       {
-        text[i] = text[i] | 32;
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (avengine::is_index_alpha(c))
+        {
+          if (c >= 'A' && c <= 'Z')
+          {
+            text[i] = static_cast<char>(c + 32);
+          }
+        }
+        else if (avengine::is_index_digit(c))
+        {
+          digitCount++;
+        }
         i++;
       }
 
-      if (kind == PhraseKind::BODY)
+      if (avengine::index_token_digits_allowed(digitCount))
       {
-        idx.ingest(text.substr(wordStart, i - wordStart));
+        if (kind == PhraseKind::BODY)
+        {
+          idx.ingest(text.substr(wordStart, i - wordStart));
+        }
+        else
+        {
+          avengine::string decorated;
+          decorated.pushBack('#');
+          avengine::string_slice token = text.substr(wordStart, i - wordStart);
+          for (size_t j = 0; j < token.size(); j++)
+            decorated.pushBack(token[j]);
+          idx.ingest(avengine::string_slice(decorated));
+        }
+        words++;
       }
-      else
-      {
-        avengine::string decorated;
-        decorated.pushBack('#');
-        avengine::string_slice token = text.substr(wordStart, i - wordStart);
-        for (size_t j = 0; j < token.size(); j++)
-          decorated.pushBack(token[j]);
-        idx.ingest(avengine::string_slice(decorated));
-      }
-      words++;
 
-      while (i < text.size() && !isalpha(text[i]))
+      while (i < text.size() && !avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
         i++;
     }
   }

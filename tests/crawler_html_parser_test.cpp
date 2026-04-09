@@ -143,9 +143,10 @@ int main()
   avengine::HtmlParser parserDescFallback(htmlDescFallback, strlen(htmlDescFallback));
   EXPECT(strEq(parserDescFallback.rawDescription, "OG wins"));
 
-  // Normalization: lowercase + remove non-alpha + accent folding.
-  const char html3[] =
-      "<html><body>CAF\xc3\xa9 na\xc3\xafve fianc\xc3\xa9 co-op C++ 123</body></html>";
+  // Normalization: lowercase + accent folding + allow digits up to 4 per token.
+  const char html3[] = "<html><body>CAF\xc3\xa9 na\xc3\xafve fianc\xc3\xa9 co-op C++ "
+                       "abc1 a12b 1234 x9y8z7 abc12345 12345 12a34b56"
+                       "</body></html>";
   avengine::HtmlParser parser3(html3, strlen(html3));
   EXPECT(!parser3.rejected);
   EXPECT(containsWord(parser3.words, "cafe"));
@@ -153,7 +154,13 @@ int main()
   EXPECT(containsWord(parser3.words, "fiance"));
   EXPECT(containsWord(parser3.words, "coop"));
   EXPECT(containsWord(parser3.words, "c"));
-  EXPECT(!containsWord(parser3.words, "123"));
+  EXPECT(containsWord(parser3.words, "abc1"));
+  EXPECT(containsWord(parser3.words, "a12b"));
+  EXPECT(containsWord(parser3.words, "1234"));
+  EXPECT(containsWord(parser3.words, "x9y8z7"));
+  EXPECT(!containsWord(parser3.words, "abc12345"));
+  EXPECT(!containsWord(parser3.words, "12345"));
+  EXPECT(!containsWord(parser3.words, "12a34b56"));
 
   // Accent folding should also work for uppercase accented letters.
   const char htmlUpperAccents[] = "<html><body>\xC3\x89LAN NI\xC3\x91O</body></html>";
