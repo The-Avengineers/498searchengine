@@ -103,6 +103,59 @@ bool hasBlockedExtension(const string& path)
   return false;
 }
 
+// GitHub-specific crawl guard: only allow
+//   /
+//   /<user_or_org>
+//   /<owner>/<repo>
+// and block deeper paths like /<owner>/<repo>/issues, /blob, /tree, etc.
+bool hasAllowedGitHubPathDepth(const string& path)
+{
+  size_t segmentCount = 0;
+  size_t i = 0;
+
+  while (i < path.size())
+  {
+    while (i < path.size() && path[i] == '/')
+    {
+      ++i;
+    }
+
+    if (i >= path.size() || path[i] == '?')
+    {
+      break;
+    }
+
+    ++segmentCount;
+    if (segmentCount > 2)
+    {
+      return false;
+    }
+
+    while (i < path.size() && path[i] != '/' && path[i] != '?')
+    {
+      ++i;
+    }
+
+    if (i < path.size() && path[i] == '?')
+    {
+      break;
+    }
+  }
+
+  return true;
+}
+
+bool passesGitHubCrawlPolicy(URLNormalizer& normalizer, const string& url)
+{
+  URL parsed = normalizer.parseURL(url);
+  if (parsed.host != "github.com")
+  {
+    return true;
+  }
+
+  return hasAllowedGitHubPathDepth(parsed.path);
+}
+
 // Making sure every URL contains "HTTPS" to maintain consistency
 string https_url_helper(URLNormalizer& normalizer, const string& url)
 {
@@ -274,6 +327,12 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
+  if (!passesGitHubCrawlPolicy(normalizer, crawlUrl))
+  {
+    state.crawlLogger->log(crawlUrl, "SKIP, GITHUB DEPTH POLICY");
+    return;
+  }
+
   const bool allowed =
       state.robotsAgent->allow(crawlUrl, normalizer, theFetcher, *state.crawlLogger);
 
@@ -371,6 +430,11 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     if (hasBlockedExtension(normalized))
     {
       state.crawlLogger->log(normalized, "SKIP, BLOCKED EXTENSION");
+      continue;
+    }
+
+    if (!passesGitHubCrawlPolicy(normalizer, normalized))
+    {
       continue;
     }
 
