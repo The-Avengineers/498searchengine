@@ -16,6 +16,11 @@
 *.dylib
 *.exe
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 data
 # Local index shards from smoke runs / manual search tests.
 *.sfi
@@ -33,5 +38,23 @@ CTestTestfile.cmake
 cmake_install.cmake
 vgcore*
 
+# CPU profiling output
+gmon.out
+perf.data
+perf.data.old
+
+# Generated profiling artifacts (JSON reports, flamegraphs, etc.)
+artifacts/
+
 # Large files
 data/
+
+# Crawler runtime state (large, not for version control)
+crawl_log.csv
+ac_log.tsv
+frontier_checkpoint.bin
+frontier_checkpoint.bin.tmp
+
+# Misc local artifacts
+profile.json.gz
+utils/

@@ -1,0 +1,105 @@
+name: Profiling
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "profiling/**"
+      - ".github/workflows/profiling.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "profiling/**"
+      - ".github/workflows/profiling.yml"
+  workflow_dispatch:
+
+jobs:
+  # Fixture-based profile: correctness + baseline latency using the small test corpus.
+  # Runs on both PRs and pushes.
+  profile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3
+
+      - name: Configure
+        run: mkdir -p artifacts
+
+      - name: Run profiling suite
+        run: |
+          CRAWLER_REPETITIONS=80 SEARCH_ITERATIONS=12 \
+            bash profiling/run_profiles.sh artifacts build
+
+      - name: Render summary
+        run: |
+          cat artifacts/profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-artifacts
+          path: artifacts/
+
+  # Corpus-based profile: realistic latency using the large crawl index.
+  # Runs only on pushes to avoid downloading ~1 GB on every PR.
+  corpus-profile:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    env:
+      CORPUS_INDEX_TAG: corpus-index-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3
+
+      - name: Restore corpus index from cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: corpus-index/
+          key: ${{ env.CORPUS_INDEX_TAG }}
+
+      - name: Download corpus index from release
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p corpus-index
+          gh release download "$CORPUS_INDEX_TAG" \
+            --repo "${{ github.repository }}" \
+            --dir corpus-index/ \
+            --pattern "*.sfi"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run corpus profile
+        run: |
+          mkdir -p artifacts
+          bash profiling/scripts/profile_query_pipeline.sh \
+            --index-dir corpus-index/ \
+            --iterations 50 \
+            --output artifacts/corpus_profile.json \
+            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload corpus profile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-profile
+          path: artifacts/corpus_profile.json
