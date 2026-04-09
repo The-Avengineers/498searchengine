@@ -1,3 +1,4 @@
+#include "avengine/crawler/logger.h"
 #include <atomic>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/codec.h>

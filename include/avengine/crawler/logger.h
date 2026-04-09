@@ -39,5 +39,8 @@ private:
   void writeTimestamp();
 };
 
+// Returns the shared crawl logger used by crawler runtime code.
+CrawlLogger& globalCrawlLogger();
+
 } // namespace crawler
 } // namespace avengine
