@@ -53,6 +53,13 @@ else
   echo "current corpus shards: 0"
 fi
 
+if [[ -d "${DATA_ROOT}/corpus-profile/current" ]]; then
+  profile_shard_count="$(find -L "${DATA_ROOT}/corpus-profile/current" -maxdepth 1 -type f -name '*.sfi' | wc -l | tr -d ' ')"
+  echo "promoted profile shards: ${profile_shard_count}"
+else
+  echo "promoted profile shards: 0"
+fi
+
 echo
 echo "logs:"
 echo "  crawler logs: /logs"

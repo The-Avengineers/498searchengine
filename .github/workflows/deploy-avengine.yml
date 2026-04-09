@@ -1,9 +1,13 @@
 name: Deploy avengine
 
+concurrency:
+  group: avengine-runtime-service
+  cancel-in-progress: false
+
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - "CMakeLists.txt"
       - "src/**"
@@ -16,7 +20,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, x64, avengine]
+    runs-on: [self-hosted, linux, x64, avengine-runtime]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,3 +50,4 @@ jobs:
         shell: bash
         run: |
           docker compose -f infra/deploy/docker-compose.avengine.yml ps
+          docker exec avengine-runtime /usr/local/bin/av-status

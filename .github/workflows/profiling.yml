@@ -11,7 +11,7 @@ on:
 
 jobs:
   corpus-profile:
-    runs-on: [self-hosted, linux, x64, avengine]
+    runs-on: [self-hosted, linux, x64, avengine-runtime]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -42,12 +42,12 @@ jobs:
       - name: Copy persistent corpus profile from runtime container
         run: |
           if ! docker inspect avengine-runtime >/dev/null 2>&1; then
-            echo "::error::Container avengine-runtime was not found. Start the runtime container and rebuild the profiling corpus on master first."
+            echo "::error::Container avengine-runtime was not found on this runner. Route this job to the dedicated avengine-runtime self-hosted runner and deploy the long-lived runtime service first."
             exit 1
           fi
           running=$(docker inspect -f '{{.State.Running}}' avengine-runtime)
           if [[ "${running}" != "true" ]]; then
-            echo "::error::Container avengine-runtime is not running. Start the runtime container before running corpus-profile."
+            echo "::error::Container avengine-runtime is not running. Restore the long-lived runtime service on the dedicated avengine-runtime runner before running corpus-profile."
             exit 1
           fi
           remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
