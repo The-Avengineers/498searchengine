@@ -4,16 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Search Results - Avengine</title>
+    <link rel="icon" type="image/png" href="./media/a-old.png" />
     <link rel="stylesheet" href="./styles/main.css" />
+    <script defer src="./scripts/search_form_guard.js"></script>
     <script defer src="./scripts/results.js"></script>
   </head>
   <body>
     <header class="results-header">
       <div class="results-header-inner">
         <a class="home-link" href="./index.html" aria-label="Back to search home">
-          <img class="logo-image logo-image-small" src="./media/logo.png" alt="Avengine logo" />
+          <img class="logo-image logo-image-small" src="./media/a-logo.png" alt="Avengine logo" />
         </a>
-        <form class="search-form results-search-form" action="./results.html" method="get">
+        <form class="search-form results-search-form" action="./results.html" method="get" novalidate>
           <label class="sr-only" for="results-query">Search query</label>
           <input
             id="results-query"
@@ -22,8 +24,13 @@
             name="q"
             placeholder="Search..."
             autocomplete="off"
-            required
           />
+          <button class="search-submit" type="submit" aria-label="Search">
+            <svg class="search-submit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="11" cy="11" r="7"></circle>
+              <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
+            </svg>
+          </button>
         </form>
       </div>
     </header>
@@ -33,6 +40,7 @@
         <p class="results-count" id="results-count" role="status" aria-live="polite"></p>
         <p class="results-feedback" id="results-feedback" role="alert" hidden></p>
         <ol class="results-list" id="results-list"></ol>
+        <nav class="results-pagination" id="results-pagination" aria-label="Search result pages" hidden></nav>
       </section>
     </main>
   </body>
