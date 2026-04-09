@@ -28,6 +28,9 @@ using namespace avengine::crawler;
 
 // TODO THREAD POOL AROUND ALL THIS
 
+// When crawling about 300 pages/s it checkpoints every 10 minutes
+static const size_t CHECKPOINT_INTERVAL = 180000;
+
 namespace
 {
 
@@ -486,7 +489,7 @@ int main()
   // Crawling metadata
   atomic_counter processedCount(0);
   atomic_counter indexedCount(0);
-  size_t checkpointInterval = 100;
+  size_t checkpointInterval = CHECKPOINT_INTERVAL;
   const string checkpointPath = "frontier_checkpoint.bin";
   Robots_Agent robotsAgent(kRobotsUserAgent);
 
@@ -618,7 +621,7 @@ int main()
     // Checkpoint all of our progress and log stats.
     if (processedSnapshot >= checkpointInterval)
     {
-      checkpointInterval += 100;
+      checkpointInterval += CHECKPOINT_INTERVAL;
       workerState.frontierMu.lock();
       theFrontier.saveCheckpoint(checkpointPath);
       const size_t seenSnapshot = theFrontier.seenCount();
