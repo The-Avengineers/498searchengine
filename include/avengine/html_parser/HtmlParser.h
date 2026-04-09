@@ -131,6 +131,13 @@ private:
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
   }
 
+  static inline bool is_word_boundary_char(char c)
+  {
+    const unsigned char u = static_cast<unsigned char>(c);
+    return u < 0x80 && !is_whitespace(c) && !avengine::is_index_token_char(u) && c != '-' &&
+           c != '\'';
+  }
+
   // Changes common accented Latin UTF-8 characters to plain ASCII letters.
   // Returns true when a mapping is applied and sets consumed byte count.
   static bool fold_accented_utf8(const unsigned char* p, size_t remaining, char& out,
@@ -234,6 +241,10 @@ private:
         if (avengine::is_index_token_char(c))
         {
           normalizedStorage.pushBack(lower_ascii(c));
+        }
+        else if (c == '-')
+        {
+          normalizedStorage.pushBack('-');
         }
         ++p;
         continue;
@@ -733,7 +744,7 @@ public:
     while (p < end)
     {
       unsigned char c = *p;
-      if (is_whitespace(static_cast<char>(c)))
+      if (is_whitespace(static_cast<char>(c)) || is_word_boundary_char(static_cast<char>(c)))
       {
         if (result.size() > 0)
         {
@@ -844,7 +855,7 @@ public:
           curr++;
         }
       }
-      else if (is_whitespace(c))
+      else if (is_whitespace(c) || is_word_boundary_char(c))
       {
         if (start_word_ptr)
         {

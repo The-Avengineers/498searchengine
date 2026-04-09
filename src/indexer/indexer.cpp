@@ -254,10 +254,11 @@ static std::atomic<size_t> g_nextSlot{0};
 static avengine::vector<pthread_t> g_serializeThreads;
 static pthread_mutex_t g_serializeThreadsMutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Walks `texts`, lowercases each token in-place via the mutable slice, and
-// ingests each resulting token into `idx` with the given field decorator.
-// Token characters are ASCII alnum. Tokens with more than 4 total digits are
-// dropped.
+// Walks `texts`, normalizes each token, and ingests each result into `idx`
+// with the given field decorator. Non-alphanumeric characters break words,
+// except apostrophes and selected common hyphenated prefixes (e.g. re-use,
+// non-profit), which are joined into a single normalized token.
+// Tokens with more than 4 total digits are dropped.
 // BODY terms are ingested as-is; TITLE terms get a '#' prefix.
 // Must be called between beginDocument() and endDocument().
 // Returns the number of tokens ingested.
@@ -269,51 +270,86 @@ size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
   {
     size_t i = 0;
 
-    while (i < text.size() && !avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
-      i++;
-
     while (i < text.size())
     {
-      size_t wordStart = i;
+      while (i < text.size() && !avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
+      {
+        ++i;
+      }
+      if (i >= text.size())
+      {
+        break;
+      }
+
+      const size_t wordStart = i;
+      size_t wordEnd = i;
       size_t digitCount = 0;
 
-      while (i < text.size() && avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
+      while (wordEnd < text.size())
       {
-        const unsigned char c = static_cast<unsigned char>(text[i]);
+        const unsigned char c = static_cast<unsigned char>(text[wordEnd]);
+        if (avengine::is_index_token_char(c))
+        {
+          if (avengine::is_index_digit(c))
+          {
+            ++digitCount;
+          }
+          ++wordEnd;
+          continue;
+        }
+
+        bool keepJoiner = false;
+        if (avengine::is_index_apostrophe(c))
+        {
+          keepJoiner =
+              (wordEnd > wordStart && wordEnd + 1 < text.size() &&
+               avengine::is_index_token_char(static_cast<unsigned char>(text[wordEnd - 1])) &&
+               avengine::is_index_token_char(static_cast<unsigned char>(text[wordEnd + 1])));
+        }
+        else if (c == '-')
+        {
+          const bool hasSides = (wordEnd > wordStart && wordEnd + 1 < text.size());
+          if (hasSides && avengine::is_index_alpha(static_cast<unsigned char>(text[wordEnd + 1])) &&
+              avengine::is_common_hyphen_prefix(text.begin() + wordStart, text.begin() + wordEnd))
+          {
+            keepJoiner = true;
+          }
+        }
+
+        if (!keepJoiner)
+        {
+          break;
+        }
+        ++wordEnd;
+      }
+
+      avengine::string normalized;
+      if (kind == PhraseKind::TITLE)
+      {
+        normalized.pushBack('#');
+      }
+
+      for (size_t j = wordStart; j < wordEnd; ++j)
+      {
+        const unsigned char c = static_cast<unsigned char>(text[j]);
         if (avengine::is_index_alpha(c))
         {
-          if (c >= 'A' && c <= 'Z')
-          {
-            text[i] = static_cast<char>(c + 32);
-          }
+          normalized.pushBack(static_cast<char>(avengine::lower_index_ascii(c)));
         }
         else if (avengine::is_index_digit(c))
         {
-          digitCount++;
+          normalized.pushBack(static_cast<char>(c));
         }
-        i++;
       }
 
-      if (avengine::index_token_digits_allowed(digitCount))
+      if (avengine::index_token_digits_allowed(digitCount) &&
+          normalized.size() > (kind == PhraseKind::TITLE ? 1u : 0u))
       {
-        if (kind == PhraseKind::BODY)
-        {
-          idx.ingest(text.substr(wordStart, i - wordStart));
-        }
-        else
-        {
-          avengine::string decorated;
-          decorated.pushBack('#');
-          avengine::string_slice token = text.substr(wordStart, i - wordStart);
-          for (size_t j = 0; j < token.size(); j++)
-            decorated.pushBack(token[j]);
-          idx.ingest(avengine::string_slice(decorated));
-        }
-        words++;
+        idx.ingest(avengine::string_slice(normalized));
+        ++words;
       }
 
-      while (i < text.size() && !avengine::is_index_token_char(static_cast<unsigned char>(text[i])))
-        i++;
+      i = wordEnd + (wordEnd < text.size() ? 1 : 0);
     }
   }
 

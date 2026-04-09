@@ -130,15 +130,15 @@ void testIndexIngestAcrossDocuments()
 
 void testIndexDocumentTokenization()
 {
-  char text[] =
-      "Alpha, beta! ALPHA?? 1234 abc1234 12ab34 x9y8z7 abc12345 12345 12a34b56 gamma.";
+  char text[] = "Alpha, beta! ALPHA?? 1234 abc1234 12ab34 x9y8z7 can't re-use co-op foo+bar "
+                "abc12345 12345 12a34b56 gamma.";
   DocumentMetadata meta{
       .url = "doc://tokenized", .title = "Title9 Case12345", .description = "", .input = 0};
   avengine::vector<avengine::string_slice> phrases;
   phrases.pushBack(avengine::string_slice(text, sizeof(text) - 1));
   const size_t words = indexDocument(meta, phrases);
 
-  EXPECT(words == 9u);
+  EXPECT(words == 14u);
   // The round-robin counter starts at 0, so the first indexDocument() call
   // always lands in slot 0 (assuming no prior indexDocument() calls in the
   // test binary, which is the case here since this is the first such call).
@@ -151,6 +151,11 @@ void testIndexDocumentTokenization()
   PostingList* mixedA = activeIndex->getBucket("abc1234");
   PostingList* mixedB = activeIndex->getBucket("12ab34");
   PostingList* mixedC = activeIndex->getBucket("x9y8z7");
+  PostingList* cant = activeIndex->getBucket("cant");
+  PostingList* reuse = activeIndex->getBucket("reuse");
+  PostingList* coop = activeIndex->getBucket("coop");
+  PostingList* foo = activeIndex->getBucket("foo");
+  PostingList* bar = activeIndex->getBucket("bar");
   PostingList* gamma = activeIndex->getBucket("gamma");
   PostingList* title = activeIndex->getBucket("#title9");
 
@@ -166,6 +171,16 @@ void testIndexDocumentTokenization()
   EXPECT(mixedB->postings[0].termFreq == 1u);
   EXPECT(mixedC->postings.size() == 1);
   EXPECT(mixedC->postings[0].termFreq == 1u);
+  EXPECT(cant->postings.size() == 1);
+  EXPECT(cant->postings[0].termFreq == 1u);
+  EXPECT(reuse->postings.size() == 1);
+  EXPECT(reuse->postings[0].termFreq == 1u);
+  EXPECT(coop->postings.size() == 1);
+  EXPECT(coop->postings[0].termFreq == 1u);
+  EXPECT(foo->postings.size() == 1);
+  EXPECT(foo->postings[0].termFreq == 1u);
+  EXPECT(bar->postings.size() == 1);
+  EXPECT(bar->postings[0].termFreq == 1u);
   EXPECT(gamma->postings.size() == 1);
   EXPECT(gamma->postings[0].termFreq == 1u);
   EXPECT(title->postings.size() == 1);
@@ -184,10 +199,20 @@ void testIndexDocumentTokenization()
   EXPECT(mixedB->positions[0] == 5u);
   EXPECT(mixedC->positions.size() == 1);
   EXPECT(mixedC->positions[0] == 6u);
+  EXPECT(cant->positions.size() == 1);
+  EXPECT(cant->positions[0] == 7u);
+  EXPECT(reuse->positions.size() == 1);
+  EXPECT(reuse->positions[0] == 8u);
+  EXPECT(coop->positions.size() == 1);
+  EXPECT(coop->positions[0] == 9u);
+  EXPECT(foo->positions.size() == 1);
+  EXPECT(foo->positions[0] == 10u);
+  EXPECT(bar->positions.size() == 1);
+  EXPECT(bar->positions[0] == 11u);
   EXPECT(gamma->positions.size() == 1);
-  EXPECT(gamma->positions[0] == 7u);
+  EXPECT(gamma->positions[0] == 12u);
   EXPECT(title->positions.size() == 1);
-  EXPECT(title->positions[0] == 8u);
+  EXPECT(title->positions[0] == 13u);
 
   EXPECT(activeIndex->map.get("abc12345") == nullptr);
   EXPECT(activeIndex->map.get("12345") == nullptr);
