@@ -208,8 +208,8 @@ void testExactPhraseMatch()
 
   vector<vector<size_t>> title_positions = {{1}, {2}};
   signals.title_term_positions = &title_positions;
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals), 0.9));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals),
+                     0.9));
 }
 
 void testCorrectOrdering()
@@ -222,10 +222,9 @@ void testCorrectOrdering()
   // Perfect 3-term ordered run with no slack.
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {2}, {3}}, signals), 1.0));
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10, 20}, {15, 21}, {16, 22}},
-                  signals),
-      1.0));
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"),
+                                 vector<vector<size_t>>{{10, 20}, {15, 21}, {16, 22}}, signals),
+                     1.0));
 
   // Only a 2-term ordered run exists.
   const double partial =
@@ -290,8 +289,7 @@ void testQueryOccurrence()
   const double separated =
       strat.Score(makeEntry("https://example.com/foo___bar"), positions, signals);
   EXPECT(separated > 0.0 && separated < 1.0);
-  const double reversed =
-      strat.Score(makeEntry("https://example.com/bar/foo"), positions, signals);
+  const double reversed = strat.Score(makeEntry("https://example.com/bar/foo"), positions, signals);
   EXPECT(reversed > 0.5 && reversed < 1.0);
   EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/baz"), positions, signals), 0.0));
 }
@@ -316,9 +314,9 @@ void testEarlyQueryTermMatch()
   vector<vector<size_t>> full_title_positions = {{1}, {3}};
   Ranker::RankSignals full_title_signals;
   full_title_signals.title_term_positions = &full_title_positions;
-  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}},
-                                 full_title_signals),
-                     0.75 + 0.7 * ((1.0 / std::log2(3.0) + 1.0 / std::log2(5.0)) / 2.0)));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, full_title_signals),
+      0.75 + 0.7 * ((1.0 / std::log2(3.0) + 1.0 / std::log2(5.0)) / 2.0)));
 }
 
 void testTermCoverage()
@@ -332,8 +330,9 @@ void testTermCoverage()
 
   vector<vector<size_t>> title_positions = {{1}, {}, {2}};
   signals.title_term_positions = &title_positions;
-  EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals), 1.0666666666666667));
+  EXPECT(
+      nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals),
+                  1.0666666666666667));
 }
 } // namespace
 

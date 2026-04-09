@@ -242,7 +242,7 @@ void testTitleIntentWins()
   const string shardPath = joinPath(dir, "00000.sfi");
   writeShard(shardPath.cstr(),
              {{"doc://projects", "Development Projects",
-                "freebsd projects page with news updates and flash reports"},
+               "freebsd projects page with news updates and flash reports"},
               {"doc://newsflash", "FreeBSD News Flash",
                "freebsd archive with news items and flash bulletins"},
               {"doc://generic", "Generic News", "freebsd bulletin with news updates and flash"}});
