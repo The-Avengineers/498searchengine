@@ -169,6 +169,11 @@ void MarkTimeout(SearchResponse& response, size_t thresholdMs)
   response.Errors.pushBack({0, message});
 }
 
+size_t ClockToMs(clock_t ticks)
+{
+  return static_cast<size_t>((static_cast<unsigned long>(ticks) * 1000u) / CLOCKS_PER_SEC);
+}
+
 } // namespace
 
 SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
@@ -239,6 +244,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   // Extract query terms from the AST for position collection
   vector<string> queryTerms;
   CollectQueryTerms(parsed.Root, queryTerms);
+  const clock_t afterParse = clock();
 
   Ranker ranker(candidateLimit);
   DomainStrat domainStrategy;
@@ -261,6 +267,10 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   ranker.AddStrategy(&domainStrategy, 0.1);
   ranker.AddStrategy(&urlDepthStrategy, 0.15);
 
+  clock_t solveTotal = 0;
+  clock_t collectTotal = 0;
+  clock_t rankTotal = 0;
+
   for (const IndexShardSource* shard : shards_)
   {
     if (QueryExceededThreshold(startedAt, thresholdMs))
@@ -270,6 +280,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
       return response;
     }
 
+    const clock_t shardSolveStart = clock();
     const auto solved = solver_.SolveParsed(parsed.Root, *shard);
     if (solved.TimedOut)
     {
@@ -279,12 +290,14 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     }
 
     response.TotalHits += solved.Matches.size();
+    solveTotal += clock() - shardSolveStart;
 
     if (solved.Matches.empty())
       continue;
 
     vector<MatchPositions> bodyPositions;
     vector<MatchPositions> titlePositions;
+    const clock_t shardCollectStart = clock();
     for (size_t i = 0; i < solved.Matches.size(); ++i)
     {
       MatchPositions body;
@@ -300,8 +313,10 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
 
     CollectPositionsForTerms(shard, solved.Matches, queryTerms, string(), bodyPositions);
     CollectPositionsForTerms(shard, solved.Matches, queryTerms, string("#"), titlePositions);
+    collectTotal += clock() - shardCollectStart;
 
     // Score each match with real ISR-derived data
+    const clock_t shardRankStart = clock();
     for (size_t i = 0; i < solved.Matches.size(); ++i)
     {
       if (QueryExceededThreshold(startedAt, thresholdMs))
@@ -330,6 +345,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
       ranker.Consider(entry, shard->GetDocumentTitle(match.DocId), bodyPositions[i].termPositions,
                       signals);
     }
+    rankTotal += clock() - shardRankStart;
 
     // Release cached posting list positions now that this shard's work is done.
     shard->ClearTermCache();
@@ -342,7 +358,12 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     response.Results.pushBack({topResults[i].entry.url, topResults[i].title, topResults[i].score});
 
   constraint_solver::DestroyQueryTree(parsed.Root);
-  response.TookMs = static_cast<size_t>(((clock() - start) * 1000) / CLOCKS_PER_SEC);
+  const clock_t end = clock();
+  response.TookMs = ClockToMs(end - start);
+  response.ParseMs = ClockToMs(afterParse - start);
+  response.SolveMs = ClockToMs(solveTotal);
+  response.CollectMs = ClockToMs(collectTotal);
+  response.RankMs = ClockToMs(rankTotal);
   return response;
 }
 

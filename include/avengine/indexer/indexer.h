@@ -28,6 +28,8 @@ constexpr const size_t OFFSET_THRESHOLD = 40000000;
 
 constexpr const char* INDEX_DIRECTORY = ".";
 
+// Number of independent index slots for concurrent document ingestion.
+constexpr size_t INDEX_SLOT_COUNT = 8;
 struct PostingList
 {
   PostingList() = default;
@@ -80,8 +82,7 @@ struct IndexSlot
   pthread_mutex_t mutex;
 };
 
-extern IndexSlot globalIndex;
-extern avengine::vector<pthread_t> g_serializeThreads;
+extern IndexSlot globalIndexSlots[INDEX_SLOT_COUNT];
 
 void* serializeIndex(Index* index);
 

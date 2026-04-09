@@ -1,0 +1,106 @@
+apple
+banana cherry
+"distributed search ranking"
+kiwi
+telemetry
+search ranking
+apple banana
+apple OR banana
+banana OR kiwi
+"apple banana"
+"search ranking"
+distributed search
+distributed OR ranking
+fox apple
+crawler lab
+"crawler lab"
+crawler freshness checks
+cluster rollout
+index recovery
+warehouse systems
+freshness checks
+apple operations manual
+brown fox
+"brown fox"
+apple crate
+crate orchard
+inventory page
+banana inventory
+manual cluster rollout
+nonexistent token
+telemetry ranking
+distributed systems
+ranking signals
+query parser
+constraint solver
+title words
+document metadata
+apple orchard
+banana orchard
+cherry orchard
+fruit basket
+fruit basket apple
+"fruit basket apple"
+quickly past
+"quickly past"
+common term
+index shards
+shard solve
+http search
+api search
+search server
+parse solve collect
+search timeout
+ranking top k
+query timed out
+empty query
+english content
+html content
+content language
+robots disallow
+crawl checkpoint
+checkpoint recovery
+cluster rollout crawl
+search indexing
+index serialization
+atomic rename
+posting list
+posting offset
+document count
+token offset
+ranking input
+crawler scheduling
+parser throughput
+indexing checkpoints
+distributed crawl
+peer inbound
+peer outbound
+invalid normalized url
+blocked anchor text
+blocked extension
+blocked response
+non english html
+non html content
+bad resp
+too much non ascii
+failed fetching
+robots fetch failed
+search ranking OR telemetry
+apple banana cherry
+apple banana cherry orchard
+"apple banana cherry orchard"
+apple OR banana OR cherry
+search ranking telemetry
+distributed search ranking telemetry
+kiwi OR telemetry
+telemetry OR kiwi
+apple apple apple
+banana banana cherry
+distributed distributed search
+phrase adjacency test
+"unterminated phrase
+OR apple
+apple OR
+"search ranking" OR telemetry
+search ranking OR "distributed search ranking"
+telemetry OR "distributed search ranking"

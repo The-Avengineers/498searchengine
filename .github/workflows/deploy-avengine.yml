@@ -34,6 +34,9 @@ jobs:
         env:
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
           AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
+          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
+          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '64' }}
+          AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
         run: |
           docker compose \
             -f infra/deploy/docker-compose.avengine.yml \

@@ -105,7 +105,17 @@ uint32_t Reader::readVarU32()
 
 string Reader::readString()
 {
+  if (remaining() < 8)
+  {
+    cursor_ = end_;
+    return string();
+  }
   const uint64_t len = readU64();
+  if (len > remaining())
+  {
+    cursor_ = end_;
+    return string();
+  }
   string out;
   for (uint64_t i = 0; i < len; ++i)
     out.pushBack(static_cast<char>(cursor_[i]));

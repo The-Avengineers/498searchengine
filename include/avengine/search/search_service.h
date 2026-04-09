@@ -29,6 +29,11 @@ struct SearchResponse
   size_t Limit = 10;
   size_t TotalHits = 0;
   size_t TookMs = 0;
+  // Per-phase timing breakdowns (sum across all shards)
+  size_t ParseMs = 0;
+  size_t SolveMs = 0;
+  size_t CollectMs = 0;
+  size_t RankMs = 0;
   vector<SearchError> Errors;
   vector<SearchHit> Results;
 };
