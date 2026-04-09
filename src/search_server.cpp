@@ -1,8 +1,10 @@
 #include <avengine/avengine_lib/condition_variable.h>
 #include <avengine/avengine_lib/lock_guard.h>
 #include <avengine/avengine_lib/mutex.h>
+#include <avengine/avengine_lib/shared_mutex.h>
 #include <avengine/codec.h>
 #include <avengine/node.h>
+#include <avengine/search/coordinator_merge.h>
 #include <avengine/search/search_common.h>
 #include <avengine/search/search_service.h>
 
@@ -13,6 +15,7 @@
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -29,11 +32,20 @@ enum class ServerRole
   Worker,
 };
 
-struct SearchSource
+// Maximum number of distributed searches that may be in-flight simultaneously.
+// Each in-flight request occupies one mailbox slot.
+static const size_t kMaxConcurrentRequests = 16;
+
+// Per-request mailbox: holds the replies collected from peer nodes for one
+// distributed search and a condition variable the coordinator thread waits on.
+struct RequestMailbox
 {
-  bool IsPeer = false;
-  size_t PeerIndex = 0;
-  search::SearchResponse Response;
+  bool Active = false;
+  uint64_t RequestId = 0;
+  size_t ReceivedReplies = 0;
+  vector<uint8_t> ReplySeen;
+  vector<search::SearchResponse> Replies;
+  condition_variable CV;
 };
 
 struct SearchServerState
@@ -41,20 +53,21 @@ struct SearchServerState
   explicit SearchServerState(const string& indexDirectory) : Service(indexDirectory) {}
 
   search::SearchService Service;
-  mutex ServiceMutex;
+  // Shared (readers-writer) lock: SearchPage/GetQueryExecutionTimeThresholdMs hold a
+  // shared lock; SetQueryExecutionTimeThresholdMs holds the exclusive lock.
+  SharedMutex ServiceMutex;
   mutex MailboxMutex;
-  condition_variable MailboxCV;
+  RequestMailbox Mailboxes[kMaxConcurrentRequests];
+  uint64_t NextRequestId = 1;
   ServerRole Role = ServerRole::Coordinator;
   size_t PeerCount = 1;
-  uint64_t NextRequestId = 1;
-  bool RequestActive = false;
-  uint64_t ActiveRequestId = 0;
-  size_t ReceivedReplies = 0;
-  vector<uint8_t> ReplySeen;
-  vector<search::SearchResponse> Replies;
 };
 
 static SearchServerState* gState = nullptr;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HTTP helpers
+// ──────────────────────────────────────────────────────────────────────────────
 
 size_t FindChar(const string& text, char needle, size_t start = 0)
 {
@@ -111,9 +124,7 @@ string DecodeQueryValue(const string& encoded)
 ServerRole ParseRole(const char* roleEnv)
 {
   if (roleEnv && std::strcmp(roleEnv, "worker") == 0)
-  {
     return ServerRole::Worker;
-  }
   return ServerRole::Coordinator;
 }
 
@@ -122,7 +133,6 @@ void AppendJsonString(string& out, const string& value)
   out.pushBack('"');
   for (size_t i = 0; i < value.size(); ++i)
   {
-    // Keep the output valid JSON even if the title or URL contains control chars.
     if (static_cast<unsigned char>(value[i]) < 0x20)
     {
       const unsigned char c = static_cast<unsigned char>(value[i]);
@@ -149,6 +159,10 @@ void AppendDouble(string& out, double value)
   std::snprintf(buffer, sizeof(buffer), "%.17g", value);
   out += string(buffer);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Wire encoding for SEARCH_QUERY / SEARCH_REPLY messages
+// ──────────────────────────────────────────────────────────────────────────────
 
 void WriteSearchError(Writer& writer, const search::SearchError& error)
 {
@@ -235,9 +249,7 @@ bool DecodeSearchQueryRequest(const vector<uint8_t>& payload, uint64_t* requestI
                               size_t* limit)
 {
   if (payload.size() < 16u || requestId == nullptr || query == nullptr || limit == nullptr)
-  {
     return false;
-  }
 
   Reader reader(payload.begin(), payload.size());
   *requestId = reader.readU64();
@@ -246,163 +258,68 @@ bool DecodeSearchQueryRequest(const vector<uint8_t>& payload, uint64_t* requestI
   return true;
 }
 
-void PrefixAndAppendErrors(vector<search::SearchError>& outErrors, size_t peerIndex,
-                           const vector<search::SearchError>& errors)
-{
-  for (size_t i = 0; i < errors.size(); ++i)
-  {
-    search::SearchError prefixed;
-    prefixed.Offset = peerIndex;
-    prefixed.Message = string("peer #");
-    search::AppendUnsigned(prefixed.Message, peerIndex);
-    prefixed.Message += string(": ");
-    prefixed.Message += errors[i].Message;
-    outErrors.pushBack(prefixed);
-  }
-}
+// ──────────────────────────────────────────────────────────────────────────────
+// Per-request mailbox management
+// ──────────────────────────────────────────────────────────────────────────────
 
-void AppendTransportError(vector<search::SearchError>& outErrors, size_t peerIndex,
-                          const char* message)
+// Allocates a free mailbox slot for a new distributed request.
+// Returns false (and leaves *requestId/*mailboxIndex unchanged) if all slots are busy.
+bool BeginDistributedRequest(SearchServerState& state, size_t peerCount, uint64_t* requestId,
+                             size_t* mailboxIndex)
 {
-  search::SearchError error;
-  error.Offset = peerIndex;
-  error.Message = string("peer #");
-  search::AppendUnsigned(error.Message, peerIndex);
-  error.Message += string(": ");
-  error.Message += string(message);
-  outErrors.pushBack(error);
-}
-
-bool ContainsUrl(const vector<search::SearchHit>& hits, const string& url)
-{
-  for (size_t i = 0; i < hits.size(); ++i)
+  avengine::lock_guard<mutex> guard(state.MailboxMutex);
+  for (size_t i = 0; i < kMaxConcurrentRequests; ++i)
   {
-    if (hits[i].Url == url)
-      return true;
+    RequestMailbox& mb = state.Mailboxes[i];
+    if (mb.Active)
+      continue;
+
+    mb.Active = true;
+    mb.RequestId = state.NextRequestId++;
+    mb.ReceivedReplies = 0;
+    mb.ReplySeen = vector<uint8_t>(peerCount, 0);
+    mb.Replies = vector<search::SearchResponse>(peerCount);
+    *requestId = mb.RequestId;
+    *mailboxIndex = i;
+    return true;
   }
   return false;
 }
 
-size_t ComputeWindowStart(size_t page, size_t limit)
-{
-  if (page <= 1 || limit == 0)
-  {
-    return 0;
-  }
-
-  const size_t maxSize = static_cast<size_t>(-1);
-  if (page - 1 > maxSize / limit)
-  {
-    return maxSize;
-  }
-
-  return (page - 1) * limit;
-}
-
-size_t ComputeOverfetchLimit(size_t page, size_t limit)
-{
-  const size_t pageNormalized = page == 0 ? 1 : page;
-  const size_t limitNormalized = limit == 0 ? 10 : limit;
-  const size_t maxSize = static_cast<size_t>(-1);
-  if (limitNormalized != 0 && pageNormalized > (maxSize - 20u) / limitNormalized)
-  {
-    return maxSize;
-  }
-  return pageNormalized * limitNormalized + 20u;
-}
-
-search::SearchResponse MergeResponses(const string& query, size_t page, size_t limit,
-                                      const vector<SearchSource>& sources,
-                                      const vector<search::SearchError>& transportErrors,
-                                      size_t tookMs)
-{
-  search::SearchResponse response;
-  response.Query = query;
-  response.Page = page == 0 ? 1 : page;
-  response.Limit = limit == 0 ? 10 : limit;
-  response.TookMs = tookMs;
-
-  vector<search::SearchHit> candidates;
-  for (size_t i = 0; i < sources.size(); ++i)
-  {
-    const SearchSource& source = sources[i];
-    response.TotalHits += source.Response.TotalHits;
-
-    if (source.IsPeer)
-      PrefixAndAppendErrors(response.Errors, source.PeerIndex, source.Response.Errors);
-    else
-    {
-      for (size_t e = 0; e < source.Response.Errors.size(); ++e)
-        response.Errors.pushBack(source.Response.Errors[e]);
-    }
-
-    for (size_t r = 0; r < source.Response.Results.size(); ++r)
-      candidates.pushBack(source.Response.Results[r]);
-  }
-
-  for (size_t i = 0; i < transportErrors.size(); ++i)
-    response.Errors.pushBack(transportErrors[i]);
-
-  candidates.sort(
-      [](const search::SearchHit& lhs, const search::SearchHit& rhs)
-      {
-        if (lhs.Score != rhs.Score)
-          return lhs.Score > rhs.Score;
-        return lhs.Url < rhs.Url;
-      });
-
-  vector<search::SearchHit> uniqueHits;
-  for (size_t i = 0; i < candidates.size(); ++i)
-  {
-    if (!ContainsUrl(uniqueHits, candidates[i].Url))
-      uniqueHits.pushBack(candidates[i]);
-  }
-
-  const size_t start = ComputeWindowStart(response.Page, response.Limit);
-  const size_t end = start > static_cast<size_t>(-1) - response.Limit ? static_cast<size_t>(-1)
-                                                                      : start + response.Limit;
-  for (size_t i = start; i < uniqueHits.size() && i < end; ++i)
-    response.Results.pushBack(uniqueHits[i]);
-
-  return response;
-}
-
-void BeginDistributedRequest(SearchServerState& state, size_t peerCount, uint64_t* requestId)
-{
-  avengine::lock_guard<mutex> guard(state.MailboxMutex);
-  state.RequestActive = true;
-  state.ActiveRequestId = state.NextRequestId++;
-  state.ReceivedReplies = 0;
-  state.ReplySeen = vector<uint8_t>(peerCount, 0);
-  state.Replies = vector<search::SearchResponse>(peerCount);
-  *requestId = state.ActiveRequestId;
-}
-
+// Stores a reply from peerIndex into the mailbox that matches requestId, then
+// signals the coordinator thread waiting on that mailbox's condition variable.
 bool StoreReply(SearchServerState& state, size_t peerIndex, uint64_t requestId,
                 const search::SearchResponse& response)
 {
   avengine::lock_guard<mutex> guard(state.MailboxMutex);
-  if (!state.RequestActive || state.ActiveRequestId != requestId ||
-      peerIndex >= state.ReplySeen.size() || state.ReplySeen[peerIndex] != 0)
+  for (size_t i = 0; i < kMaxConcurrentRequests; ++i)
   {
-    return false;
-  }
+    RequestMailbox& mb = state.Mailboxes[i];
+    if (!mb.Active || mb.RequestId != requestId)
+      continue;
+    if (peerIndex >= mb.ReplySeen.size() || mb.ReplySeen[peerIndex] != 0)
+      return false;
 
-  state.ReplySeen[peerIndex] = 1;
-  state.Replies[peerIndex] = response;
-  ++state.ReceivedReplies;
-  state.MailboxCV.broadcast();
-  return true;
+    mb.ReplySeen[peerIndex] = 1;
+    mb.Replies[peerIndex] = response;
+    ++mb.ReceivedReplies;
+    mb.CV.signal();
+    return true;
+  }
+  return false;
 }
 
-bool WaitForReplies(SearchServerState& state, size_t expectedReplies, size_t timeoutMs)
+// Waits up to timeoutMs for expectedReplies to arrive in the mailbox at mailboxIndex.
+void WaitForReplies(SearchServerState& state, size_t mailboxIndex, size_t expectedReplies,
+                    size_t timeoutMs)
 {
   if (expectedReplies == 0)
-    return true;
+    return;
 
   const auto startedAt = std::chrono::steady_clock::now();
+  RequestMailbox& mb = state.Mailboxes[mailboxIndex];
   state.MailboxMutex.lock();
-  while (state.RequestActive && state.ReceivedReplies < expectedReplies)
+  while (mb.Active && mb.ReceivedReplies < expectedReplies)
   {
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - startedAt);
@@ -411,12 +328,22 @@ bool WaitForReplies(SearchServerState& state, size_t expectedReplies, size_t tim
       break;
 
     const size_t remainingMs = timeoutMs - elapsedMs;
-    if (!state.MailboxCV.waitFor(state.MailboxMutex, remainingMs))
+    if (!mb.CV.waitFor(state.MailboxMutex, remainingMs))
       break;
   }
   state.MailboxMutex.unlock();
-  return true;
 }
+
+// Frees the mailbox slot so it may be reused by the next request.
+void EndDistributedRequest(SearchServerState& state, size_t mailboxIndex)
+{
+  avengine::lock_guard<mutex> guard(state.MailboxMutex);
+  state.Mailboxes[mailboxIndex].Active = false;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Message handlers
+// ──────────────────────────────────────────────────────────────────────────────
 
 void HandleSearchQuery(size_t peerIndex, const vector<uint8_t>& payload)
 {
@@ -434,7 +361,7 @@ void HandleSearchQuery(size_t peerIndex, const vector<uint8_t>& payload)
 
   search::SearchResponse response;
   {
-    avengine::lock_guard<mutex> guard(gState->ServiceMutex);
+    SharedLockGuard<SharedMutex> guard(gState->ServiceMutex);
     response = gState->Service.SearchPage(query, 1, limit);
   }
 
@@ -443,9 +370,7 @@ void HandleSearchQuery(size_t peerIndex, const vector<uint8_t>& payload)
   WriteSearchResponse(writer, response);
   vector<uint8_t> reply = writer.release();
   if (sendMessage(peerIndex, MessageType::SEARCH_REPLY, reply))
-  {
     fprintf(stderr, "[search_query] failed to send reply to peer #%zu\n", peerIndex);
-  }
 }
 
 void HandleSearchReply(size_t peerIndex, const vector<uint8_t>& payload)
@@ -457,23 +382,30 @@ void HandleSearchReply(size_t peerIndex, const vector<uint8_t>& payload)
   const uint64_t requestId = reader.readU64();
   search::SearchResponse response = ReadSearchResponse(reader);
 
-  if (!StoreReply(*gState, peerIndex, requestId, response))
-    return;
+  StoreReply(*gState, peerIndex, requestId, response);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Coordinator search: fan-out, wait, merge
+// ──────────────────────────────────────────────────────────────────────────────
 
 search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const string& query,
                                                 size_t page, size_t limit)
 {
   const auto startedAt = std::chrono::steady_clock::now();
-  search::SearchResponse response;
-  response.Query = query;
-  response.Page = page == 0 ? 1 : page;
-  response.Limit = limit == 0 ? 10 : limit;
 
+  const size_t normalizedPage = page == 0 ? 1 : page;
+  const size_t normalizedLimit = limit == 0 ? 10 : limit;
+
+  // Validate query syntax before touching the network.
   constraint_solver::ConstraintSolver validator;
   const auto parsed = validator.ParseQuery(query);
   if (!parsed.Errors.empty())
   {
+    search::SearchResponse response;
+    response.Query = query;
+    response.Page = normalizedPage;
+    response.Limit = normalizedLimit;
     for (size_t i = 0; i < parsed.Errors.size(); ++i)
       response.Errors.pushBack({parsed.Errors[i].Offset, parsed.Errors[i].Message});
     constraint_solver::DestroyQueryTree(parsed.Root);
@@ -484,70 +416,95 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
   }
   constraint_solver::DestroyQueryTree(parsed.Root);
 
-  const size_t timeoutMs = state.Service.GetQueryExecutionTimeThresholdMs();
-  const size_t internalLimit = ComputeOverfetchLimit(response.Page, response.Limit);
+  size_t timeoutMs;
+  {
+    SharedLockGuard<SharedMutex> guard(state.ServiceMutex);
+    timeoutMs = state.Service.GetQueryExecutionTimeThresholdMs();
+  }
+
+  const size_t internalLimit = search::ComputeOverfetchLimit(normalizedPage, normalizedLimit);
 
   uint64_t requestId = 0;
-  BeginDistributedRequest(state, state.PeerCount, &requestId);
+  size_t mailboxIndex = 0;
+  if (!BeginDistributedRequest(state, state.PeerCount, &requestId, &mailboxIndex))
+  {
+    search::SearchResponse response;
+    response.Query = query;
+    response.Page = normalizedPage;
+    response.Limit = normalizedLimit;
+    response.Errors.pushBack({0, string("server busy: too many concurrent searches")});
+    response.TookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now() - startedAt)
+                                              .count());
+    return response;
+  }
 
+  // Fan out to all peers. Track which peers accepted the request.
   vector<uint8_t> sentPeers(state.PeerCount, 0);
   size_t expectedReplies = 0;
+  vector<search::SearchError> transportErrors;
   vector<uint8_t> request = EncodeSearchQueryRequest(requestId, query, internalLimit);
+
   for (size_t peer = 0; peer < state.PeerCount; ++peer)
   {
     if (peer == localNodeId)
+    {
       continue;
+    }
 
+    // sendMessage returns true on error, false on success.
     if (sendMessage(peer, MessageType::SEARCH_QUERY, request))
+    {
+      search::AppendTransportError(transportErrors, peer, "failed to send search request");
+    }
+    else
     {
       sentPeers[peer] = 1;
       ++expectedReplies;
     }
-    else
-    {
-      AppendTransportError(response.Errors, peer, "failed to send search request");
-    }
   }
 
+  // Run the local shard search concurrently while replies are in-flight.
   search::SearchResponse localResponse;
   {
-    avengine::lock_guard<mutex> guard(state.ServiceMutex);
+    SharedLockGuard<SharedMutex> guard(state.ServiceMutex);
     localResponse = state.Service.SearchPage(query, 1, internalLimit);
   }
 
   if (timeoutMs > 0)
-    WaitForReplies(state, expectedReplies, timeoutMs);
+    WaitForReplies(state, mailboxIndex, expectedReplies, timeoutMs);
 
-  vector<SearchSource> sources;
+  // Collect results from the mailbox before releasing the slot.
+  vector<search::SearchSource> sources;
   sources.pushBack({false, localNodeId, localResponse});
 
-  vector<search::SearchError> transportErrors = response.Errors;
-  response.Errors.clear();
-
   state.MailboxMutex.lock();
+  RequestMailbox& mb = state.Mailboxes[mailboxIndex];
   for (size_t peer = 0; peer < state.PeerCount; ++peer)
   {
     if (!sentPeers[peer])
       continue;
 
-    if (state.ReplySeen[peer] != 0)
-    {
-      sources.pushBack({true, peer, state.Replies[peer]});
-      continue;
-    }
-
-    AppendTransportError(transportErrors, peer, "timed out waiting for search reply");
+    if (mb.ReplySeen[peer] != 0)
+      sources.pushBack({true, peer, mb.Replies[peer]});
+    else
+      search::AppendTransportError(transportErrors, peer, "timed out waiting for search reply");
   }
-  state.RequestActive = false;
-  state.MailboxCV.broadcast();
   state.MailboxMutex.unlock();
+
+  EndDistributedRequest(state, mailboxIndex);
 
   const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                 std::chrono::steady_clock::now() - startedAt)
                                                 .count());
 
-  return MergeResponses(query, response.Page, response.Limit, sources, transportErrors, tookMs);
+  return search::MergeResponses(query, normalizedPage, normalizedLimit, sources, transportErrors,
+                                tookMs);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HTTP layer
+// ──────────────────────────────────────────────────────────────────────────────
 
 void AppendResultString(string& body, const search::SearchResponse& response)
 {
@@ -607,12 +564,40 @@ void SendResponse(int clientFd, int statusCode, const char* statusText, const st
 
 void HandleClient(int clientFd, SearchServerState& state)
 {
-  char buffer[4096];
-  const ssize_t bytes = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
-  if (bytes <= 0)
+  // Read the full HTTP request headers, looping until we see the header terminator
+  // (\r\n\r\n) or exceed the buffer limit.
+  static const size_t kRecvBufSize = 16384;
+  char buffer[kRecvBufSize];
+  size_t totalBytes = 0;
+
+  while (totalBytes < kRecvBufSize - 1)
+  {
+    const ssize_t n =
+        recv(clientFd, buffer + totalBytes, kRecvBufSize - 1 - totalBytes, 0);
+    if (n <= 0)
+      break;
+    totalBytes += static_cast<size_t>(n);
+
+    // Search only the newly-arrived tail to avoid rescanning old bytes.
+    const size_t scanFrom = totalBytes >= 4 ? totalBytes - 4 : 0;
+    bool complete = false;
+    for (size_t i = scanFrom; i + 3 < totalBytes; ++i)
+    {
+      if (buffer[i] == '\r' && buffer[i + 1] == '\n' && buffer[i + 2] == '\r' &&
+          buffer[i + 3] == '\n')
+      {
+        complete = true;
+        break;
+      }
+    }
+    if (complete)
+      break;
+  }
+
+  if (totalBytes == 0)
     return;
 
-  buffer[bytes] = '\0';
+  buffer[totalBytes] = '\0';
   const string request(buffer);
   const size_t lineEnd = request.find("\r\n");
   const size_t methodEnd = FindChar(request, ' ');
@@ -682,13 +667,29 @@ void HandleClient(int clientFd, SearchServerState& state)
   }
   else
   {
-    avengine::lock_guard<mutex> guard(state.ServiceMutex);
+    SharedLockGuard<SharedMutex> guard(state.ServiceMutex);
     response = state.Service.SearchPage(query, page, limit);
   }
 
   string body;
   AppendResultString(body, response);
   SendResponse(clientFd, 200, "OK", body);
+}
+
+// Thread entry point for per-client threads. Owns the socket fd.
+struct ClientArgs
+{
+  int fd;
+  SearchServerState* state;
+};
+
+static void* clientThread(void* arg)
+{
+  ClientArgs* args = static_cast<ClientArgs*>(arg);
+  HandleClient(args->fd, *args->state);
+  close(args->fd);
+  delete args;
+  return nullptr;
 }
 
 } // namespace
@@ -727,9 +728,7 @@ int main(int argc, char** argv)
   registerMessageHandler(MessageType::SEARCH_REPLY, HandleSearchReply);
 
   if (numPeers > 1)
-  {
     runNode(static_cast<uint64_t>(localNodeId), numPeers);
-  }
 
   if (role == ServerRole::Worker)
   {
@@ -752,7 +751,7 @@ int main(int argc, char** argv)
   address.sin_port = htons(static_cast<uint16_t>(port));
 
   if (bind(serverFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
-      listen(serverFd, 8) != 0)
+      listen(serverFd, 64) != 0)
   {
     std::cerr << "search_server failed to bind port " << port << "\n";
     close(serverFd);
@@ -761,12 +760,21 @@ int main(int argc, char** argv)
 
   std::cout << "search_server listening on port " << port << " using index dir "
             << indexDirectory.cstr() << "\n";
+
   for (;;)
   {
     const int clientFd = accept(serverFd, nullptr, nullptr);
     if (clientFd < 0)
       continue;
-    HandleClient(clientFd, state);
-    close(clientFd);
+
+    ClientArgs* args = new ClientArgs{clientFd, &state};
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, clientThread, args) != 0)
+    {
+      close(clientFd);
+      delete args;
+      continue;
+    }
+    pthread_detach(thread);
   }
 }
