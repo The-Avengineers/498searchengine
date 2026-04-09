@@ -27,7 +27,10 @@ Common SSH-side commands:
 ```bash
 av-help
 av-status
+av-stats
+av-watch 2
 av-start
+av-start-crawlers
 av-stop
 av-serve 8080
 av-serve 8080 /corpus --daemon

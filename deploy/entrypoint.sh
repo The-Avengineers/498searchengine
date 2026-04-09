@@ -31,7 +31,7 @@ sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/^#*PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
 if [[ "${AVENGINE_AUTO_SWARM:-1}" != "0" ]]; then
-  su -s /bin/bash engine -c "${BIN_ROOT}/start-crawler-swarm.sh"
+  su -s /bin/bash engine -c "${BIN_ROOT}/start-crawler-supervisor.sh"
 fi
 
 if [[ "${AVENGINE_AUTO_AGGREGATE:-1}" != "0" ]]; then

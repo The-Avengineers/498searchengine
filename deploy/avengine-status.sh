@@ -26,21 +26,28 @@ echo
 
 worker_count=0
 running_workers=0
+stale_workers=0
 shopt -s nullglob
 for pid_file in "${DATA_ROOT}"/pids/crawler-*.pid; do
   worker_count=$((worker_count + 1))
   pid="$(cat "${pid_file}")"
   if kill -0 "${pid}" 2>/dev/null; then
     running_workers=$((running_workers + 1))
+  else
+    stale_workers=$((stale_workers + 1))
   fi
 done
 
 echo "crawler swarm: ${running_workers}/${worker_count} worker pid file(s) active"
+if (( stale_workers > 0 )); then
+  echo "crawler swarm: ${stale_workers} stale worker pid file(s)"
+fi
+report_pid "crawler supervisor" "${DATA_ROOT}/pids/crawler-supervisor.pid"
 report_pid "aggregate watcher" "${DATA_ROOT}/pids/aggregate.pid"
 report_pid "search server" "${DATA_ROOT}/pids/search-server.pid"
 
 if [[ -d "${DATA_ROOT}/corpus-index/current" ]]; then
-  shard_count="$(find "${DATA_ROOT}/corpus-index/current" -maxdepth 1 -type f -name '*.sfi' | wc -l)"
+  shard_count="$(find -L "${DATA_ROOT}/corpus-index/current" -maxdepth 1 -type f -name '*.sfi' | wc -l | tr -d ' ')"
   echo "current corpus shards: ${shard_count}"
 else
   echo "current corpus shards: 0"
@@ -49,5 +56,6 @@ fi
 echo
 echo "logs:"
 echo "  crawler logs: /logs"
+echo "  supervisor log: ${DATA_ROOT}/logs/crawler-supervisor.log"
 echo "  aggregate log: ${DATA_ROOT}/aggregate.log"
 echo "  search log: ${DATA_ROOT}/logs/search-server.log"

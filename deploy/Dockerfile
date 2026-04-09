@@ -57,6 +57,8 @@ COPY --from=builder /src/build/index_builder /avengine/bin/index_builder
 COPY --from=builder /src/build/anchor_processor /avengine/bin/anchor_processor
 COPY --from=builder /src/deploy/start-crawler-swarm.sh /avengine/bin/start-crawler-swarm.sh
 COPY --from=builder /src/deploy/stop-crawler-swarm.sh /avengine/bin/stop-crawler-swarm.sh
+COPY --from=builder /src/deploy/start-crawler-supervisor.sh /avengine/bin/start-crawler-supervisor.sh
+COPY --from=builder /src/deploy/stop-crawler-supervisor.sh /avengine/bin/stop-crawler-supervisor.sh
 COPY --from=builder /src/deploy/aggregate-corpus-index.sh /avengine/bin/aggregate-corpus-index.sh
 COPY --from=builder /src/deploy/start-aggregate-watch.sh /avengine/bin/start-aggregate-watch.sh
 COPY --from=builder /src/deploy/stop-aggregate-watch.sh /avengine/bin/stop-aggregate-watch.sh
@@ -66,6 +68,8 @@ COPY --from=builder /src/deploy/avengine-status.sh /avengine/bin/avengine-status
 COPY --from=builder /src/deploy/avengine-start.sh /avengine/bin/avengine-start.sh
 COPY --from=builder /src/deploy/avengine-stop.sh /avengine/bin/avengine-stop.sh
 COPY --from=builder /src/deploy/avengine-help.sh /avengine/bin/avengine-help.sh
+COPY --from=builder /src/deploy/avengine-stats.sh /avengine/bin/avengine-stats.sh
+COPY --from=builder /src/deploy/avengine-watch.sh /avengine/bin/avengine-watch.sh
 COPY --from=builder /src/seed_list.txt /avengine/config/seed_list.txt
 COPY --from=builder /src/banned_urls.txt /avengine/config/banned_urls.txt
 COPY --from=builder /src/banned_words.txt /avengine/config/banned_words.txt
@@ -78,6 +82,8 @@ COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     /avengine/bin/start-crawler-swarm.sh \
     /avengine/bin/stop-crawler-swarm.sh \
+    /avengine/bin/start-crawler-supervisor.sh \
+    /avengine/bin/stop-crawler-supervisor.sh \
     /avengine/bin/aggregate-corpus-index.sh \
     /avengine/bin/start-aggregate-watch.sh \
     /avengine/bin/stop-aggregate-watch.sh \
@@ -87,10 +93,16 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     /avengine/bin/avengine-start.sh \
     /avengine/bin/avengine-stop.sh \
     /avengine/bin/avengine-help.sh \
+    /avengine/bin/avengine-stats.sh \
+    /avengine/bin/avengine-watch.sh \
     /avengine/profiling/scripts/profile_query_pipeline.sh \
     && ln -s /avengine/bin/avengine-start.sh /usr/local/bin/av-start \
     && ln -s /avengine/bin/avengine-stop.sh /usr/local/bin/av-stop \
     && ln -s /avengine/bin/avengine-help.sh /usr/local/bin/av-help \
+    && ln -s /avengine/bin/avengine-stats.sh /usr/local/bin/av-stats \
+    && ln -s /avengine/bin/avengine-watch.sh /usr/local/bin/av-watch \
+    && ln -s /avengine/bin/start-crawler-supervisor.sh /usr/local/bin/av-start-crawlers \
+    && ln -s /avengine/bin/stop-crawler-supervisor.sh /usr/local/bin/av-stop-crawler-supervisor \
     && ln -s /avengine/bin/stop-crawler-swarm.sh /usr/local/bin/av-stop-crawlers \
     && ln -s /avengine/bin/start-aggregate-watch.sh /usr/local/bin/av-start-aggregate \
     && ln -s /avengine/bin/stop-aggregate-watch.sh /usr/local/bin/av-stop-aggregate \
@@ -104,8 +116,10 @@ if [[ $- == *i* ]]; then
   echo
   echo "AVEngine container"
   echo "  Layout: /avengine  /config  /data  /logs  /crawlers  /corpus  /profiling"
-  echo "  Commands: av-help  av-status  av-start  av-stop  av-serve [port] [index-dir] [--daemon]"
-  echo "            av-stop-crawlers  av-start-aggregate  av-stop-aggregate  av-stop-search"
+  echo "  Commands: av-help  av-status  av-stats  av-watch [seconds]"
+  echo "            av-start  av-stop  av-serve [port] [index-dir] [--daemon]"
+  echo "            av-start-crawlers  av-stop-crawler-supervisor  av-stop-crawlers"
+  echo "            av-start-aggregate  av-stop-aggregate  av-stop-search"
   echo
 fi
 EOF

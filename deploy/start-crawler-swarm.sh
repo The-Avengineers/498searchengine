@@ -24,6 +24,7 @@ mkdir -p "${DATA_ROOT}/crawlers" "${DATA_ROOT}/logs" "${DATA_ROOT}/pids" \
   "${DATA_ROOT}/corpus-index/generations"
 
 if [[ "${RESET}" -eq 1 ]]; then
+  "${BIN_ROOT}/stop-crawler-supervisor.sh" || true
   "${BIN_ROOT}/stop-crawler-swarm.sh" --quiet || true
   rm -rf "${DATA_ROOT}/crawlers" "${DATA_ROOT}/corpus-index"
   mkdir -p "${DATA_ROOT}/crawlers" "${DATA_ROOT}/corpus-index/generations"
@@ -53,7 +54,6 @@ for ((worker_id = 0; worker_id < SWARM_SIZE; ++worker_id)); do
     rm -f "${pid_file}"
   fi
 
-  rm -rf "${worker_dir}"
   mkdir -p "${worker_dir}"
   cp "${CONFIG_ROOT}/banned_urls.txt" "${worker_dir}/banned_urls.txt"
   cp "${CONFIG_ROOT}/banned_words.txt" "${worker_dir}/banned_words.txt"

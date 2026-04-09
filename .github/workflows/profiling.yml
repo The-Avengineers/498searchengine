@@ -1,5 +1,9 @@
 name: Profiling
 
+concurrency:
+  group: profiling-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     branches: [main, master]
@@ -23,7 +27,8 @@ jobs:
   # Fixture-based profile: correctness + baseline latency using the small test corpus.
   # Runs on both PRs and pushes.
   profile:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, avengine]
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -63,8 +68,9 @@ jobs:
   # Corpus-based profile: realistic latency using the large crawl index.
   # Runs only on pushes to avoid downloading ~1 GB on every PR.
   corpus-profile:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, avengine]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 90
     env:
       CORPUS_INDEX_TAG: corpus-index-latest
     permissions:
@@ -77,7 +83,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 ccache
+          sudo apt-get install -y cmake g++ python3 ccache gh
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1
