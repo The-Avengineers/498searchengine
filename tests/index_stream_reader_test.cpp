@@ -86,26 +86,48 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   CHECK(close(readFd) == 0);
   CHECK(unlink(pathTemplate) == 0);
 
-  avengine::Reader fileHeader(bytes, 16u);
+  avengine::Reader fileHeader(bytes, fileSize);
+  auto magicVal = fileHeader.readU64();
   auto dcVal = fileHeader.readU64();
   auto uwVal = fileHeader.readU64();
+  auto tokenOffsetVal = fileHeader.readU64();
+  auto rankingInputSizeVal = fileHeader.readU64();
+  REQUIRE(magicVal == 0x008FB8EF84979FF0ULL);
   REQUIRE(dcVal == 1u);
-  REQUIRE(uwVal == 3u);
-  const uint64_t uniqueWordsPlusOne = uwVal;
+  REQUIRE(uwVal == 2u);
+  REQUIRE(tokenOffsetVal == 2u);
+  REQUIRE(rankingInputSizeVal == sizeof(RankingInput));
 
-  const size_t dictionaryBytes = static_cast<size_t>(16u + (uniqueWordsPlusOne * 2u * 16u));
-  const size_t stringBytes = std::strlen("DOCUMENT_END") + 1u + std::strlen("alpha") + 1u;
-  const size_t postingsStart = dictionaryBytes + stringBytes;
-  REQUIRE(fileSize >= postingsStart + 24u);
+  uint64_t alphaPostingOffset = UINT64_MAX;
+  for (uint64_t i = 0; i < uwVal; ++i)
+  {
+    avengine::string word = fileHeader.readString();
+    auto positionsCount = fileHeader.readU64();
+    auto postingsCount = fileHeader.readU64();
+    auto postingOffset = fileHeader.readU64();
+
+    if (word == avengine::string("alpha"))
+    {
+      CHECK(positionsCount == 1u);
+      CHECK(postingsCount == 1u);
+      alphaPostingOffset = postingOffset;
+    }
+  }
+
+  REQUIRE(alphaPostingOffset != UINT64_MAX);
+
+  const size_t postingsStart = static_cast<size_t>(fileHeader.cursor() - bytes);
+  const size_t alphaStart = postingsStart + static_cast<size_t>(alphaPostingOffset);
+  REQUIRE(fileSize >= alphaStart + 24u);
 
   avengine::PostingBlobHeader header = {};
   const uint8_t* fieldStreams = nullptr;
-  REQUIRE(avengine::parsePostingBlobHeader(bytes + postingsStart, bytes + fileSize, &header,
+  REQUIRE(avengine::parsePostingBlobHeader(bytes + alphaStart, bytes + fileSize, &header,
                                            &fieldStreams));
   CHECK(header.documentFrequency == 1u);
   CHECK(header.collectionFrequency == 1u);
   CHECK(header.skipCount == 0u);
-  CHECK(fieldStreams == bytes + postingsStart + 24u);
+  CHECK(fieldStreams == bytes + alphaStart + 24u);
 
   std::free(bytes);
 }

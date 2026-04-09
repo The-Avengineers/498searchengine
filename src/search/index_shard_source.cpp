@@ -4,7 +4,6 @@
 #include <avengine/search/search_common.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -168,17 +167,20 @@ ISREndDoc* IndexShardSource::OpenEndDocIsr() const
 
 bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
 {
+  terms_.clear();
+  if (uniqueWords == 0)
+    return false;
+
   const size_t fixedHeaderBytes = 5u * sizeof(uint64_t);
   if (fileSize_ < fixedHeaderBytes)
     return false;
 
   Reader r(data_ + fixedHeaderBytes, fileSize_ - fixedHeaderBytes);
-
   for (uint64_t i = 0; i < uniqueWords; ++i)
   {
     const string term = r.readString();
     (void)r.readU64(); // positions_count
-    (void)r.readU64(); // postings_count
+    (void)r.readU64(); // doc/postings_count
     const uint64_t postingOffset = r.readU64();
     terms_.pushBack({term, {postingOffset}});
   }
@@ -204,6 +206,10 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
         i + 1 < sortedTerms.size()
             ? postingsStart_ + static_cast<size_t>(sortedTerms[i + 1]->Entry.postingOffset)
             : postingsStart_ + postingsBytes;
+
+    if (startOffset > endOffset || endOffset > fileSize_)
+      return false;
+
     postingBounds.insert(current->Term, {startOffset, endOffset});
   }
   swap(postingBounds_, postingBounds);
@@ -275,10 +281,8 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
     return false;
 
   if (documentFrequency)
-  {
-    // startOffset + 24 <= endOffset is guaranteed above, so 8 bytes are always available.
     *documentFrequency = Reader(data_ + startOffset, 8u).readU64();
-  }
+
   *begin = data_ + startOffset;
   *end = data_ + endOffset;
   return true;

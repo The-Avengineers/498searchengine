@@ -4,21 +4,26 @@ VLQs use the same encoding as [protobuf varints](https://protobuf.dev/programmin
 
 ```txt
 Index File
-├── Header (16 bytes total)
+├── Header
+│   ├── u64: magic  (0x008FB8EF84979FF0)
 │   ├── u64: document_count
-│   └── u64: unique_words_plus_one
-├── Dictionary Table (flat hash table)
-│   └── table_slots = unique_words_plus_one * 2
-│       └── each slot (16 bytes):
-│           ├── u64: string_offset (into String Buffer)
-│           └── u64: posting_offset (into Posting Lists region)
-├── String Buffer
-│   └── concatenated null-terminated terms
-└── Posting Lists region
+│   ├── u64: total_unique_words
+│   ├── u64: token_offset  (total token positions ingested)
+│   ├── u64: sizeof(DocumentMetadata::input)
+│   └── Term Table (one record per unique word, in map-iteration order):
+│       ├── u64:   word_len
+│       ├── bytes: word  (raw, not NUL-terminated; word_len bytes)
+│       ├── u64:   positions_count
+│       ├── u64:   positions_count  (duplicate — see Known Issues)
+│       └── u64:   postings_offset  (byte offset into Postings Body)
+└── Postings Body  (starts at headerSize() bytes into the file)
     └── concatenated per-term posting blobs
 ```
 
-The dictionary uses open addressing with linear probing
+The header is written sequentially using `avengine::Writer` and flushed to
+offset 0 **after** the postings body has been streamed to disk.
+The dictionary is no longer a hash table — terms appear in map-iteration order
+and lookup requires a linear scan of the term table.
 
 ## Current Posting Blob Layout (Per Term)
 
@@ -50,26 +55,33 @@ Terms are stored with a single-character prefix indicating their source field:
 | `#`    | title  | `#cat`  |
 | `/`    | URL    | `/cat`  |
 
-The same word in different fields produces separate posting lists. Decoration is applied at index-build time — `HtmlParser` separates `words` (body) and `titleWords` (title); the crawler passes the document URL as the URL phrase. Ranking can boost `#`/`/` prefixed matches independently.
+The same word in different fields produces separate posting lists. Decoration is
+applied at index-build time — `HtmlParser` separates `words` (body) and
+`titleWords` (title); the crawler passes the document URL as the URL phrase.
+Ranking can boost `#`/`/` prefixed matches independently.
 
 ## Notes
+
+- All multi-byte integers are little-endian.
 - No sentinel is written at the end of a posting blob.
-- Blob boundaries are inferred from the next-greater `posting_offset`.
-- Skip pointers are sampled at every `floor(sqrt(collection_frequency))` positions; not emitted when stride <= 1.
-- The special `DOCUMENT_END` term stores one posting per document; its position deltas encode per-document token counts, and document metadata is appended inline after the position delta stream.
+- Blob boundaries are inferred from `postings_offset` values in the term table.
+- Skip pointers are sampled at every `floor(sqrt(collection_frequency))` positions;
+  not emitted when stride <= 1.
+- The special `DOCUMENT_END` term stores one posting per document; its position
+  deltas encode per-document token counts, and document metadata is appended
+  inline after the position delta stream.
 
-## Known Limitation
+## Known Issues
 
-`string_offset == 0` is currently treated as an "empty dictionary slot" sentinel in write/read paths.
-That collides with a valid first term at offset 0, so the first serialized term may be ambiguous.
+- **Duplicate `positions_count`**: each term record writes `pl.positions.size()`
+  twice; one should be `pl.postings.size()` (document frequency).
+- **Dead declaration**: `indexer.h` still declares `buildStringTable(Writer&)`
+  with no definition. It was replaced by `headerSize()` and inline writes.
+- **Unused writer**: `serialize()` declares `avengine::Writer body` that is
+  never used.
 
 ## Tools
 
-- `src/index_builder.cpp` builds `index.sfi`.
-- `src/index_reader.cpp` reads this format in a best-effort way.
-
-## Planned / TODO Format Fields
-
-The code contains TODOs for future additions:
-- magic/version bytes in file header
-- richer posting/metastream structure
+- `src/indexer/indexer.cpp` builds `index.sfi` via `Index::serialize()`.
+- `headerSize()` computes the exact header byte size as:
+  `5 * 8 + sum over terms of (4 * 8 + len(word))`
