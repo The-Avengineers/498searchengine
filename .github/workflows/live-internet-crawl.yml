@@ -1,5 +1,9 @@
 name: Live Internet Crawl
 
+concurrency:
+  group: avengine-runtime-service
+  cancel-in-progress: false
+
 on:
   push:
     branches:
