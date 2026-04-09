@@ -496,6 +496,9 @@ size_t indexDocument(DocumentMetadata& document_metadata,
 
   if (slot.index->offset >= OFFSET_THRESHOLD)
   {
+    avengine::crawler::globalCrawlLogger().log("FLUSHING INDEX", slotIdx, slot.index->offset,
+                                               slot.index->totalUniqWords,
+                                               slot.index->currentDocId);
     Index* oldIndex = slot.index;
     slot.index = new Index();
 
