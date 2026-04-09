@@ -7,12 +7,13 @@
   const MAX_FETCH_LIMIT = 200;
   const listEl = document.getElementById("results-list");
   const countEl = document.getElementById("results-count");
+  const timingEl = document.getElementById("results-timing");
   const feedbackEl = document.getElementById("results-feedback");
   const queryInputEl = document.getElementById("results-query");
   const paginationEl = document.getElementById("results-pagination");
 
   // if the expected dom isn't here, just bail quietly
-  if (!listEl || !countEl || !feedbackEl || !queryInputEl) {
+  if (!listEl || !countEl || !timingEl || !feedbackEl || !queryInputEl) {
     return;
   }
 
@@ -28,6 +29,7 @@
   // no query means no fetch, just show a helpful nudge
   if (query.length === 0) {
     setCount("Enter a query to search.");
+    hideElapsedTime();
     showFeedback("Enter a query in the search box above.", true);
     hidePagination();
     return;
@@ -36,6 +38,7 @@
   // show immediate status so the page feels responsive
   setCount(`Searching for "${query}"...`);
   clearList();
+  hideElapsedTime();
   hideFeedback();
   hidePagination();
 
@@ -44,10 +47,13 @@
   void loadSearchResults(requestUrl, query);
 
   async function loadSearchResults(url, currentQuery) {
+    const startedAtMs = nowMs();
     try {
       const payload = await fetchSearch(url);
+      setElapsedTime(elapsedSince(startedAtMs));
       renderPayload(payload, currentQuery);
     } catch (error) {
+      setElapsedTime(elapsedSince(startedAtMs));
       setCount("Search failed.");
       showFeedback(readErrorMessage(error), false);
       hidePagination();
@@ -87,14 +93,13 @@
     // tolerate partial payloads and missing fields
     const apiErrors = normalizeErrors(payload && payload.errors);
     const results = normalizeResults(payload && payload.results);
-    const tookMs = parseInteger(payload && payload.took_ms);
     const totalHits = parseInteger(payload && payload.total_hits);
     const page = paginateResults(results, requestedPage, RESULTS_PER_PAGE);
 
     clearList();
 
     if (results.length === 0) {
-      const countLine = buildCountLine(0, 0, 0, totalHits, tookMs);
+      const countLine = buildCountLine(0, 0, 0, totalHits);
       setCount(countLine);
       hidePagination();
 
@@ -107,7 +112,7 @@
     }
 
     // normal success path
-    setCount(buildCountLine(page.From, page.To, results.length, totalHits, tookMs));
+    setCount(buildCountLine(page.From, page.To, results.length, totalHits));
     if (apiErrors.length > 0) {
       showFeedback(`Search completed with warnings: ${apiErrors.join(" ")}`, false);
     } else {
@@ -433,18 +438,16 @@
     paginationEl.hidden = true;
   }
 
-  function buildCountLine(from, to, loadedCount, totalHits, tookMs) {
+  function buildCountLine(from, to, loadedCount, totalHits) {
     if (!Number.isInteger(loadedCount) || loadedCount <= 0) {
-      const timingPart = Number.isInteger(tookMs) && tookMs >= 0 ? ` (${tookMs.toLocaleString()} ms)` : "";
-      return `About 0 results${timingPart}`;
+      return "About 0 results";
     }
 
     let countPart = `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${loadedCount.toLocaleString()} loaded result${loadedCount === 1 ? "" : "s"}`;
     if (Number.isInteger(totalHits) && totalHits > loadedCount) {
       countPart += ` (of about ${totalHits.toLocaleString()} total)`;
     }
-    const timingPart = Number.isInteger(tookMs) && tookMs >= 0 ? ` (${tookMs.toLocaleString()} ms)` : "";
-    return `${countPart}${timingPart}`;
+    return countPart;
   }
 
   function readErrorMessage(error) {
@@ -461,6 +464,28 @@
 
   function setCount(text) {
     countEl.textContent = text;
+  }
+
+  function nowMs() {
+    if (typeof performance === "object" && performance && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function elapsedSince(startedAtMs) {
+    const elapsedMs = Math.round(nowMs() - startedAtMs);
+    return elapsedMs >= 0 ? elapsedMs : 0;
+  }
+
+  function setElapsedTime(elapsedMs) {
+    timingEl.textContent = `Elapsed time: ${elapsedMs.toLocaleString()} ms`;
+    timingEl.hidden = false;
+  }
+
+  function hideElapsedTime() {
+    timingEl.textContent = "";
+    timingEl.hidden = true;
   }
 
   function showFeedback(message, isInfo) {

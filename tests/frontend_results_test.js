@@ -103,6 +103,7 @@ function buildDom() {
   const refs = {
     list: document.register("results-list", new Element("ol")),
     count: document.register("results-count", new Element("p")),
+    timing: document.register("results-timing", new Element("p")),
     feedback: document.register("results-feedback", new Element("p")),
     query: document.register("results-query", new Element("input")),
     pagination: document.register("results-pagination", new Element("nav")),
@@ -131,6 +132,12 @@ async function testRendersApiResults() {
     location: { search: "?q=dog" },
     localStorage: createLocalStorage(),
     AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [100, 112];
+      return () => values.shift();
+    })(),
   };
 
   global.fetch = async (url) => {
@@ -172,7 +179,9 @@ async function testRendersApiResults() {
     "frontend should call expected api endpoint"
   );
   assert.equal(refs.query.value, "dog", "query box should reflect URL query");
-  assert.equal(refs.count.textContent, "Showing 1-2 of 2 loaded results (12 ms)");
+  assert.equal(refs.count.textContent, "Showing 1-2 of 2 loaded results");
+  assert.equal(refs.timing.textContent, "Elapsed time: 12 ms");
+  assert.equal(refs.timing.hidden, false, "elapsed-time line should be visible after a search");
   assert.equal(refs.list.children.length, 2, "two results should render");
   assert.equal(refs.feedback.hidden, true, "feedback banner should be hidden on success");
   assert.equal(refs.pagination.hidden, true, "single-page results should hide pagination");
@@ -193,6 +202,12 @@ async function testPaginatesResultsArray() {
     location: { search: "?q=dog&page=2&limit=25" },
     localStorage: createLocalStorage(),
     AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [200, 209];
+      return () => values.shift();
+    })(),
   };
 
   global.fetch = async (url) => {
@@ -227,7 +242,8 @@ async function testPaginatesResultsArray() {
 
   assert.equal(capturedUrl, "/api/search?q=dog&limit=25");
   assert.equal(refs.list.children.length, 10, "page two should show exactly ten results");
-  assert.equal(refs.count.textContent, "Showing 11-20 of 23 loaded results (9 ms)");
+  assert.equal(refs.count.textContent, "Showing 11-20 of 23 loaded results");
+  assert.equal(refs.timing.textContent, "Elapsed time: 9 ms");
   assert.equal(refs.pagination.hidden, false, "multi-page results should show pagination");
   assert.equal(refs.pagination.children.length, 5, "pager should render prev/pages/next");
 
@@ -266,14 +282,52 @@ async function testEmptyQuerySkipsFetch() {
 
   assert.equal(fetchCalls, 0, "empty query should not call backend");
   assert.equal(refs.count.textContent, "Enter a query to search.");
+  assert.equal(refs.timing.textContent, "");
+  assert.equal(refs.timing.hidden, true, "elapsed-time line should stay hidden with no query");
   assert.equal(refs.feedback.hidden, false, "feedback banner should be shown");
   assert.equal(refs.feedback.classList.contains("is-info"), true);
+}
+
+async function testFailedSearchStillReportsElapsedTime() {
+  const { document, refs } = buildDom();
+
+  global.document = document;
+  global.window = {
+    location: { search: "?q=dog" },
+    localStorage: createLocalStorage(),
+    AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [50, 83];
+      return () => values.shift();
+    })(),
+  };
+
+  global.fetch = async () => ({
+    ok: false,
+    status: 503,
+    text: async () =>
+      JSON.stringify({
+        errors: [{ message: "backend unavailable" }],
+      }),
+  });
+
+  runResultsScript();
+  await flushMicrotasks();
+
+  assert.equal(refs.count.textContent, "Search failed.");
+  assert.equal(refs.timing.textContent, "Elapsed time: 33 ms");
+  assert.equal(refs.timing.hidden, false, "elapsed-time line should be visible after failed fetches");
+  assert.equal(refs.feedback.textContent, "backend unavailable");
+  assert.equal(refs.pagination.hidden, true, "failed searches should not show pagination");
 }
 
 async function main() {
   await testRendersApiResults();
   await testPaginatesResultsArray();
   await testEmptyQuerySkipsFetch();
+  await testFailedSearchStillReportsElapsedTime();
   console.log("frontend_results_test passed");
 }
 
