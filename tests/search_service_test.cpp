@@ -233,6 +233,32 @@ void testPaging()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testTitleIntentWins()
+{
+  char dirTemplate[] = "/tmp/search_service_title_intent_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(),
+             {{"doc://projects", "Development Projects",
+                "freebsd projects page with news updates and flash reports"},
+              {"doc://newsflash", "FreeBSD News Flash",
+               "freebsd archive with news items and flash bulletins"},
+              {"doc://generic", "Generic News", "freebsd bulletin with news updates and flash"}});
+
+  SearchService service(dir);
+  const SearchResponse response = service.Search("freebsd news flash", 10);
+
+  EXPECT(response.Errors.empty());
+  EXPECT(response.Results.size() >= 2u);
+  EXPECT(response.Results[0].Url == string("doc://newsflash"));
+  EXPECT(response.Results[0].Score > response.Results[1].Score);
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 } // namespace
 
 int main()
@@ -240,5 +266,6 @@ int main()
   testRankingInputRoundTrip();
   testSolverQueries();
   testPaging();
+  testTitleIntentWins();
   return 0;
 }

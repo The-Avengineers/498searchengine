@@ -9,7 +9,7 @@ Current scope:
 - `GET /api/search?q=...&page=...&limit=...`
 - JSON only
 - search service + ranker wiring
-- no static file serving yet
+- serves the checked-in frontend from `frontend/`
 - page results are returned in 10-result windows
 
 ## Build and run
@@ -21,6 +21,12 @@ cmake --build build-test --target search_server -j 6
 ```
 
 If you do not pass a port, it defaults to `8080`.
+
+Then open:
+
+```text
+http://127.0.0.1:8080/
+```
 
 ## API shape
 
@@ -62,6 +68,7 @@ Missing or blank query:
 ## Quick checks
 
 ```bash
+curl -i 'http://127.0.0.1:8080/'
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=1&limit=10'
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=2&limit=10'
 curl -i 'http://127.0.0.1:8080/api/search?q=++'
@@ -73,4 +80,4 @@ Notes:
 - `limit` is clamped to `10`
 - `page` defaults to `1`
 - result scores are real floating-point values from the ranker
-- anything outside `/api/search` returns `404` in this batch
+- `/`, `/results.html`, and frontend assets are served from `frontend/`

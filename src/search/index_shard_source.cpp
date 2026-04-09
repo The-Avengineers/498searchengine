@@ -17,15 +17,7 @@ namespace search
 namespace
 {
 
-size_t cstrLenSafe(const uint8_t* start, const uint8_t* end)
-{
-  const uint8_t* cursor = start;
-  while (cursor < end && *cursor != 0)
-    ++cursor;
-  if (cursor == end)
-    return string::npos;
-  return static_cast<size_t>(cursor - start);
-}
+constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
 
 } // namespace
 
@@ -49,7 +41,7 @@ bool IndexShardSource::Load(const string& path)
     return false;
 
   struct stat st = {};
-  if (fstat(fd, &st) != 0 || st.st_size < 16)
+  if (fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(5u * sizeof(uint64_t)))
   {
     close(fd);
     return false;
@@ -65,9 +57,15 @@ bool IndexShardSource::Load(const string& path)
   }
 
   fileSize_ = static_cast<size_t>(st.st_size);
-  // fileSize_ >= 16 guaranteed by the check above, so this read is always safe.
-  const uint64_t uniqueWordsPlusOne = Reader(data_ + 8, fileSize_ - 8u).readU64();
-  if (uniqueWordsPlusOne == 0 || !ParseDictionary(uniqueWordsPlusOne) || !ParseDocumentMetadata())
+
+  Reader headerReader(data_, fileSize_);
+  const uint64_t magic = headerReader.readU64();
+  (void)headerReader.readU64(); // document_count
+  const uint64_t uniqueWords = headerReader.readU64();
+  (void)headerReader.readU64(); // token_offset
+  (void)headerReader.readU64(); // ranking-input size
+
+  if (magic != kIndexMagic || !ParseDictionary(uniqueWords) || !ParseDocumentMetadata())
   {
     Reset();
     return false;
@@ -168,53 +166,24 @@ ISREndDoc* IndexShardSource::OpenEndDocIsr() const
   return new ISREndDoc(documents_);
 }
 
-bool IndexShardSource::ParseDictionary(uint64_t uniqueWordsPlusOne)
+bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
 {
-  const uint64_t tableSlots = uniqueWordsPlusOne * 2u;
-  const size_t dictionaryBytes = static_cast<size_t>(16u + (tableSlots * 16u));
-  if (dictionaryBytes > fileSize_)
+  const size_t fixedHeaderBytes = 5u * sizeof(uint64_t);
+  if (fileSize_ < fixedHeaderBytes)
     return false;
 
-  const uint8_t* stringStart = data_ + dictionaryBytes;
-  const uint8_t* fileEnd = data_ + fileSize_;
-  const size_t expectedTerms = static_cast<size_t>(uniqueWordsPlusOne - 1u);
-  size_t inferredStringBytes = 0;
+  Reader r(data_ + fixedHeaderBytes, fileSize_ - fixedHeaderBytes);
 
-  for (uint64_t slot = 0; slot < tableSlots; ++slot)
+  for (uint64_t i = 0; i < uniqueWords; ++i)
   {
-    const size_t offset = static_cast<size_t>(16u + (slot * 16u));
-    Reader slotReader(data_ + offset, 16u);
-    const uint64_t strOff = slotReader.readU64();
-    const uint64_t postOff = slotReader.readU64();
-    const DictEntry entry = {strOff, postOff};
-    if (entry.stringOffset == 0 && entry.postingOffset == 0)
-      continue;
-    if (dictionaryBytes + entry.stringOffset >= fileSize_)
-      continue;
-
-    const uint8_t* termPtr = stringStart + entry.stringOffset;
-    const size_t length = cstrLenSafe(termPtr, fileEnd);
-    if (length == string::npos)
-      continue;
-
-    terms_.pushBack({string(reinterpret_cast<const char*>(termPtr)), entry});
-    inferredStringBytes =
-        std::max(inferredStringBytes, static_cast<size_t>(entry.stringOffset) + length + 1u);
+    const string term = r.readString();
+    (void)r.readU64(); // positions_count
+    (void)r.readU64(); // postings_count
+    const uint64_t postingOffset = r.readU64();
+    terms_.pushBack({term, {postingOffset}});
   }
 
-  if (terms_.size() + 1u == expectedTerms)
-  {
-    // The writer still lets one real term collide with the all-zero empty-slot sentinel.
-    // If we are missing exactly one term, treat offset 0 / posting 0 as the cheap recovery path.
-    const size_t length = cstrLenSafe(stringStart, fileEnd);
-    if (length != string::npos)
-    {
-      terms_.pushBack({string(reinterpret_cast<const char*>(stringStart)), {0, 0}});
-      inferredStringBytes = std::max(inferredStringBytes, length + 1u);
-    }
-  }
-
-  postingsStart_ = dictionaryBytes + inferredStringBytes;
+  postingsStart_ = static_cast<size_t>(r.cursor() - data_);
   if (postingsStart_ > fileSize_)
     return false;
 
@@ -225,7 +194,6 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWordsPlusOne)
   sortedTerms.sort([](const ParsedTerm* lhs, const ParsedTerm* rhs)
                    { return lhs->Entry.postingOffset < rhs->Entry.postingOffset; });
 
-  // Build the lookup once up front so the query path does not keep walking the whole shard.
   unordered_map<PostingSpan> postingBounds(sortedTerms.size() * 2u + 1u);
   const size_t postingsBytes = fileSize_ - postingsStart_;
   for (size_t i = 0; i < sortedTerms.size(); ++i)

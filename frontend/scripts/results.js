@@ -13,11 +13,10 @@
     return;
   }
 
-  // read query state from the url and resolve where the api lives
+  // read query state from the url
   const params = new URLSearchParams(window.location.search);
   const query = (params.get("q") || "").trim();
   const limit = clampLimit(parseInteger(params.get("limit")));
-  const apiBase = resolveApiBase(params);
 
   // keep the search input in sync with what we are showing
   queryInputEl.value = query;
@@ -35,7 +34,7 @@
   hideFeedback();
 
   // fire the request and render whatever comes back
-  const requestUrl = buildApiUrl(apiBase, query, limit);
+  const requestUrl = buildApiUrl(query, limit);
   void loadSearchResults(requestUrl, query);
 
   async function loadSearchResults(url, currentQuery) {
@@ -284,87 +283,12 @@
     return null;
   }
 
-  function resolveApiBase(paramsRef) {
-    // precedence: query param -> global var -> local storage
-    const queryBase = normalizeApiBase(paramsRef.get("api"));
-    if (queryBase.length > 0) {
-      persistApiBase(queryBase);
-      return queryBase;
-    }
-
-    const globalBase = normalizeApiBase(window.AVENGINE_API_BASE);
-    if (globalBase.length > 0) {
-      return globalBase;
-    }
-
-    return readPersistedApiBase();
-  }
-
-  function normalizeApiBase(rawBase) {
-    // allow /relative, full urls, or host:port shortcuts
-    if (typeof rawBase !== "string") {
-      return "";
-    }
-
-    let value = rawBase.trim();
-    if (value.length === 0) {
-      return "";
-    }
-
-    value = value.replace(/\/+$/, "");
-    if (value.length === 0) {
-      return "";
-    }
-
-    if (value.startsWith("/")) {
-      return value;
-    }
-
-    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
-      return value;
-    }
-
-    return `http://${value}`;
-  }
-
-  function persistApiBase(value) {
-    try {
-      // remember api choice so reloads keep working
-      window.localStorage.setItem("avengine.apiBase", value);
-    } catch (error) {
-      // no worries if storage is blocked (private mode, strict browser settings, etc)
-    }
-  }
-
-  function readPersistedApiBase() {
-    try {
-      const stored = window.localStorage.getItem("avengine.apiBase");
-      return normalizeApiBase(stored);
-    } catch (error) {
-      return "";
-    }
-  }
-
-  function buildApiUrl(apiBaseValue, queryText, limitValue) {
-    // support base values that end in /api or /api/search
+  function buildApiUrl(queryText, limitValue) {
+    // same-origin path; deployment routes /api/* to backend
     const queryParams = new URLSearchParams();
     queryParams.set("q", queryText);
     queryParams.set("limit", String(limitValue));
-
-    const suffix = `?${queryParams.toString()}`;
-    if (apiBaseValue.length === 0) {
-      return `/api/search${suffix}`;
-    }
-
-    if (apiBaseValue.endsWith("/api/search")) {
-      return `${apiBaseValue}${suffix}`;
-    }
-
-    if (apiBaseValue.endsWith("/api")) {
-      return `${apiBaseValue}/search${suffix}`;
-    }
-
-    return `${apiBaseValue}/api/search${suffix}`;
+    return `/api/search?${queryParams.toString()}`;
   }
 
   function buildCountLine(renderedCount, totalHits, tookMs) {

@@ -251,15 +251,15 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   UrlDepth urlDepthStrategy;
   QueryOccurrence queryOccurrenceStrategy(queryTerms);
 
-  ranker.AddStrategy(&exactPhraseStrategy, 3.0);
-  ranker.AddStrategy(&correctOrderingStrategy, 2.0);
-  ranker.AddStrategy(&earlyQueryStrategy, 1.5);
-  ranker.AddStrategy(&queryOccurrenceStrategy, 1.25);
-  ranker.AddStrategy(&termCoverageStrategy, 1.0);
-  ranker.AddStrategy(&shortTitleStrategy, 0.45);
-  ranker.AddStrategy(&shortUrlStrategy, 0.35);
-  ranker.AddStrategy(&domainStrategy, 0.25);
-  ranker.AddStrategy(&urlDepthStrategy, 0.25);
+  ranker.AddStrategy(&exactPhraseStrategy, 2.4);
+  ranker.AddStrategy(&correctOrderingStrategy, 1.6);
+  ranker.AddStrategy(&earlyQueryStrategy, 1.25);
+  ranker.AddStrategy(&termCoverageStrategy, 0.85);
+  ranker.AddStrategy(&queryOccurrenceStrategy, 0.8);
+  ranker.AddStrategy(&shortTitleStrategy, 0.5);
+  ranker.AddStrategy(&shortUrlStrategy, 0.15);
+  ranker.AddStrategy(&domainStrategy, 0.1);
+  ranker.AddStrategy(&urlDepthStrategy, 0.15);
 
   for (const IndexShardSource* shard : shards_)
   {

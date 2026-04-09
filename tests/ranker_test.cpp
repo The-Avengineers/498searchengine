@@ -198,10 +198,18 @@ void testExactPhraseMatch()
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{2}}, signals), 1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {11}}, signals),
                      1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3, 10}, {4, 20}, {5, 21}}, signals),
+      1.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals),
                      0.0));
   EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {}}, signals),
                      0.0));
+
+  vector<vector<size_t>> title_positions = {{1}, {2}};
+  signals.title_term_positions = &title_positions;
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10}, {15}}, signals), 0.9));
 }
 
 void testCorrectOrdering()
@@ -214,6 +222,10 @@ void testCorrectOrdering()
   // Perfect 3-term ordered run with no slack.
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {2}, {3}}, signals), 1.0));
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{10, 20}, {15, 21}, {16, 22}},
+                  signals),
+      1.0));
 
   // Only a 2-term ordered run exists.
   const double partial =
@@ -223,6 +235,11 @@ void testCorrectOrdering()
   // No forward ordering among any adjacent terms.
   EXPECT(nearlyEqual(
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {2}, {1}}, signals), 0.0));
+
+  vector<vector<size_t>> title_positions = {{1}, {2}, {3}};
+  signals.title_term_positions = &title_positions;
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{3}, {2}, {1}}, signals), 0.8));
 }
 
 void testUrlDepth()
@@ -273,6 +290,9 @@ void testQueryOccurrence()
   const double separated =
       strat.Score(makeEntry("https://example.com/foo___bar"), positions, signals);
   EXPECT(separated > 0.0 && separated < 1.0);
+  const double reversed =
+      strat.Score(makeEntry("https://example.com/bar/foo"), positions, signals);
+  EXPECT(reversed > 0.5 && reversed < 1.0);
   EXPECT(nearlyEqual(strat.Score(makeEntry("https://example.com/baz"), positions, signals), 0.0));
 }
 
@@ -291,13 +311,29 @@ void testEarlyQueryTermMatch()
   partial_title_signals.title_term_positions = &partial_title_positions;
   const double partial =
       strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, partial_title_signals);
-  EXPECT(nearlyEqual(partial, 0.875));
+  EXPECT(nearlyEqual(partial, 0.75 + (0.7 / std::log2(3.0))));
 
   vector<vector<size_t>> full_title_positions = {{1}, {3}};
   Ranker::RankSignals full_title_signals;
   full_title_signals.title_term_positions = &full_title_positions;
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}},
+                                 full_title_signals),
+                     0.75 + 0.7 * ((1.0 / std::log2(3.0) + 1.0 / std::log2(5.0)) / 2.0)));
+}
+
+void testTermCoverage()
+{
+  TermCoverage strat;
+  Ranker::RankSignals signals;
+
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, signals), 0.0));
   EXPECT(nearlyEqual(
-      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {2}}, full_title_signals), 1.0));
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals), 2.0 / 3.0));
+
+  vector<vector<size_t>> title_positions = {{1}, {}, {2}};
+  signals.title_term_positions = &title_positions;
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals), 1.0666666666666667));
 }
 } // namespace
 
@@ -313,5 +349,6 @@ int main()
   testOutlinkCount();
   testQueryOccurrence();
   testEarlyQueryTermMatch();
+  testTermCoverage();
   return 0;
 }
