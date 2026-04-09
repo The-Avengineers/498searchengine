@@ -23,8 +23,7 @@ inline size_t ComputeOverfetchLimit(size_t page, size_t limit)
   return (pageNormalized * limitNormalized) + 20U;
 }
 
-inline void AppendTransportError(vector<SearchError>& errors, size_t peerIndex,
-                                 const char* message)
+inline void AppendTransportError(vector<SearchError>& errors, size_t peerIndex, const char* message)
 {
   SearchError err;
   err.Offset = peerIndex;
@@ -33,7 +32,7 @@ inline void AppendTransportError(vector<SearchError>& errors, size_t peerIndex,
 }
 
 inline void PrefixAndAppendErrors(vector<SearchError>& out, const vector<SearchError>& errors,
-                                   size_t peerIndex)
+                                  size_t peerIndex)
 {
   for (size_t i = 0; i < errors.size(); ++i)
   {
@@ -45,8 +44,8 @@ inline void PrefixAndAppendErrors(vector<SearchError>& out, const vector<SearchE
 }
 
 inline SearchResponse MergeResponses(const string& query, size_t page, size_t limit,
-                                      const vector<SearchSource>& sources,
-                                      const vector<SearchError>& transportErrors, size_t tookMs)
+                                     const vector<SearchSource>& sources,
+                                     const vector<SearchError>& transportErrors, size_t tookMs)
 {
   SearchResponse merged;
   merged.Query = query;
@@ -79,11 +78,13 @@ inline SearchResponse MergeResponses(const string& query, size_t page, size_t li
   }
 
   // Sort by score descending, then by URL ascending for deterministic ordering.
-  candidates.sort([](const SearchHit& a, const SearchHit& b) {
-    if (a.Score != b.Score)
-      return a.Score > b.Score;
-    return a.Url < b.Url;
-  });
+  candidates.sort(
+      [](const SearchHit& a, const SearchHit& b)
+      {
+        if (a.Score != b.Score)
+          return a.Score > b.Score;
+        return a.Url < b.Url;
+      });
 
   // O(n) dedup: after sorting, identical URLs have identical scores and are always adjacent.
   vector<SearchHit> uniqueHits;
