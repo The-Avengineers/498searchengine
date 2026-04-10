@@ -3,6 +3,8 @@
 
 #include <arpa/inet.h>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -14,6 +16,8 @@ namespace avengine
 {
 namespace
 {
+
+namespace fs = std::filesystem;
 
 size_t FindChar(const string& text, char needle, size_t start = 0)
 {
@@ -62,6 +66,23 @@ string DecodeQueryValue(const string& encoded)
       continue;
     }
 
+    decoded.pushBack(encoded[i]);
+  }
+  return decoded;
+}
+
+string DecodePathValue(const string& encoded)
+{
+  string decoded;
+  for (size_t i = 0; i < encoded.size(); ++i)
+  {
+    if (encoded[i] == '%' && i + 2 < encoded.size())
+    {
+      char hex[3] = {encoded[i + 1], encoded[i + 2], '\0'};
+      decoded.pushBack(static_cast<char>(strtol(hex, nullptr, 16)));
+      i += 2;
+      continue;
+    }
     decoded.pushBack(encoded[i]);
   }
   return decoded;
@@ -131,16 +152,45 @@ string MakeJsonResponse(const search::SearchResponse& response)
   return body;
 }
 
-void SendResponse(int clientFd, int statusCode, const char* statusText, const string& body)
+const char* ContentTypeForPath(const fs::path& path)
+{
+  const std::string ext = path.extension().string();
+  if (ext == ".html")
+    return "text/html; charset=utf-8";
+  if (ext == ".css")
+    return "text/css; charset=utf-8";
+  if (ext == ".js")
+    return "application/javascript; charset=utf-8";
+  if (ext == ".png")
+    return "image/png";
+  if (ext == ".jpg" || ext == ".jpeg")
+    return "image/jpeg";
+  if (ext == ".svg")
+    return "image/svg+xml";
+  if (ext == ".ico")
+    return "image/x-icon";
+  if (ext == ".json")
+    return "application/json; charset=utf-8";
+  if (ext == ".txt")
+    return "text/plain; charset=utf-8";
+  return "application/octet-stream";
+}
+
+void SendResponse(int clientFd, int statusCode, const char* statusText, const char* contentType,
+                  const string& body, bool includeCors)
 {
   string headers("HTTP/1.1 ");
   search::AppendUnsigned(headers, static_cast<size_t>(statusCode));
   headers += string(" ");
   headers += string(statusText);
-  headers += string("\r\nContent-Type: application/json");
-  headers += string("\r\nAccess-Control-Allow-Origin: *");
-  headers += string("\r\nAccess-Control-Allow-Methods: GET, OPTIONS");
-  headers += string("\r\nAccess-Control-Allow-Headers: Accept, Content-Type");
+  headers += string("\r\nContent-Type: ");
+  headers += string(contentType);
+  if (includeCors)
+  {
+    headers += string("\r\nAccess-Control-Allow-Origin: *");
+    headers += string("\r\nAccess-Control-Allow-Methods: GET, OPTIONS");
+    headers += string("\r\nAccess-Control-Allow-Headers: Accept, Content-Type");
+  }
   headers += string("\r\nContent-Length: ");
   search::AppendUnsigned(headers, body.size());
   headers += string("\r\nConnection: close\r\n\r\n");
@@ -148,44 +198,76 @@ void SendResponse(int clientFd, int statusCode, const char* statusText, const st
   send(clientFd, headers.cstr(), headers.size(), 0);
 }
 
-void HandleClient(int clientFd, const search::SearchService& service)
+bool IsWithinDirectory(const fs::path& root, const fs::path& path)
 {
-  char buffer[4096];
-  const ssize_t bytes = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
-  if (bytes <= 0)
-    return;
-
-  buffer[bytes] = '\0';
-  const string request(buffer);
-  const size_t lineEnd = request.find("\r\n");
-  const size_t methodEnd = FindChar(request, ' ');
-  const size_t targetEnd = FindChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
-  const bool isGet = StartsWith(request, "GET ");
-  const bool isOptions = StartsWith(request, "OPTIONS ");
-
-  if (methodEnd == string::npos || targetEnd == string::npos || methodEnd >= lineEnd ||
-      targetEnd > lineEnd || (!isGet && !isOptions))
+  auto rootIt = root.begin();
+  auto pathIt = path.begin();
+  while (rootIt != root.end() && pathIt != path.end())
   {
-    SendResponse(clientFd, 405, "Method Not Allowed",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
-                 "\"results\":[]}");
-    return;
+    if (*rootIt != *pathIt)
+      return false;
+    ++rootIt;
+    ++pathIt;
+  }
+  return rootIt == root.end();
+}
+
+bool ReadFileToString(const fs::path& path, string& out)
+{
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open())
+    return false;
+
+  char chunk[4096];
+  while (input.good())
+  {
+    input.read(chunk, sizeof(chunk));
+    const std::streamsize count = input.gcount();
+    for (std::streamsize i = 0; i < count; ++i)
+      out.pushBack(chunk[i]);
   }
 
-  const string target = CopyRange(request, methodEnd + 1, targetEnd);
-  if (!StartsWith(target, "/api/search"))
+  return input.eof() || input.good();
+}
+
+bool ResolveStaticPath(const fs::path& staticRoot, const string& requestTarget, fs::path& outPath)
+{
+  size_t pathEnd = FindChar(requestTarget, '?');
+  if (pathEnd == string::npos)
+    pathEnd = requestTarget.size();
+
+  string rawPath = CopyRange(requestTarget, 0, pathEnd);
+  if (rawPath.size() == 0 || rawPath == string("/"))
   {
-    SendResponse(clientFd, 404, "Not Found",
-                 "{\"query\":\"\",\"errors\":[{\"message\":\"not found\"}],\"results\":[]}");
-    return;
+    rawPath = string("/index.html");
   }
 
-  if (isOptions)
+  if (rawPath[0] == '/')
   {
-    SendResponse(clientFd, 204, "No Content", string());
-    return;
+    rawPath = CopyRange(rawPath, 1, rawPath.size());
   }
 
+  const string decodedPath = DecodePathValue(rawPath);
+  fs::path relativePath(decodedPath.cstr());
+  if (relativePath.is_absolute())
+    return false;
+
+  fs::path normalized = (staticRoot / relativePath).lexically_normal();
+  if (!IsWithinDirectory(staticRoot, normalized))
+    return false;
+
+  if (fs::is_directory(normalized))
+    normalized /= "index.html";
+
+  if (!fs::exists(normalized) || !fs::is_regular_file(normalized))
+    return false;
+
+  outPath = normalized;
+  return true;
+}
+
+void HandleApiSearch(int clientFd, const string& target, const search::SearchService& service)
+{
   string query;
   size_t limit = 10;
   const size_t queryStart = FindChar(target, '?');
@@ -216,7 +298,82 @@ void HandleClient(int clientFd, const search::SearchService& service)
   }
 
   const search::SearchResponse response = service.Search(query, limit);
-  SendResponse(clientFd, 200, "OK", MakeJsonResponse(response));
+  SendResponse(clientFd, 200, "OK", "application/json", MakeJsonResponse(response), true);
+}
+
+void HandleStaticFile(int clientFd, const string& target, const fs::path& staticRoot)
+{
+  fs::path filePath;
+  if (!ResolveStaticPath(staticRoot, target, filePath))
+  {
+    SendResponse(clientFd, 404, "Not Found", "text/plain; charset=utf-8", string("not found"), false);
+    return;
+  }
+
+  string body;
+  if (!ReadFileToString(filePath, body))
+  {
+    SendResponse(clientFd, 500, "Internal Server Error", "text/plain; charset=utf-8",
+                 string("failed to read file"), false);
+    return;
+  }
+
+  SendResponse(clientFd, 200, "OK", ContentTypeForPath(filePath), body, false);
+}
+
+void HandleClient(int clientFd, const search::SearchService& service, const fs::path& staticRoot)
+{
+  char buffer[4096];
+  const ssize_t bytes = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
+  if (bytes <= 0)
+    return;
+
+  buffer[bytes] = '\0';
+  const string request(buffer);
+  const size_t lineEnd = request.find("\r\n");
+  const size_t methodEnd = FindChar(request, ' ');
+  const size_t targetEnd = FindChar(request, ' ', methodEnd == string::npos ? 0 : methodEnd + 1);
+  const bool isGet = StartsWith(request, "GET ");
+  const bool isOptions = StartsWith(request, "OPTIONS ");
+
+  if (lineEnd == string::npos || methodEnd == string::npos || targetEnd == string::npos ||
+      methodEnd >= lineEnd || targetEnd > lineEnd || (!isGet && !isOptions))
+  {
+    SendResponse(clientFd, 405, "Method Not Allowed", "application/json",
+                 "{\"query\":\"\",\"errors\":[{\"message\":\"GET or OPTIONS only\"}],"
+                 "\"results\":[]}",
+                 true);
+    return;
+  }
+
+  const string target = CopyRange(request, methodEnd + 1, targetEnd);
+
+  if (isOptions)
+  {
+    SendResponse(clientFd, 204, "No Content", "text/plain; charset=utf-8", string(), true);
+    return;
+  }
+
+  if (StartsWith(target, "/api/search"))
+  {
+    HandleApiSearch(clientFd, target, service);
+    return;
+  }
+
+  HandleStaticFile(clientFd, target, staticRoot);
+}
+
+fs::path DetectFrontendRoot(const char* configuredPath)
+{
+  fs::path root(configuredPath != nullptr ? configuredPath : "frontend");
+  if (fs::exists(root) && fs::is_directory(root))
+    return fs::weakly_canonical(root);
+
+  const fs::path sibling = fs::path("..") / root;
+  if (fs::exists(sibling) && fs::is_directory(sibling))
+    return fs::weakly_canonical(sibling);
+
+  return fs::path();
 }
 
 } // namespace
@@ -227,6 +384,13 @@ int main(int argc, char** argv)
   const int port = argc > 1 ? std::atoi(argv[1]) : 8080;
   const avengine::string indexDirectory =
       argc > 2 ? avengine::string(argv[2]) : avengine::string(".");
+  const avengine::fs::path frontendRoot = avengine::DetectFrontendRoot(argc > 3 ? argv[3] : "frontend");
+  if (frontendRoot.empty())
+  {
+    std::cerr << "search_server could not find frontend root (tried frontend and ../frontend)\n";
+    return 1;
+  }
+
   const avengine::search::SearchService service(indexDirectory);
 
   const int serverFd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -250,7 +414,7 @@ int main(int argc, char** argv)
   }
 
   std::cout << "search_server listening on port " << port << " using index dir "
-            << indexDirectory.cstr() << "\n";
+            << indexDirectory.cstr() << " and frontend root " << frontendRoot.string() << "\n";
   for (;;)
   {
     const int clientFd = accept(serverFd, nullptr, nullptr);
@@ -258,7 +422,7 @@ int main(int argc, char** argv)
       continue;
     // One request at a time is enough here. The slow part we care about next is query + shard
     // work, not fancy socket plumbing.
-    avengine::HandleClient(clientFd, service);
+    avengine::HandleClient(clientFd, service, frontendRoot);
     close(clientFd);
   }
 }
