@@ -204,6 +204,7 @@ for spec in QUERIES:
     samples.append({
         "query":            spec.query,
         "label":            spec.label,
+        "group":            spec.group,
         "limit":            spec.limit,
         "iterations":       iterations,
         "total_hits":       actual_hits,

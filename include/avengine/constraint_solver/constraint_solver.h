@@ -1,6 +1,7 @@
 #ifndef AVENGINE_CONSTRAINT_SOLVER_CONSTRAINT_SOLVER_H_
 #define AVENGINE_CONSTRAINT_SOLVER_CONSTRAINT_SOLVER_H_
 
+#include <chrono>
 #include <cstdint>
 
 #include <avengine/constraint_solver/isr_source.h>
@@ -35,6 +36,8 @@ public:
   ParseResult ParseQuery(const string& query) const;
   SolveResult SolveQuery(const string& query, const IsrSource& source) const;
   SolveResult SolveParsed(const QueryNode* root, const IsrSource& source) const;
+  SolveResult SolveParsedUntil(const QueryNode* root, const IsrSource& source,
+                               std::chrono::steady_clock::time_point deadline) const;
 
 private:
   size_t executionTimeThresholdMs_ = kDefaultExecutionTimeThresholdMs;

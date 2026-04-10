@@ -7,6 +7,7 @@
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
+#include <avengine/unordered_map.h>
 
 namespace avengine
 {
@@ -89,6 +90,7 @@ public:
     urlEntry entry;
     string title;
     double score{0.0};
+    size_t shardOrdinal{0};
     size_t insertionIndex{0};
 
     // Min-heap ordering
@@ -109,7 +111,8 @@ public:
    * Consider a URL and update the top results using insertion sort.
    */
   void Consider(const urlEntry& entry, const string& title,
-                const vector<vector<size_t>>& term_positions, const RankSignals& signals);
+                const vector<vector<size_t>>& term_positions, const RankSignals& signals,
+                size_t shardOrdinal = 0);
 
   /**
    * Return the current top results (highest score first).
@@ -125,6 +128,7 @@ private:
 
   vector<WeightedStrategy> Strategies;
   priorityQueue<RankedResult, greater<RankedResult>> Top10;
+  unordered_map<uint8_t> RetainedUrls_;
   size_t MaxResults_ = 10;
   size_t insertionCount_{0};
 };

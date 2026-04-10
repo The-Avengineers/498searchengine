@@ -3,6 +3,7 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
@@ -97,6 +98,11 @@ void expectUrls(const SearchResponse& response, std::initializer_list<const char
     EXPECT(response.Results[i].Url == string(url));
     ++i;
   }
+}
+
+bool nearlyEqual(double a, double b)
+{
+  return std::fabs(a - b) < 1e-9;
 }
 
 void testRankingInputRoundTrip()
@@ -296,6 +302,78 @@ void testCompoundTokenQueries()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testParallelWorkersMatchSingleThreaded()
+{
+  char dirTemplate[] = "/tmp/search_service_parallel_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shard0 = joinPath(dir, "00000.sfi");
+  const string shard1 = joinPath(dir, "00001.sfi");
+  const string shard2 = joinPath(dir, "00002.sfi");
+  const string shard3 = joinPath(dir, "00003.sfi");
+
+  writeShard(shard0.cstr(), {{"doc://apollo", "Apollo Doc", "apollo moon landing apple"},
+                             {"doc://fruit-a", "Fruit A", "apple banana cherry"}});
+  writeShard(shard1.cstr(), {{"doc://brown-fox", "Brown Fox", "brown fox apple"},
+                             {"doc://fruit-b", "Fruit B", "brown banana cherry"}});
+  writeShard(shard2.cstr(), {{"doc://reference", "Reference API", "documentation reference api"},
+                             {"doc://policy", "Privacy Policy", "privacy policy contact"}});
+  writeShard(shard3.cstr(), {{"doc://shared", "Shared", "github wikipedia documentation api"},
+                             {"doc://weather", "Weather", "news weather forecast"}});
+
+  SearchService service(dir);
+
+  EXPECT(setenv("SEARCH_SHARD_WORKERS", "1", 1) == 0);
+  const SearchResponse singleWorker = service.Search("apple | documentation", 10);
+
+  EXPECT(setenv("SEARCH_SHARD_WORKERS", "2", 1) == 0);
+  const SearchResponse parallelWorker = service.Search("apple | documentation", 10);
+
+  EXPECT(singleWorker.TotalHits == parallelWorker.TotalHits);
+  EXPECT(singleWorker.Results.size() == parallelWorker.Results.size());
+  for (size_t i = 0; i < singleWorker.Results.size(); ++i)
+  {
+    EXPECT(singleWorker.Results[i].Url == parallelWorker.Results[i].Url);
+    EXPECT(singleWorker.Results[i].Title == parallelWorker.Results[i].Title);
+    EXPECT(nearlyEqual(singleWorker.Results[i].Score, parallelWorker.Results[i].Score));
+  }
+
+  EXPECT(unsetenv("SEARCH_SHARD_WORKERS") == 0);
+  EXPECT(unlink(shard0.cstr()) == 0);
+  EXPECT(unlink(shard1.cstr()) == 0);
+  EXPECT(unlink(shard2.cstr()) == 0);
+  EXPECT(unlink(shard3.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
+void testDuplicateUrlsAcrossShards()
+{
+  char dirTemplate[] = "/tmp/search_service_duplicates_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shard0 = joinPath(dir, "00000.sfi");
+  const string shard1 = joinPath(dir, "00001.sfi");
+
+  writeShard(shard0.cstr(), {{"doc://shared", "Shared Title", "documentation api"},
+                             {"doc://unique-a", "Unique A", "documentation api"}});
+  writeShard(shard1.cstr(), {{"doc://shared", "Shared Title", "documentation api"},
+                             {"doc://unique-b", "Unique B", "documentation api"}});
+
+  SearchService service(dir);
+  EXPECT(setenv("SEARCH_SHARD_WORKERS", "2", 1) == 0);
+  const SearchResponse response = service.Search("documentation api", 10);
+
+  EXPECT(response.TotalHits == 4u);
+  expectUrls(response, {"doc://shared", "doc://unique-a", "doc://unique-b"});
+
+  EXPECT(unsetenv("SEARCH_SHARD_WORKERS") == 0);
+  EXPECT(unlink(shard0.cstr()) == 0);
+  EXPECT(unlink(shard1.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 } // namespace
 
 int main()
@@ -305,5 +383,7 @@ int main()
   testPaging();
   testTitleIntentWins();
   testCompoundTokenQueries();
+  testParallelWorkersMatchSingleThreaded();
+  testDuplicateUrlsAcrossShards();
   return 0;
 }

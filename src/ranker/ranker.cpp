@@ -29,24 +29,23 @@ void Ranker::ClearStrategies()
 void Ranker::ResetResults()
 {
   Top10.clear();
+  unordered_map<uint8_t> emptyMembership;
+  swap(RetainedUrls_, emptyMembership);
   insertionCount_ = 0;
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
-                      const vector<vector<size_t>>& term_positions, const RankSignals& signals)
+                      const vector<vector<size_t>>& term_positions, const RankSignals& signals,
+                      size_t shardOrdinal)
 {
   if (MaxResults_ == 0)
   {
     return;
   }
 
-  // Deduplicate: skip URLs already tracked since same URL can appear across shards.
-  const vector<RankedResult>& heap = Top10.serializeHeap();
-  for (size_t i = 0; i < heap.size(); ++i)
-  {
-    if (heap[i].entry.url == entry.url)
-      return;
-  }
+  const uint8_t* retained = RetainedUrls_.get(string_slice(entry.url.cstr()));
+  if (retained && *retained != 0)
+    return;
 
   // When full, skip scoring entirely if this candidate can't beat the weakest result.
   const double new_score = Score(entry, term_positions, signals);
@@ -57,12 +56,18 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   candidate.entry = entry;
   candidate.title = title;
   candidate.score = new_score;
+  candidate.shardOrdinal = shardOrdinal;
   candidate.insertionIndex = insertionCount_++;
 
   Top10.push(candidate);
+  RetainedUrls_.insert(entry.url, 1u);
 
   if (Top10.size() > MaxResults_)
+  {
+    const RankedResult evicted = Top10.top();
     Top10.pop();
+    RetainedUrls_.insert(evicted.entry.url, 0u);
+  }
 }
 
 vector<Ranker::RankedResult> Ranker::TopResults() const

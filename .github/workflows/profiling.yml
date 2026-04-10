@@ -67,6 +67,8 @@ jobs:
           echo "Persistent corpus profile shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run corpus profile
+        env:
+          SEARCH_SHARD_WORKERS: "8"
         run: |
           mkdir -p artifacts
           bash profiling/scripts/profile_query_pipeline.sh \

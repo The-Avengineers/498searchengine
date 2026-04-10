@@ -34,6 +34,11 @@ Per-query timing fields returned by the server and recorded in the profile:
 
 Reported statistics per query: mean client round-trip, P50, P95, plus the server-side phase breakdown above.
 
+For the live corpus profile, `profiling/fixtures/live_search_queries.tsv` may also include a
+`group` column. Rows tagged `coverage` are rendered in a dedicated "Query Shape Coverage" section
+so CI always shows phrase / AND / OR / grouped-query probes even when they are not among the
+highest-hit queries.
+
 The HTTP query profile reads its query set from `profiling/fixtures/search_queries.tsv`. Each row
 defines a label, query text, and limit; profiles report the observed hit counts from the corpus
 being tested.
@@ -155,6 +160,7 @@ It runs on the repo's dedicated `avengine-runtime` self-hosted runner for all pu
 
 - copies the promoted `.sfi` shard set from `avengine-runtime:/var/lib/avengine/corpus-profile/current`
 - profiles `search_server` against those shards using `profiling/fixtures/live_search_queries.tsv`
+- pins `SEARCH_SHARD_WORKERS=8` during the profile run so shard-parallel latency comparisons remain stable
 - uploads `artifacts/corpus_profile.json`
 - writes a Markdown summary table to the GitHub Actions step summary
 - fails fast if the runtime container is down or the promoted profiling corpus has not been built yet
