@@ -283,6 +283,11 @@ size_t ComputeWindowStart(size_t page, size_t limit)
   return (page - 1) * limit;
 }
 
+size_t NormalizeResultLimit(size_t limit)
+{
+  return limit == 0 ? kDefaultSearchLimit : limit;
+}
+
 size_t OnlineCpuCount()
 {
   const long cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
@@ -679,7 +684,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   SearchResponse response = {};
   response.Query = query;
   response.Page = page == 0 ? 1 : page;
-  response.Limit = ClampSearchLimit(limit);
+  response.Limit = NormalizeResultLimit(limit);
 
   if (IsBlankText(query))
     return response;
@@ -808,7 +813,11 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
           {pooledHits[i].ranked.entry.url, pooledHits[i].ranked.title, pooledHits[i].ranked.score});
     }
     ++uniqueIndex;
+    if (uniqueIndex >= kMaxVisibleSearchResults)
+      break;
   }
+  if (response.TotalHits > kMaxVisibleSearchResults)
+    response.TotalHits = kMaxVisibleSearchResults;
 
   constraint_solver::DestroyQueryTree(parsed.Root);
   response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);

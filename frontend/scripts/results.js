@@ -2,21 +2,25 @@
   "use strict";
 
   // core defaults + dom hooks for the results page
-  const DEFAULT_LIMIT = 10;
+  const DEFAULT_PAGE_SIZE = 10;
+  const MAX_PAGE_SIZE = 10;
   const listEl = document.getElementById("results-list");
   const countEl = document.getElementById("results-count");
+  const timingEl = document.getElementById("results-timing");
   const feedbackEl = document.getElementById("results-feedback");
   const queryInputEl = document.getElementById("results-query");
+  const paginationEl = document.getElementById("results-pagination");
 
   // if the expected dom isn't here, just bail quietly
-  if (!listEl || !countEl || !feedbackEl || !queryInputEl) {
+  if (!listEl || !countEl || !timingEl || !feedbackEl || !queryInputEl) {
     return;
   }
 
   // read query state from the url
   const params = new URLSearchParams(window.location.search);
   const query = (params.get("q") || "").trim();
-  const limit = clampLimit(parseInteger(params.get("limit")));
+  const pageSize = clampLimit(parseInteger(params.get("limit")));
+  const requestedPage = clampPage(parseInteger(params.get("page")));
 
   // keep the search input in sync with what we are showing
   queryInputEl.value = query;
@@ -24,26 +28,34 @@
   // no query means no fetch, just show a helpful nudge
   if (query.length === 0) {
     setCount("Enter a query to search.");
+    hideElapsedTime();
     showFeedback("Enter a query in the search box above.", true);
+    hidePagination();
     return;
   }
 
   // show immediate status so the page feels responsive
   setCount(`Searching for "${query}"...`);
   clearList();
+  hideElapsedTime();
   hideFeedback();
+  hidePagination();
 
   // fire the request and render whatever comes back
-  const requestUrl = buildApiUrl(query, limit);
+  const requestUrl = buildApiUrl(query, requestedPage, pageSize);
   void loadSearchResults(requestUrl, query);
 
   async function loadSearchResults(url, currentQuery) {
+    const startedAtMs = nowMs();
     try {
       const payload = await fetchSearch(url);
+      setElapsedTime(elapsedSince(startedAtMs));
       renderPayload(payload, currentQuery);
     } catch (error) {
+      setElapsedTime(elapsedSince(startedAtMs));
       setCount("Search failed.");
       showFeedback(readErrorMessage(error), false);
+      hidePagination();
     }
   }
 
@@ -80,14 +92,16 @@
     // tolerate partial payloads and missing fields
     const apiErrors = normalizeErrors(payload && payload.errors);
     const results = normalizeResults(payload && payload.results);
-    const tookMs = parseInteger(payload && payload.took_ms);
     const totalHits = parseInteger(payload && payload.total_hits);
+    const currentPage = clampPage(parseInteger(payload && payload.page) || requestedPage);
+    const limitValue = clampLimit(parseInteger(payload && payload.limit) || pageSize);
 
     clearList();
 
     if (results.length === 0) {
-      const countLine = buildCountLine(0, totalHits, tookMs);
+      const countLine = buildCountLine(0, 0, 0, totalHits);
       setCount(countLine);
+      hidePagination();
 
       if (apiErrors.length > 0) {
         showFeedback(apiErrors.join(" "), false);
@@ -98,7 +112,9 @@
     }
 
     // normal success path
-    setCount(buildCountLine(results.length, totalHits, tookMs));
+    const from = ((currentPage - 1) * limitValue) + 1;
+    const to = from + results.length - 1;
+    setCount(buildCountLine(from, to, results.length, totalHits));
     if (apiErrors.length > 0) {
       showFeedback(`Search completed with warnings: ${apiErrors.join(" ")}`, false);
     } else {
@@ -108,6 +124,11 @@
     for (const result of results) {
       listEl.appendChild(createResultCard(result));
     }
+
+    const totalPages = Number.isInteger(totalHits) && totalHits > 0
+      ? Math.ceil(totalHits / limitValue)
+      : 1;
+    renderPagination(currentQuery, limitValue, currentPage, totalPages);
   }
 
   function createResultCard(result) {
@@ -259,12 +280,19 @@
   }
 
   function clampLimit(value) {
-    // backend currently expects a tiny limit window
+    // backend pages in groups of 10, so keep the UI honest
     if (!Number.isInteger(value) || value <= 0) {
-      return DEFAULT_LIMIT;
+      return DEFAULT_PAGE_SIZE;
     }
-    if (value > DEFAULT_LIMIT) {
-      return DEFAULT_LIMIT;
+    if (value > MAX_PAGE_SIZE) {
+      return MAX_PAGE_SIZE;
+    }
+    return value;
+  }
+
+  function clampPage(value) {
+    if (!Number.isInteger(value) || value <= 0) {
+      return 1;
     }
     return value;
   }
@@ -283,20 +311,126 @@
     return null;
   }
 
-  function buildApiUrl(queryText, limitValue) {
+  function buildApiUrl(queryText, pageNumber, limitValue) {
     // same-origin path; deployment routes /api/* to backend
     const queryParams = new URLSearchParams();
     queryParams.set("q", queryText);
+    queryParams.set("page", String(pageNumber));
     queryParams.set("limit", String(limitValue));
     return `/api/search?${queryParams.toString()}`;
   }
 
-  function buildCountLine(renderedCount, totalHits, tookMs) {
-    // show backend totals when available, fallback to rendered count
-    const count = Number.isInteger(totalHits) && totalHits >= 0 ? totalHits : renderedCount;
-    const countPart = `About ${count.toLocaleString()} result${count === 1 ? "" : "s"}`;
-    const timingPart = Number.isInteger(tookMs) && tookMs >= 0 ? ` (${tookMs.toLocaleString()} ms)` : "";
-    return `${countPart}${timingPart}`;
+  function buildResultsPageUrl(queryText, pageNumber, limitValue) {
+    const queryParams = new URLSearchParams();
+    queryParams.set("q", queryText);
+    queryParams.set("page", String(pageNumber));
+    queryParams.set("limit", String(limitValue));
+    return `./results.html?${queryParams.toString()}`;
+  }
+
+  function createPaginationNode(label, queryText, targetPage, limitValue, isCurrent, isDisabled) {
+    const node = document.createElement(isCurrent || isDisabled ? "span" : "a");
+    node.className = "pagination-link";
+
+    if (isCurrent) {
+      node.className += " is-current";
+    }
+    if (isDisabled) {
+      node.className += " is-disabled";
+    }
+    if (!isCurrent && !isDisabled) {
+      node.href = buildResultsPageUrl(queryText, targetPage, limitValue);
+    }
+    node.textContent = label;
+    return node;
+  }
+
+  function createPaginationGap() {
+    const gap = document.createElement("span");
+    gap.className = "pagination-gap";
+    gap.textContent = "…";
+    return gap;
+  }
+
+  function renderPagination(queryText, limitValue, currentPage, totalPages) {
+    if (!paginationEl) {
+      return;
+    }
+
+    paginationEl.textContent = "";
+    if (!Number.isInteger(totalPages) || totalPages <= 1) {
+      paginationEl.hidden = true;
+      return;
+    }
+
+    paginationEl.hidden = false;
+    paginationEl.appendChild(
+      createPaginationNode("Prev", queryText, currentPage - 1, limitValue, false, currentPage === 1)
+    );
+
+    const windowStart = Math.max(1, currentPage - 2);
+    const windowEnd = Math.min(totalPages, currentPage + 2);
+
+    if (windowStart > 1) {
+      paginationEl.appendChild(createPaginationNode("1", queryText, 1, limitValue, currentPage === 1, false));
+      if (windowStart > 2) {
+        paginationEl.appendChild(createPaginationGap());
+      }
+    }
+
+    for (let page = windowStart; page <= windowEnd; ++page) {
+      paginationEl.appendChild(
+        createPaginationNode(String(page), queryText, page, limitValue, page === currentPage, false)
+      );
+    }
+
+    if (windowEnd < totalPages) {
+      if (windowEnd < totalPages - 1) {
+        paginationEl.appendChild(createPaginationGap());
+      }
+      paginationEl.appendChild(
+        createPaginationNode(
+          String(totalPages),
+          queryText,
+          totalPages,
+          limitValue,
+          totalPages === currentPage,
+          false
+        )
+      );
+    }
+
+    paginationEl.appendChild(
+      createPaginationNode(
+        "Next",
+        queryText,
+        currentPage + 1,
+        limitValue,
+        false,
+        currentPage === totalPages
+      )
+    );
+  }
+
+  function hidePagination() {
+    if (!paginationEl) {
+      return;
+    }
+
+    paginationEl.textContent = "";
+    paginationEl.hidden = true;
+  }
+
+  function buildCountLine(from, to, loadedCount, totalHits) {
+    if (!Number.isInteger(loadedCount) || loadedCount <= 0) {
+      return "About 0 results";
+    }
+
+    if (Number.isInteger(totalHits) && totalHits > 0) {
+      return `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${totalHits.toLocaleString()} result${totalHits === 1 ? "" : "s"}`;
+    }
+
+    return `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${loadedCount.toLocaleString()} loaded result${loadedCount === 1 ? "" : "s"}`;
   }
 
   function readErrorMessage(error) {
@@ -313,6 +447,28 @@
 
   function setCount(text) {
     countEl.textContent = text;
+  }
+
+  function nowMs() {
+    if (typeof performance === "object" && performance && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function elapsedSince(startedAtMs) {
+    const elapsedMs = Math.round(nowMs() - startedAtMs);
+    return elapsedMs >= 0 ? elapsedMs : 0;
+  }
+
+  function setElapsedTime(elapsedMs) {
+    timingEl.textContent = `Elapsed time: ${elapsedMs.toLocaleString()} ms`;
+    timingEl.hidden = false;
+  }
+
+  function hideElapsedTime() {
+    timingEl.textContent = "";
+    timingEl.hidden = true;
   }
 
   function showFeedback(message, isInfo) {

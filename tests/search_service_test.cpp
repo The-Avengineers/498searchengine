@@ -236,12 +236,68 @@ void testPaging()
   EXPECT(page2.Results.size() == 2u);
   expectUrls(page2, {"doc://page-10", "doc://page-11"});
 
+  const SearchResponse overfetch = service.SearchPage("alpha", 1, 30);
+  EXPECT(overfetch.Page == 1u);
+  EXPECT(overfetch.Limit == 30u);
+  EXPECT(overfetch.Results.size() == 12u);
+
   for (size_t i = 0; i < 12; ++i)
   {
     char filename[16];
     std::snprintf(filename, sizeof(filename), "%05zu.sfi", i);
     EXPECT(unlink(joinPath(dir, filename).cstr()) == 0);
   }
+  EXPECT(rmdir(dir) == 0);
+}
+
+void testResultCap()
+{
+  char dirTemplate[] = "/tmp/search_service_cap_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  ::Index index;
+  for (size_t i = 0; i < 120; ++i)
+  {
+    char url[32];
+    std::snprintf(url, sizeof(url), "doc://cap-%03zu", i);
+    char title[32];
+    std::snprintf(title, sizeof(title), "Cap %03zu", i);
+    string urlString(url);
+    string titleString(title);
+    index.beginDocument({.url = urlString,
+                         .title = titleString,
+                         .input = ranking_input::Pack(0u, static_cast<uint32_t>(urlString.size()),
+                                                      ranking_input::CountWords(titleString))});
+    index.ingest("alpha");
+    index.endDocument();
+  }
+
+  const int fd = open(shardPath.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  EXPECT(fd >= 0);
+  EXPECT(index.serialize(fd) == false);
+  EXPECT(close(fd) == 0);
+
+  SearchService service(dir);
+
+  const SearchResponse page10 = service.SearchPage("alpha", 10, 10);
+  EXPECT(page10.TotalHits == 100u);
+  EXPECT(page10.Results.size() == 10u);
+  EXPECT(page10.Results[0].Url == string("doc://cap-090"));
+  EXPECT(page10.Results[9].Url == string("doc://cap-099"));
+
+  const SearchResponse page5 = service.SearchPage("alpha", 5, 10);
+  EXPECT(page5.TotalHits == 100u);
+  EXPECT(page5.Results.size() == 10u);
+  EXPECT(page5.Results[0].Url == string("doc://cap-040"));
+  EXPECT(page5.Results[9].Url == string("doc://cap-049"));
+
+  const SearchResponse page11 = service.SearchPage("alpha", 11, 10);
+  EXPECT(page11.TotalHits == 100u);
+  EXPECT(page11.Results.empty());
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -381,6 +437,7 @@ int main()
   testRankingInputRoundTrip();
   testSolverQueries();
   testPaging();
+  testResultCap();
   testTitleIntentWins();
   testCompoundTokenQueries();
   testParallelWorkersMatchSingleThreaded();

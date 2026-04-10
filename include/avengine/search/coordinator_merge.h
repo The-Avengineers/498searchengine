@@ -2,6 +2,7 @@
 
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
+#include <avengine/search/search_common.h>
 #include <avengine/search/search_service.h>
 
 namespace avengine
@@ -19,7 +20,7 @@ struct SearchSource
 inline size_t ComputeOverfetchLimit(size_t page, size_t limit)
 {
   const size_t pageNormalized = (page == 0) ? 1U : page;
-  const size_t limitNormalized = (limit == 0) ? 10U : limit;
+  const size_t limitNormalized = (limit == 0) ? kDefaultSearchLimit : limit;
   return (pageNormalized * limitNormalized) + 20U;
 }
 
@@ -59,10 +60,11 @@ inline SearchResponse MergeResponses(const string& query, size_t page, size_t li
 
   // Pool all candidate hits and sum total_hits.
   vector<SearchHit> candidates;
+  size_t summedTotalHits = 0;
   for (size_t s = 0; s < sources.size(); ++s)
   {
     const SearchResponse& src = sources[s].Response;
-    merged.TotalHits += src.TotalHits;
+    summedTotalHits += src.TotalHits;
 
     // Propagate per-source errors.
     PrefixAndAppendErrors(merged.Errors, src.Errors, sources[s].PeerIndex);
@@ -91,8 +93,14 @@ inline SearchResponse MergeResponses(const string& query, size_t page, size_t li
   for (size_t i = 0; i < candidates.size(); ++i)
   {
     if (uniqueHits.empty() || uniqueHits.back().Url != candidates[i].Url)
+    {
       uniqueHits.pushBack(candidates[i]);
+      if (uniqueHits.size() >= kMaxVisibleSearchResults)
+        break;
+    }
   }
+  merged.TotalHits =
+      summedTotalHits > kMaxVisibleSearchResults ? kMaxVisibleSearchResults : summedTotalHits;
 
   // Extract the requested page window.
   const size_t pageStart = (page <= 1) ? 0U : (page - 1U) * limit;

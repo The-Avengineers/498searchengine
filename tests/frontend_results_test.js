@@ -103,8 +103,10 @@ function buildDom() {
   const refs = {
     list: document.register("results-list", new Element("ol")),
     count: document.register("results-count", new Element("p")),
+    timing: document.register("results-timing", new Element("p")),
     feedback: document.register("results-feedback", new Element("p")),
     query: document.register("results-query", new Element("input")),
+    pagination: document.register("results-pagination", new Element("nav")),
   };
   return { document, refs };
 }
@@ -130,6 +132,12 @@ async function testRendersApiResults() {
     location: { search: "?q=dog" },
     localStorage: createLocalStorage(),
     AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [100, 112];
+      return () => values.shift();
+    })(),
   };
 
   global.fetch = async (url) => {
@@ -168,19 +176,91 @@ async function testRendersApiResults() {
 
   assert.equal(
     capturedUrl,
-    "/api/search?q=dog&limit=10",
+    "/api/search?q=dog&page=1&limit=10",
     "frontend should call expected api endpoint"
   );
   assert.equal(refs.query.value, "dog", "query box should reflect URL query");
-  assert.equal(refs.count.textContent, "About 2 results (12 ms)");
+  assert.equal(refs.count.textContent, "Showing 1-2 of 2 results");
+  assert.equal(refs.timing.textContent, "Elapsed time: 12 ms");
+  assert.equal(refs.timing.hidden, false, "elapsed-time line should be visible after a search");
   assert.equal(refs.list.children.length, 2, "two results should render");
   assert.equal(refs.feedback.hidden, true, "feedback banner should be hidden on success");
+  assert.equal(refs.pagination.hidden, true, "single-page results should hide pagination");
 
   const firstCard = refs.list.children[0];
   const urlNode = firstCard.children[0];
   const titleNode = firstCard.children[1].children[0];
   assert.equal(urlNode.textContent, "example.com/dog-one");
   assert.equal(titleNode.textContent, "Dog Result One");
+}
+
+async function testPaginatesResultsArray() {
+  const { document, refs } = buildDom();
+  let capturedUrl = "";
+
+  global.document = document;
+  global.window = {
+    location: { search: "?q=dog&page=2&limit=25" },
+    localStorage: createLocalStorage(),
+    AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [200, 209];
+      return () => values.shift();
+    })(),
+  };
+
+  global.fetch = async (url) => {
+    capturedUrl = url;
+    const results = [];
+    for (let i = 11; i <= 20; ++i) {
+      results.push({
+        url: `https://example.com/dog-${i}`,
+        title: `Dog Result ${i}`,
+        snippet: `result ${i}`,
+        score: 1.0 - i * 0.01,
+      });
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          query: "dog",
+          page: 2,
+          limit: 10,
+          total_hits: 23,
+          took_ms: 9,
+          errors: [],
+          results,
+        }),
+    };
+  };
+
+  runResultsScript();
+  await flushMicrotasks();
+
+  assert.equal(capturedUrl, "/api/search?q=dog&page=2&limit=10");
+  assert.equal(refs.list.children.length, 10, "page two should show exactly ten results");
+  assert.equal(refs.count.textContent, "Showing 11-20 of 23 results");
+  assert.equal(refs.timing.textContent, "Elapsed time: 9 ms");
+  assert.equal(refs.pagination.hidden, false, "multi-page results should show pagination");
+  assert.equal(refs.pagination.children.length, 5, "pager should render prev/pages/next");
+
+  const prev = refs.pagination.children[0];
+  const current = refs.pagination.children[2];
+  const next = refs.pagination.children[4];
+  assert.equal(prev.textContent, "Prev");
+  assert.equal(prev.href, "./results.html?q=dog&page=1&limit=10");
+  assert.equal(current.textContent, "2");
+  assert.equal(next.textContent, "Next");
+  assert.equal(next.href, "./results.html?q=dog&page=3&limit=10");
+
+  const firstCard = refs.list.children[0];
+  const titleNode = firstCard.children[1].children[0];
+  assert.equal(titleNode.textContent, "Dog Result 11");
 }
 
 async function testEmptyQuerySkipsFetch() {
@@ -204,13 +284,52 @@ async function testEmptyQuerySkipsFetch() {
 
   assert.equal(fetchCalls, 0, "empty query should not call backend");
   assert.equal(refs.count.textContent, "Enter a query to search.");
+  assert.equal(refs.timing.textContent, "");
+  assert.equal(refs.timing.hidden, true, "elapsed-time line should stay hidden with no query");
   assert.equal(refs.feedback.hidden, false, "feedback banner should be shown");
   assert.equal(refs.feedback.classList.contains("is-info"), true);
 }
 
+async function testFailedSearchStillReportsElapsedTime() {
+  const { document, refs } = buildDom();
+
+  global.document = document;
+  global.window = {
+    location: { search: "?q=dog" },
+    localStorage: createLocalStorage(),
+    AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [50, 83];
+      return () => values.shift();
+    })(),
+  };
+
+  global.fetch = async () => ({
+    ok: false,
+    status: 503,
+    text: async () =>
+      JSON.stringify({
+        errors: [{ message: "backend unavailable" }],
+      }),
+  });
+
+  runResultsScript();
+  await flushMicrotasks();
+
+  assert.equal(refs.count.textContent, "Search failed.");
+  assert.equal(refs.timing.textContent, "Elapsed time: 33 ms");
+  assert.equal(refs.timing.hidden, false, "elapsed-time line should be visible after failed fetches");
+  assert.equal(refs.feedback.textContent, "backend unavailable");
+  assert.equal(refs.pagination.hidden, true, "failed searches should not show pagination");
+}
+
 async function main() {
   await testRendersApiResults();
+  await testPaginatesResultsArray();
   await testEmptyQuerySkipsFetch();
+  await testFailedSearchStillReportsElapsedTime();
   console.log("frontend_results_test passed");
 }
 

@@ -3,16 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Avengine Search</title>
+    <title>Avengineers Search</title>
+    <link rel="icon" type="image/png" href="./media/a-old.png" />
     <link rel="stylesheet" href="./styles/main.css" />
+    <script defer src="./scripts/search_form_guard.js"></script>
   </head>
-  <body>
+  <body class="landing-page">
     <main class="landing">
       <div class="logo-stack" aria-label="Avengine logo">
         <img class="logo-image" src="./media/logo.png" alt="Avengine logo" />
       </div>
 
-      <form class="search-form" action="./results.html" method="get">
+      <form class="search-form" action="./results.html" method="get" novalidate>
         <label class="sr-only" for="search-query">Search query</label>
         <input
           id="search-query"
@@ -21,8 +23,13 @@
           name="q"
           placeholder="Search..."
           autocomplete="off"
-          required
         />
+        <button class="search-submit" type="submit" aria-label="Search">
+          <svg class="search-submit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
+          </svg>
+        </button>
       </form>
     </main>
   </body>

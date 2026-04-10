@@ -204,6 +204,7 @@ bool ReadFile(const string& path, string& out)
     out.pushBack(ch);
   return in.good() || in.eof();
 }
+
 ServerRole ParseRole(const char* roleEnv)
 {
   if (roleEnv && std::strcmp(roleEnv, "worker") == 0)
@@ -345,8 +346,6 @@ bool DecodeSearchQueryRequest(const vector<uint8_t>& payload, uint64_t* requestI
 // Per-request mailbox management
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Allocates a free mailbox slot for a new distributed request.
-// Returns false (and leaves *requestId/*mailboxIndex unchanged) if all slots are busy.
 bool BeginDistributedRequest(SearchServerState& state, size_t peerCount, uint64_t* requestId,
                              size_t* mailboxIndex)
 {
@@ -369,8 +368,6 @@ bool BeginDistributedRequest(SearchServerState& state, size_t peerCount, uint64_
   return false;
 }
 
-// Stores a reply from peerIndex into the mailbox that matches requestId, then
-// signals the coordinator thread waiting on that mailbox's condition variable.
 bool StoreReply(SearchServerState& state, size_t peerIndex, uint64_t requestId,
                 const search::SearchResponse& response)
 {
@@ -392,7 +389,6 @@ bool StoreReply(SearchServerState& state, size_t peerIndex, uint64_t requestId,
   return false;
 }
 
-// Waits up to timeoutMs for expectedReplies to arrive in the mailbox at mailboxIndex.
 void WaitForReplies(SearchServerState& state, size_t mailboxIndex, size_t expectedReplies,
                     size_t timeoutMs)
 {
@@ -417,7 +413,6 @@ void WaitForReplies(SearchServerState& state, size_t mailboxIndex, size_t expect
   state.MailboxMutex.unlock();
 }
 
-// Frees the mailbox slot so it may be reused by the next request.
 void EndDistributedRequest(SearchServerState& state, size_t mailboxIndex)
 {
   avengine::lock_guard<mutex> guard(state.MailboxMutex);
@@ -480,7 +475,6 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
   const size_t normalizedPage = page == 0 ? 1 : page;
   const size_t normalizedLimit = limit == 0 ? 10 : limit;
 
-  // Validate query syntax before touching the network.
   constraint_solver::ConstraintSolver validator;
   const auto parsed = validator.ParseQuery(query);
   if (!parsed.Errors.empty())
@@ -522,7 +516,6 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
     return response;
   }
 
-  // Fan out to all peers. Track which peers accepted the request.
   vector<uint8_t> sentPeers(state.PeerCount, 0);
   size_t expectedReplies = 0;
   vector<search::SearchError> transportErrors;
@@ -531,11 +524,8 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
   for (size_t peer = 0; peer < state.PeerCount; ++peer)
   {
     if (peer == localNodeId)
-    {
       continue;
-    }
 
-    // sendMessage returns true on error, false on success.
     if (sendMessage(peer, MessageType::SEARCH_QUERY, request))
     {
       search::AppendTransportError(transportErrors, peer, "failed to send search request");
@@ -547,7 +537,6 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
     }
   }
 
-  // Run the local shard search concurrently while replies are in-flight.
   search::SearchResponse localResponse;
   {
     SharedLockGuard<SharedMutex> guard(state.ServiceMutex);
@@ -557,7 +546,6 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
   if (timeoutMs > 0)
     WaitForReplies(state, mailboxIndex, expectedReplies, timeoutMs);
 
-  // Collect results from the mailbox before releasing the slot.
   vector<search::SearchSource> sources;
   sources.pushBack({false, localNodeId, localResponse});
 
@@ -662,8 +650,6 @@ void SendJsonResponse(int clientFd, int statusCode, const char* statusText, cons
 
 void HandleClient(int clientFd, SearchServerState& state)
 {
-  // Read the full HTTP request headers, looping until we see the header terminator
-  // (\r\n\r\n) or exceed the buffer limit.
   static const size_t kRecvBufSize = 16384;
   char buffer[kRecvBufSize];
   size_t totalBytes = 0;
@@ -675,7 +661,6 @@ void HandleClient(int clientFd, SearchServerState& state)
       break;
     totalBytes += static_cast<size_t>(n);
 
-    // Search only the newly-arrived tail to avoid rescanning old bytes.
     const size_t scanFrom = totalBytes >= 4 ? totalBytes - 4 : 0;
     bool complete = false;
     for (size_t i = scanFrom; i + 3 < totalBytes; ++i)
@@ -791,7 +776,6 @@ void HandleClient(int clientFd, SearchServerState& state)
   SendJsonResponse(clientFd, 200, "OK", body);
 }
 
-// Thread entry point for per-client threads. Owns the socket fd.
 struct ClientArgs
 {
   int fd;
