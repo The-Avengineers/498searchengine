@@ -104,26 +104,25 @@ const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
   return &documents_[docId];
 }
 
-ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
+bool IndexShardSource::DecodeTermOccurrences(const string& term, vector<Location>* positions,
+                                             uint32_t* documentFrequency) const
 {
-  // Fast path: return ISRWord backed by cached positions if already decoded this query.
-  const vector<Location>* cached = termPositionCache_.get(string_slice(term.cstr()));
-  if (cached)
-  {
-    const uint32_t* df = termDocFreqCache_.get(string_slice(term.cstr()));
-    return new ISRWord(*cached, documents_, df ? *df : 0u);
-  }
+  if (!positions || !documentFrequency)
+    return false;
+
+  positions->clear();
+  *documentFrequency = 0;
 
   const uint8_t* postingBegin = nullptr;
   const uint8_t* postingEnd = nullptr;
-  uint64_t documentFrequency = 0;
-  if (!FindPostingBounds(term, &postingBegin, &postingEnd, &documentFrequency))
-    return nullptr;
+  uint64_t decodedDocumentFrequency = 0;
+  if (!FindPostingBounds(term, &postingBegin, &postingEnd, &decodedDocumentFrequency))
+    return false;
 
   PostingBlobHeader header = {};
   const uint8_t* cursor = nullptr;
   if (!parsePostingBlobHeader(postingBegin, postingEnd, &header, &cursor))
-    return nullptr;
+    return false;
 
   Reader r(cursor, static_cast<size_t>(postingEnd - cursor));
   for (uint64_t i = 0; i < header.skipCount; ++i)
@@ -132,30 +131,31 @@ ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
       r.readVarU32();
   }
 
-  vector<Location> positions;
   uint32_t absolutePosition = 0;
   for (uint64_t i = 0; i < header.collectionFrequency; ++i)
   {
     const uint32_t delta = r.readVarU32();
     absolutePosition += delta;
-    positions.pushBack(static_cast<Location>(absolutePosition + 1u));
+    positions->pushBack(static_cast<Location>(absolutePosition + 1u));
   }
 
-  // Store decoded positions in the per-query cache. ISRWord copies the vector
-  // on construction, so the cache and the returned object are independent.
-  const auto df32 = static_cast<uint32_t>(documentFrequency);
-  termPositionCache_.insert(term, positions);
-  termDocFreqCache_.insert(term, df32);
-  const vector<Location>* stored = termPositionCache_.get(string_slice(term.cstr()));
-  return new ISRWord(*stored, documents_, df32);
+  *documentFrequency = static_cast<uint32_t>(decodedDocumentFrequency);
+  return true;
 }
 
-void IndexShardSource::ClearTermCache() const
+ISRWord* IndexShardSource::BuildWordIsr(const vector<Location>& positions,
+                                        uint32_t documentFrequency) const
 {
-  unordered_map<vector<Location>> emptyPositions;
-  swap(termPositionCache_, emptyPositions);
-  unordered_map<uint32_t> emptyFreqs;
-  swap(termDocFreqCache_, emptyFreqs);
+  return new ISRWord(positions, documents_, documentFrequency);
+}
+
+ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
+{
+  vector<Location> positions;
+  uint32_t documentFrequency = 0;
+  if (!DecodeTermOccurrences(term, &positions, &documentFrequency))
+    return nullptr;
+  return BuildWordIsr(positions, documentFrequency);
 }
 
 ISREndDoc* IndexShardSource::OpenEndDocIsr() const

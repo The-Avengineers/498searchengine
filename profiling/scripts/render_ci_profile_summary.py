@@ -22,8 +22,11 @@ def main() -> int:
     if args.crawler_json:
       crawler = json.loads(pathlib.Path(args.crawler_json).read_text(encoding="utf-8"))
 
+    top_hit_samples = [sample for sample in search["samples"] if sample.get("group", "top") != "coverage"]
+    coverage_samples = [sample for sample in search["samples"] if sample.get("group", "top") == "coverage"]
+
     top_samples = sorted(
-        search["samples"],
+        top_hit_samples if top_hit_samples else search["samples"],
         key=lambda sample: (
             sample.get("mean_total_hits", sample.get("total_hits", 0)),
             -sample["mean_client_ms"],
@@ -86,11 +89,49 @@ def main() -> int:
             f" {sample.get('mean_rank_ms', 0):.2f} |"
         )
 
-    if len(search["samples"]) > len(top_samples):
+    if coverage_samples:
         lines.extend(
             [
                 "",
-                f"_Showing top {len(top_samples)} queries by hit count out of {len(search['samples'])} profiled queries._",
+                "### Query Shape Coverage",
+                "",
+                "| Label | Query | Hits | Mean client ms | P50 ms | P95 ms | Server ms | Parse ms | Solve ms | Collect ms | Rank ms |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+
+        zero_hit_coverage: list[str] = []
+        for sample in coverage_samples:
+            if sample.get("mean_total_hits", sample.get("total_hits", 0)) <= 0:
+                zero_hit_coverage.append(sample["label"])
+            lines.append(
+                f"| `{sample['label']}` | `{sample['query']}` |"
+                f" {sample.get('mean_total_hits', sample.get('total_hits', 0)):.2f} |"
+                f" {sample['mean_client_ms']:.2f} |"
+                f" {sample['p50_client_ms']:.2f} |"
+                f" {sample['p95_client_ms']:.2f} |"
+                f" {sample['mean_server_took_ms']:.2f} |"
+                f" {sample.get('mean_parse_ms', 0):.2f} |"
+                f" {sample.get('mean_solve_ms', 0):.2f} |"
+                f" {sample.get('mean_collect_ms', 0):.2f} |"
+                f" {sample.get('mean_rank_ms', 0):.2f} |"
+            )
+
+        if zero_hit_coverage:
+            lines.extend(
+                [
+                    "",
+                    "> Warning: coverage queries with zero hits: "
+                    + ", ".join(f"`{label}`" for label in zero_hit_coverage)
+                    + ".",
+                ]
+            )
+
+    if len(top_hit_samples if top_hit_samples else search["samples"]) > len(top_samples):
+        lines.extend(
+            [
+                "",
+                f"_Showing top {len(top_samples)} non-coverage queries by hit count out of {len(search['samples'])} profiled queries._",
             ]
         )
 

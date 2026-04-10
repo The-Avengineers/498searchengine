@@ -17,6 +17,7 @@ Common environment variables:
 - `NODE_ID` - this node's 0-based id in the peer set
 - `NUM_PEERS` - total number of peers in the cluster
 - `INDEX_DIR` - directory containing this node's local `.sfi` files
+- `SEARCH_SHARD_WORKERS` - local shard-search worker count (`0`/unset = auto, `1` = force single-threaded)
 
 If `SEARCH_ROLE` is not set, the binary defaults to `coordinator`.
 
