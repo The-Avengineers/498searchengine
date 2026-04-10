@@ -80,12 +80,13 @@ vector<Ranker::RankedResult> Ranker::TopResults() const
     result.pushBack(raw[i]);
 
   // Sort descending by score; on ties, earlier insertions (lower index) come first.
-  result.sort([](const RankedResult& a, const RankedResult& b)
-              {
-                if (a.score != b.score)
-                  return a.score > b.score;
-                return a.insertionIndex < b.insertionIndex;
-              });
+  result.sort(
+      [](const RankedResult& a, const RankedResult& b)
+      {
+        if (a.score != b.score)
+          return a.score > b.score;
+        return a.insertionIndex < b.insertionIndex;
+      });
   return result;
 }
 
