@@ -19,9 +19,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-constexpr const uint16_t BROADCAST_PORT = 46856;
-constexpr const uint16_t TCP_PORT = BROADCAST_PORT + 1;
-constexpr const uint32_t BROADCAST_INTERVAL = 8;
+constexpr const uint16_t TCP_PORT = 46857;
+constexpr const uint32_t CONNECT_RETRY_INTERVAL_SEC = 3;
 constexpr const int SEND_TIMEOUT_SEC = 5;      // seconds before sendMessage gives up
 constexpr const int CONNECT_TIMEOUT_MS = 8000; // ms before updatePeer gives up on connect
 
@@ -214,8 +213,8 @@ static void handleMessage(size_t peerIndex, uint64_t messageType,
          static_cast<unsigned long long>(messageType), peerIndex, payload.size());
 }
 
-static void* udpGossip(void* arg);
-static void* udpBroadcast(void* arg);
+static bool loadPeersFromFile(const char* peerFilePath);
+static void* peerConnector(void* arg);
 static void* tcpServer(void* arg);
 
 void avengine::runNode(uint64_t nodeId, size_t numPeers)
@@ -227,64 +226,132 @@ void avengine::runNode(uint64_t nodeId, size_t numPeers)
   peerList.peers = avengine::vector<Peer>(numPeers);
   peerList.expectedPeers = numPeers;
 
-  // Static peer mode: if any PEER_N_ADDR env vars are set, connect directly
-  // instead of using UDP broadcast. Required for GCP and other cloud VPCs where
-  // broadcast packets are silently dropped.
-  bool hasStaticPeers = false;
-  for (size_t i = 0; i < numPeers; ++i)
+  if (!loadPeersFromFile(avengine::PEER_LIST_PATH))
   {
-    if (i == localNodeId)
-      continue;
-    char envName[32];
-    snprintf(envName, sizeof(envName), "PEER_%zu_ADDR", i);
-    const char* addrStr = getenv(envName);
-    if (addrStr && addrStr[0] != '\0')
-    {
-      hasStaticPeers = true;
-      break;
-    }
+    fprintf(stderr, "[peers] failed to load peer list from %s\n", avengine::PEER_LIST_PATH);
   }
 
-  // tcpServer is always needed: higher-ID nodes accept incoming connections
-  // from lower-ID nodes regardless of discovery mode.
+  avengine::thread connectorThread(peerConnector, nullptr);
   avengine::thread tcpServerThread(tcpServer, nullptr);
+}
 
-  if (hasStaticPeers)
+static bool loadPeersFromFile(const char* peerFilePath)
+{
+  FILE* f = fopen(peerFilePath, "r");
+  if (f == nullptr)
   {
-    // Static mode: resolve each peer's IP from PEER_N_ADDR and trigger a TCP
-    // connection. Nodes with localNodeId < i initiate the connection;
-    // nodes with localNodeId > i wait for an inbound connection via tcpServer.
-    for (size_t i = 0; i < numPeers; ++i)
+    perror("fopen (peer list)");
+    return false;
+  }
+
+  avengine::vector<bool> seen(peerList.peers.size(), false);
+  char line[256];
+  size_t lineNumber = 0;
+  bool parsedAny = false;
+
+  while (fgets(line, sizeof(line), f) != nullptr)
+  {
+    ++lineNumber;
+
+    size_t peerId = 0;
+    char ip[INET_ADDRSTRLEN];
+    if (sscanf(line, " %zu %15s", &peerId, ip) != 2)
     {
-      if (i == localNodeId)
-        continue;
-      char envName[32];
-      snprintf(envName, sizeof(envName), "PEER_%zu_ADDR", i);
-      const char* addrStr = getenv(envName);
-      if (!addrStr || addrStr[0] == '\0')
+      // Ignore blank lines and comments.
+      bool onlyWhitespace = true;
+      for (size_t i = 0; line[i] != '\0'; ++i)
       {
-        fprintf(stderr, "[node] WARNING: static mode active but PEER_%zu_ADDR not set\n", i);
-        continue;
+        if (line[i] == '#')
+        {
+          break;
+        }
+        if (!(line[i] == ' ' || line[i] == '\t' || line[i] == '\n' || line[i] == '\r'))
+        {
+          onlyWhitespace = false;
+          break;
+        }
       }
-      sockaddr_in addr{};
-      addr.sin_family = AF_INET;
-      if (inet_pton(AF_INET, addrStr, &addr.sin_addr) != 1)
+      if (!onlyWhitespace)
       {
-        fprintf(stderr, "[node] invalid IP in PEER_%zu_ADDR=%s\n", i, addrStr);
-        continue;
+        fprintf(stderr, "[peers] malformed line %zu in %s\n", lineNumber, peerFilePath);
       }
-      addr.sin_port = htons(TCP_PORT);
-      printf("[node] static peer #%zu -> %s\n", i, addrStr);
-      peerList.updatePeer(i, addr);
+      continue;
     }
+
+    if (peerId >= peerList.peers.size())
+    {
+      fprintf(stderr, "[peers] id %zu on line %zu is out of range [0, %zu)\n", peerId, lineNumber,
+              peerList.peers.size());
+      continue;
+    }
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(TCP_PORT);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1)
+    {
+      fprintf(stderr, "[peers] invalid IPv4 address '%s' on line %zu\n", ip, lineNumber);
+      continue;
+    }
+
+    peerList.updatePeer(peerId, addr);
+    seen[peerId] = true;
+    parsedAny = true;
   }
-  else
+
+  fclose(f);
+
+  if (avengine::localNodeId < seen.size() && !seen[avengine::localNodeId])
   {
-    // Broadcast mode: discover peers on the local network via UDP gossip.
-    // Works on LANs and VPNs that support broadcast; does not work on GCP VPCs.
-    avengine::thread gossipThread(udpGossip, nullptr);
-    avengine::thread broadcastThread(udpBroadcast, nullptr);
+    fprintf(stderr, "[peers] warning: local node id %zu missing from %s\n", avengine::localNodeId,
+            peerFilePath);
   }
+
+  return parsedAny;
+}
+
+static void* peerConnector(void* /*arg*/)
+{
+  struct ReconnectTarget
+  {
+    size_t peerId;
+    sockaddr_in addr;
+  };
+
+  while (true)
+  {
+    avengine::vector<ReconnectTarget> reconnectTargets;
+
+    {
+      avengine::SharedLockGuard<avengine::SharedMutex> guard(peerList.mu);
+      reconnectTargets.reserve(peerList.peers.size());
+
+      for (size_t i = 0; i < peerList.peers.size(); ++i)
+      {
+        if (i == avengine::localNodeId || avengine::localNodeId >= i)
+        {
+          continue;
+        }
+
+        const Peer& peer = peerList.peers[i];
+        if (peer.tcpFd >= 0 || peer.addr.sin_addr.s_addr == 0)
+        {
+          continue;
+        }
+
+        reconnectTargets.pushBack({i, peer.addr});
+      }
+    }
+
+    for (size_t i = 0; i < reconnectTargets.size(); ++i)
+    {
+      peerList.updatePeer(reconnectTargets[i].peerId, reconnectTargets[i].addr);
+    }
+
+    sleep(CONNECT_RETRY_INTERVAL_SEC);
+  }
+
+  return nullptr;
 }
 
 static void* tcpServer(void* /*arg*/)
@@ -457,12 +524,7 @@ static bool recvMessage(int fd, size_t peerIdx, uint64_t& messageType,
   }
 
   payload = avengine::vector<uint8_t>(static_cast<size_t>(payloadLen));
-  if (payloadLen > 0 && !recvBytes(fd, payload.begin(), static_cast<size_t>(payloadLen)))
-  {
-    return false;
-  }
-
-  return true;
+  return payloadLen <= 0 || recvBytes(fd, payload.begin(), static_cast<size_t>(payloadLen));
 }
 
 // peerRecvThread is the entry point for each per-peer receive thread.
@@ -522,81 +584,6 @@ static void spawnPeerRecvThread(size_t peerIdx, int fd)
   }
 }
 
-static void* udpGossip(void* /*arg*/)
-{
-  // Open UDP server on port `BROADCAST_PORT`.
-  int sock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sock < 0)
-  {
-    perror("socket");
-    return nullptr;
-  }
-
-  // Allow rapid restart without waiting for TIME_WAIT to expire.
-  int reuse = 1;
-  if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
-  {
-    perror("setsockopt SO_REUSEADDR");
-  }
-
-  // Bind to INADDR_ANY so we receive datagrams on all interfaces.
-  sockaddr_in serverAddr{};
-  serverAddr.sin_family = AF_INET;
-  serverAddr.sin_port = htons(BROADCAST_PORT);
-  serverAddr.sin_addr.s_addr = INADDR_ANY;
-
-  if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) < 0)
-  {
-    perror("bind");
-    close(sock);
-    return nullptr;
-  }
-
-  printf("[gossip] listening on UDP port %u\n", BROADCAST_PORT);
-
-  // Gossip receive loop: block on recvfrom and handle each incoming datagram.
-  uint8_t buf[4096];
-  sockaddr_in senderAddr{};
-  socklen_t senderLen = sizeof(senderAddr);
-
-  while (true)
-  {
-    ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, reinterpret_cast<sockaddr*>(&senderAddr),
-                         &senderLen);
-    if (n < 0)
-    {
-      perror("recvfrom");
-      continue;
-    }
-
-    if (n < 16)
-    {
-      continue;
-    }
-
-    // Packet is not associated with our protocol
-    avengine::Reader pktReader(buf, static_cast<size_t>(n));
-    auto pktMagic = pktReader.readU64();
-    auto pktSenderID = pktReader.readU64();
-    if (pktMagic != MAGIC)
-    {
-      // TODO: Log maybe?
-      continue;
-    }
-
-    char senderIP[INET_ADDRSTRLEN];
-    size_t senderID = static_cast<size_t>(pktSenderID);
-    inet_ntop(AF_INET, &senderAddr.sin_addr, senderIP, sizeof(senderIP));
-    printf("[gossip] received %zd bytes from %s:%u #%zu\n", n, senderIP, ntohs(senderAddr.sin_port),
-           senderID);
-
-    peerList.updatePeer(senderID, senderAddr);
-  }
-
-  close(sock);
-  return nullptr;
-}
-
 static bool sendBytes(int fd, avengine::vector<uint8_t>& buf)
 {
   size_t sent = 0;
@@ -621,7 +608,7 @@ static bool sendBytes(int fd, avengine::vector<uint8_t>& buf)
 // ID over its established TCP connection.
 //
 // Wire layout (all fields 64-bit little-endian):
-//   bytes  0– 7 : magic       (0xF09F9B9C – same sentinel used by UDP gossip)
+//   bytes  0– 7 : magic       (0xF09F9B9C protocol sentinel)
 //   bytes  8–15 : messageType
 //   bytes 16–23 : payloadLen  (number of payload bytes that follow)
 //   bytes 24+   : payload     (message.size() bytes)
@@ -665,59 +652,4 @@ bool avengine::sendMessage(size_t ID, avengine::MessageType messageType,
   avengine::vector<uint8_t> headerBytes = headerWriter.release();
 
   return sendBytes(fd, headerBytes) || sendBytes(fd, message);
-}
-
-static void* udpBroadcast(void* /*arg*/)
-{
-  int sock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sock < 0)
-  {
-    perror("socket");
-    return nullptr;
-  }
-
-  // Enable sending to the subnet broadcast address.
-  int broadcast = 1;
-  if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0)
-  {
-    perror("setsockopt SO_BROADCAST");
-    close(sock);
-    return nullptr;
-  }
-
-  // Target the limited broadcast address so every host on the local subnet
-  // receives the datagram.
-  sockaddr_in destAddr{};
-  destAddr.sin_family = AF_INET;
-  destAddr.sin_port = htons(BROADCAST_PORT);
-  destAddr.sin_addr.s_addr = INADDR_BROADCAST; // 255.255.255.255
-
-  // Read the node ID from the file-scope localNodeId and embed it in the
-  // broadcast packet.
-  // Packet layout (16 bytes, all little-endian):
-  //   bytes 0–7 : magic number 0xF09F9B9C
-  //   bytes 8–15: this node's ID
-  avengine::Writer pktWriter;
-  pktWriter.writeU64(MAGIC);
-  pktWriter.writeU64(avengine::localNodeId);
-  const socklen_t destLen = sizeof(destAddr);
-
-  while (true)
-  {
-    ssize_t n = sendto(sock, pktWriter.data(), pktWriter.size(), 0,
-                       reinterpret_cast<const sockaddr*>(&destAddr), destLen);
-    if (n < 0)
-    {
-      perror("sendto");
-    }
-    else
-    {
-      printf("[broadcast] sent %zd bytes to 255.255.255.255:%u\n", n, BROADCAST_PORT);
-    }
-
-    sleep(BROADCAST_INTERVAL);
-  }
-
-  close(sock);
-  return nullptr;
 }

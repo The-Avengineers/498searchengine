@@ -9,6 +9,7 @@ namespace avengine
 // Cluster configuration, read from environment variables at startup.
 extern size_t localNodeId;
 extern size_t numPeers;
+inline constexpr const char* PEER_LIST_PATH = "peer_list.txt";
 
 // Message types that can be sent between nodes.
 // Add new values here; the dispatcher in node.cpp must have a matching case.
@@ -27,9 +28,9 @@ using MessageHandler = void (*)(size_t peerIndex, const avengine::vector<uint8_t
 // peer mesh. Passing nullptr clears the handler.
 void registerMessageHandler(MessageType messageType, MessageHandler handler);
 
-// Initialises the gossip node with the given ID and expected peer count,
-// then starts the UDP gossip, UDP broadcast, and TCP server threads.
-// Blocks until all three threads exit (i.e. until the process is killed).
+// Initialises cluster networking with the given ID and expected peer count,
+// loads static peer addresses from `PEER_LIST_PATH`, then starts background
+// connection management and the TCP server.
 // nodeId   – this node's integer identity (0-based index among all peers).
 // numPeers – total number of nodes in the cluster (pre-sizes the peer table).
 void runNode(uint64_t nodeId, size_t numPeers);
