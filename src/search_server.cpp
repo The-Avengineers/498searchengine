@@ -306,7 +306,8 @@ void HandleStaticFile(int clientFd, const string& target, const fs::path& static
   fs::path filePath;
   if (!ResolveStaticPath(staticRoot, target, filePath))
   {
-    SendResponse(clientFd, 404, "Not Found", "text/plain; charset=utf-8", string("not found"), false);
+    SendResponse(clientFd, 404, "Not Found", "text/plain; charset=utf-8", string("not found"),
+                 false);
     return;
   }
 
@@ -384,7 +385,8 @@ int main(int argc, char** argv)
   const int port = argc > 1 ? std::atoi(argv[1]) : 8080;
   const avengine::string indexDirectory =
       argc > 2 ? avengine::string(argv[2]) : avengine::string(".");
-  const avengine::fs::path frontendRoot = avengine::DetectFrontendRoot(argc > 3 ? argv[3] : "frontend");
+  const avengine::fs::path frontendRoot =
+      avengine::DetectFrontendRoot(argc > 3 ? argv[3] : "frontend");
   if (frontendRoot.empty())
   {
     std::cerr << "search_server could not find frontend root (tried frontend and ../frontend)\n";
