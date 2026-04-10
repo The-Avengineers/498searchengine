@@ -107,6 +107,11 @@ Timing fields:
 | Phrase | `"apple pie"` | Documents containing the exact phrase |
 | OR | `apple OR banana` | Documents containing either term |
 
+Tokenization note:
+
+- Internal hyphens and apostrophes are treated as separators inside a phrase-like token, so `Spider-man` behaves like `"spider man"` and `Joe's Pizza` behaves like `"joe s" pizza`.
+- A leading `-` still means negation, so `brown -fox` keeps its current Boolean meaning.
+
 
 ### Error response
 

@@ -265,6 +265,37 @@ void testTitleIntentWins()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testCompoundTokenQueries()
+{
+  char dirTemplate[] = "/tmp/search_service_compound_tokens_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(),
+             {{"doc://spider-man", "Spider Story", "spider man hero"},
+              {"doc://joe-pizza", "Pizza Story", "joe s pizza slice"},
+              {"doc://joe-only", "Joe Story", "joe pizza without possessive split"}});
+
+  SearchService service(dir);
+
+  const SearchResponse spider = service.Search("Spider-man", 10);
+  EXPECT(spider.Errors.empty());
+  expectUrls(spider, {"doc://spider-man"});
+
+  const SearchResponse pizza = service.Search("Joe's Pizza", 10);
+  EXPECT(pizza.Errors.empty());
+  EXPECT(pizza.Results.size() >= 1u);
+  EXPECT(pizza.Results[0].Url == string("doc://joe-pizza"));
+
+  const SearchResponse negated = service.Search("hero -Spider-man", 10);
+  EXPECT(negated.Errors.empty());
+  EXPECT(negated.Results.empty());
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 } // namespace
 
 int main()
@@ -273,5 +304,6 @@ int main()
   testSolverQueries();
   testPaging();
   testTitleIntentWins();
+  testCompoundTokenQueries();
   return 0;
 }

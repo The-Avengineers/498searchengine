@@ -187,6 +187,28 @@ void testExcludedPhraseWithinConjunction()
   expectPhrase(root->ExcludedChildren[0], "moon", "landing");
 }
 
+void testHyphenatedWordParsesAsPhrase()
+{
+  QueryNode* root = parseOk("Spider-man");
+  expectPhrase(root, "spider", "man");
+}
+
+void testApostropheWordParsesInsideConjunction()
+{
+  QueryNode* root = parseOk("Joe's Pizza");
+  expectConjunctionShape(root, 2, 0);
+  expectPhrase(root->RequiredChildren[0], "joe", "s");
+  expectTerm(root->RequiredChildren[1], "pizza");
+}
+
+void testExcludedCompoundWordWithinConjunction()
+{
+  QueryNode* root = parseOk("brown -Spider-man");
+  expectConjunctionShape(root, 1, 1);
+  expectTerm(root->RequiredChildren[0], "brown");
+  expectPhrase(root->ExcludedChildren[0], "spider", "man");
+}
+
 void testStandaloneNotRejected()
 {
   ParseResult result = parseWithErrors("-fox");
@@ -252,6 +274,9 @@ int main()
   testWhitespaceTolerance();
   testNestedParenthesesAroundSingleTerm();
   testExcludedPhraseWithinConjunction();
+  testHyphenatedWordParsesAsPhrase();
+  testApostropheWordParsesInsideConjunction();
+  testExcludedCompoundWordWithinConjunction();
   testStandaloneNotRejected();
   testEmptyQueryRejected();
   testDanglingOrRejected();
