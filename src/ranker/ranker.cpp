@@ -1,7 +1,5 @@
 #include <avengine/ranker/ranker.h>
 
-#include <algorithm>
-
 namespace avengine
 {
 
@@ -82,13 +80,12 @@ vector<Ranker::RankedResult> Ranker::TopResults() const
     result.pushBack(raw[i]);
 
   // Sort descending by score; on ties, earlier insertions (lower index) come first.
-  std::sort(result.begin(), result.end(),
-            [](const RankedResult& a, const RankedResult& b)
-            {
-              if (a.score != b.score)
-                return a.score > b.score;
-              return a.insertionIndex < b.insertionIndex;
-            });
+  result.sort([](const RankedResult& a, const RankedResult& b)
+              {
+                if (a.score != b.score)
+                  return a.score > b.score;
+                return a.insertionIndex < b.insertionIndex;
+              });
   return result;
 }
 

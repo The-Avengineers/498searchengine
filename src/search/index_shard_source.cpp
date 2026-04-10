@@ -3,8 +3,6 @@
 
 #include <avengine/search/search_common.h>
 
-#include <algorithm>
-#include <utility>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -216,7 +214,7 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
     sortedByTerm.pushBack({current->Term, {startOffset, endOffset}});
   }
   sortedByTerm.sort([](const SortedTerm& a, const SortedTerm& b) { return a.Term < b.Term; });
-  std::swap(sortedByTerm_, sortedByTerm);
+  sortedByTerm_.swap(sortedByTerm);
 
   return true;
 }
@@ -276,16 +274,22 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
   // Binary search on the sorted-by-term array for better cache locality than chained hash table.
-  const SortedTerm* first = sortedByTerm_.begin();
-  const SortedTerm* last = sortedByTerm_.end();
-  const SortedTerm* it = std::lower_bound(first, last, term,
-    [](const SortedTerm& entry, const string& key) { return entry.Term < key; });
+  size_t left = 0;
+  size_t right = sortedByTerm_.size();
+  while (left < right)
+  {
+    const size_t mid = left + (right - left) / 2;
+    if (sortedByTerm_[mid].Term < term)
+      left = mid + 1;
+    else
+      right = mid;
+  }
 
-  if (it == last || it->Term != term)
+  if (left >= sortedByTerm_.size() || sortedByTerm_[left].Term != term)
     return false;
 
-  const size_t startOffset = it->Span.StartOffset;
-  const size_t endOffset = it->Span.EndOffset;
+  const size_t startOffset = sortedByTerm_[left].Span.StartOffset;
+  const size_t endOffset = sortedByTerm_[left].Span.EndOffset;
   if (startOffset + 24u > endOffset || endOffset > fileSize_)
     return false;
 
