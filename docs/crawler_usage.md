@@ -12,6 +12,7 @@ The deployed Docker container now acts as a long-lived crawler box:
 - the merged corpus lives at `/var/lib/avengine/corpus-index/current`
 - the promoted profiling corpus lives at `/var/lib/avengine/corpus-profile/current`
 - SSH access is granted through `AVENGINE_SSH_PUBKEY` when the container starts
+- crawler and aggregate work stop once `/data` reaches `AVENGINE_MAX_DATA_BYTES` (defaults to 48 GiB)
 - the GitHub Actions runner that hosts this service should have a dedicated label such as `avengine-runtime`
 
 When you SSH in, the container exposes a simplified layout at the filesystem root:

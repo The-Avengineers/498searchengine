@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/data-limit.sh"
+
 DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
 CONFIG_ROOT="${AVENGINE_CONFIG_ROOT:-/config}"
 BIN_ROOT="${AVENGINE_BIN_ROOT:-/avengine/bin}"
@@ -14,6 +17,8 @@ elif [[ -n "${1:-}" ]]; then
   echo "usage: $0 [--reset]" >&2
   exit 1
 fi
+
+validate_data_limit_env
 
 if ! [[ "${SWARM_SIZE}" =~ ^[0-9]+$ ]] || [[ "${SWARM_SIZE}" -lt 1 ]]; then
   echo "AVENGINE_SWARM_SIZE must be a positive integer" >&2
@@ -41,7 +46,19 @@ if [[ "${#ALL_SEEDS[@]}" -eq 0 ]]; then
   exit 1
 fi
 
+usage_bytes="$(data_root_usage_bytes)"
+if data_limit_reached "${usage_bytes}"; then
+  report_data_limit "${usage_bytes}" "crawler swarm start blocked"
+  exit 75
+fi
+
 for ((worker_id = 0; worker_id < SWARM_SIZE; ++worker_id)); do
+  usage_bytes="$(data_root_usage_bytes)"
+  if data_limit_reached "${usage_bytes}"; then
+    report_data_limit "${usage_bytes}" "crawler swarm start blocked"
+    exit 75
+  fi
+
   worker_dir="${DATA_ROOT}/crawlers/${worker_id}"
   pid_file="${DATA_ROOT}/pids/crawler-${worker_id}.pid"
   log_file="${DATA_ROOT}/logs/crawler-${worker_id}.log"
