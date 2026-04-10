@@ -8,5 +8,14 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-docker compose up -d
-docker compose ps
+services=(
+  github-runner
+  github-runner-2
+  github-runner-3
+)
+
+echo "Starting GitHub runner containers: ${services[*]}"
+docker compose up -d "${services[@]}"
+
+echo
+docker compose ps "${services[@]}"

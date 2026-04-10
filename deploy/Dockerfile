@@ -59,6 +59,7 @@ COPY --from=builder /src/build/crawler_index_profile /avengine/bin/crawler_index
 COPY --from=builder /src/build/search_server /avengine/bin/search_server
 COPY --from=builder /src/build/index_builder /avengine/bin/index_builder
 COPY --from=builder /src/build/anchor_processor /avengine/bin/anchor_processor
+COPY --from=builder /src/deploy/data-limit.sh /avengine/bin/data-limit.sh
 COPY --from=builder /src/deploy/start-crawler-swarm.sh /avengine/bin/start-crawler-swarm.sh
 COPY --from=builder /src/deploy/stop-crawler-swarm.sh /avengine/bin/stop-crawler-swarm.sh
 COPY --from=builder /src/deploy/start-crawler-supervisor.sh /avengine/bin/start-crawler-supervisor.sh
@@ -92,6 +93,7 @@ COPY --from=builder /src/profiling/fixtures/live_search_queries.tsv /avengine/pr
 COPY --from=builder /src/profiling/fixtures/crawl_pages /avengine/profiling/fixtures/crawl_pages
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
+    /avengine/bin/data-limit.sh \
     /avengine/bin/start-crawler-swarm.sh \
     /avengine/bin/stop-crawler-swarm.sh \
     /avengine/bin/start-crawler-supervisor.sh \

@@ -8,6 +8,7 @@ Layout:
   /avengine   binaries and project assets
   /config     seed and block lists
   /data       persistent runtime state
+              crawler and aggregate services stop at AVENGINE_MAX_DATA_BYTES (default 48 GiB)
   /logs       crawler and search logs
   /crawlers   per-worker crawl outputs
   /corpus     live merged shard directory

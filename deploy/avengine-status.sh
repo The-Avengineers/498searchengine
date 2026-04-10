@@ -2,6 +2,15 @@
 set -euo pipefail
 
 DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
+MAX_DATA_BYTES="${AVENGINE_MAX_DATA_BYTES:-51539607552}"
+
+format_bytes() {
+  if command -v numfmt >/dev/null 2>&1; then
+    numfmt --to=iec-i --suffix=B "$1"
+  else
+    printf '%s B\n' "$1"
+  fi
+}
 
 report_pid() {
   local label="$1"
@@ -22,6 +31,17 @@ report_pid() {
 
 echo "layout:"
 echo "  /avengine  /config  /data  /logs  /crawlers  /corpus  /profiling"
+echo
+
+data_usage_bytes="$(du -sb "${DATA_ROOT}" 2>/dev/null | cut -f1 || echo 0)"
+if [[ "${MAX_DATA_BYTES}" =~ ^[0-9]+$ ]] && (( MAX_DATA_BYTES > 0 )); then
+  echo "data usage: $(format_bytes "${data_usage_bytes}") / $(format_bytes "${MAX_DATA_BYTES}")"
+else
+  echo "data usage: $(format_bytes "${data_usage_bytes}")"
+fi
+if [[ "${MAX_DATA_BYTES}" =~ ^[0-9]+$ ]] && (( MAX_DATA_BYTES > 0 && data_usage_bytes >= MAX_DATA_BYTES )); then
+  echo "aggregate limit: reached"
+fi
 echo
 
 worker_count=0
