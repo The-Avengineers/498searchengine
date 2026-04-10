@@ -213,9 +213,10 @@ SolveResult ConstraintSolver::SolveParsedUntil(const QueryNode* root, const IsrS
   }
 
   uint32_t lastDocId = std::numeric_limits<uint32_t>::max();
+  size_t matchCount = 0;
   for (Post* match = executionRoot->Seek(1); match != nullptr;)
   {
-    if (timedOut())
+    if ((matchCount++ & 63) == 0 && timedOut())
     {
       result.Matches.clear();
       result.TimedOut = true;

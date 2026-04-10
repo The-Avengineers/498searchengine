@@ -3,7 +3,6 @@
 
 #include <avengine/search/search_common.h>
 
-#include <algorithm>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
