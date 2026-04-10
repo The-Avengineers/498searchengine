@@ -195,9 +195,7 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
   sortedTerms.sort([](const ParsedTerm* lhs, const ParsedTerm* rhs)
                    { return lhs->Entry.postingOffset < rhs->Entry.postingOffset; });
 
-  // Build a term-sorted array for O(log N) binary search with better cache locality.
-  vector<SortedTerm> sortedByTerm;
-  sortedByTerm.reserve(sortedTerms.size());
+  unordered_map<PostingSpan> postingBounds(sortedTerms.size() * 2u + 1u);
   const size_t postingsBytes = fileSize_ - postingsStart_;
   for (size_t i = 0; i < sortedTerms.size(); ++i)
   {
@@ -211,10 +209,9 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
     if (startOffset > endOffset || endOffset > fileSize_)
       return false;
 
-    sortedByTerm.pushBack({current->Term, {startOffset, endOffset}});
+    postingBounds.insert(current->Term, {startOffset, endOffset});
   }
-  sortedByTerm.sort([](const SortedTerm& a, const SortedTerm& b) { return a.Term < b.Term; });
-  sortedByTerm_.swap(sortedByTerm);
+  swap(postingBounds_, postingBounds);
 
   return true;
 }
@@ -273,23 +270,12 @@ bool IndexShardSource::ParseDocumentMetadata()
 bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** begin,
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
-  // Binary search on the sorted-by-term array for better cache locality than chained hash table.
-  size_t left = 0;
-  size_t right = sortedByTerm_.size();
-  while (left < right)
-  {
-    const size_t mid = left + (right - left) / 2;
-    if (sortedByTerm_[mid].Term < term)
-      left = mid + 1;
-    else
-      right = mid;
-  }
-
-  if (left >= sortedByTerm_.size() || sortedByTerm_[left].Term != term)
+  const PostingSpan* span = postingBounds_.get(string_slice(term.cstr()));
+  if (!span)
     return false;
 
-  const size_t startOffset = sortedByTerm_[left].Span.StartOffset;
-  const size_t endOffset = sortedByTerm_[left].Span.EndOffset;
+  const size_t startOffset = span->StartOffset;
+  const size_t endOffset = span->EndOffset;
   if (startOffset + 24u > endOffset || endOffset > fileSize_)
     return false;
 
@@ -305,7 +291,8 @@ void IndexShardSource::Reset()
 {
   const size_t mappedSize = fileSize_;
   terms_.clear();
-  sortedByTerm_.clear();
+  unordered_map<PostingSpan> emptyPostingBounds;
+  swap(postingBounds_, emptyPostingBounds);
   documents_.clear();
   documentUrls_.clear();
   documentTitles_.clear();
