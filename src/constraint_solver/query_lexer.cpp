@@ -132,7 +132,8 @@ LexStep lexFrom(const string& input, size_t offset)
         continue;
       }
 
-      if (isInternalDelimiter(current) && cursor + 1 < input.size() && isWordChar(input[cursor + 1]))
+      if (isInternalDelimiter(current) && cursor + 1 < input.size() &&
+          isWordChar(input[cursor + 1]))
       {
         sawDelimiter = true;
         word.pushBack(current);
