@@ -58,15 +58,28 @@ jobs:
             exit 1
           fi
 
+      - name: Repair runtime corpus ownership
+        shell: bash
+        run: |
+          docker exec -u root avengine-runtime bash -lc '
+            set -euo pipefail
+            for dir in /var/lib/avengine/corpus-index /var/lib/avengine/corpus-profile; do
+              install -d -o engine -g engine -m 755 "${dir}" "${dir}/generations"
+              if find "${dir}" \( ! -user engine -o ! -group engine \) -print -quit | grep -q .; then
+                chown -R engine:engine "${dir}"
+              fi
+            done
+          '
+
       - name: Refresh aggregated corpus from the live runtime service
         shell: bash
         run: |
-          docker exec avengine-runtime /opt/avengine/bin/aggregate-corpus-index.sh
+          docker exec -u engine avengine-runtime /opt/avengine/bin/aggregate-corpus-index.sh
 
       - name: Promote corpus profile snapshot
         shell: bash
         run: |
-          docker exec avengine-runtime /usr/local/bin/av-promote-corpus-profile
+          docker exec -u engine avengine-runtime /usr/local/bin/av-promote-corpus-profile
 
       - name: Copy crawl artifacts locally
         shell: bash
