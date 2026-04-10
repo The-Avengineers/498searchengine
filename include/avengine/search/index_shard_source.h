@@ -26,9 +26,11 @@ public:
   string GetDocumentURL(uint32_t docId) const override;
   string GetDocumentTitle(uint32_t docId) const;
   const DocumentInfo* GetDocumentInfo(uint32_t docId) const;
+  bool DecodeTermOccurrences(const string& term, vector<Location>* positions,
+                             uint32_t* documentFrequency) const;
+  ISRWord* BuildWordIsr(const vector<Location>& positions, uint32_t documentFrequency) const;
   ISRWord* OpenTermIsr(const string& term) const override;
   ISREndDoc* OpenEndDocIsr() const override;
-  void ClearTermCache() const;
 
 private:
   struct DictEntry
@@ -63,11 +65,6 @@ private:
   vector<DocumentInfo> documents_;
   vector<string> documentUrls_;
   vector<string> documentTitles_;
-
-  // Per-query cache: populated lazily by OpenTermIsr, cleared via ClearTermCache()
-  // after each shard's work is done. Declared mutable so const OpenTermIsr can write it.
-  mutable unordered_map<vector<Location>> termPositionCache_;
-  mutable unordered_map<uint32_t> termDocFreqCache_;
 };
 
 } // namespace search

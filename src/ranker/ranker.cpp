@@ -28,43 +28,64 @@ void Ranker::ClearStrategies()
 
 void Ranker::ResetResults()
 {
-  TopResults_.clear();
+  Top10.clear();
+  unordered_map<uint8_t> emptyMembership;
+  swap(RetainedUrls_, emptyMembership);
+  insertionCount_ = 0;
 }
 
 void Ranker::Consider(const urlEntry& entry, const string& title,
-                      const vector<vector<size_t>>& term_positions,
-                      const RankSignals& signals) // keep a bounded top-k with insertion sort
+                      const vector<vector<size_t>>& term_positions, const RankSignals& signals,
+                      size_t shardOrdinal)
 {
-  // Skip URLs already tracked since the same URL can appear across shards.
-  for (size_t i = 0; i < TopResults_.size(); ++i)
+  if (MaxResults_ == 0)
   {
-    if (TopResults_[i].entry.url == entry.url)
-      return;
+    return;
   }
+
+  const uint8_t* retained = RetainedUrls_.get(string_slice(entry.url.cstr()));
+  if (retained && *retained != 0)
+    return;
+
+  // When full, skip scoring entirely if this candidate can't beat the weakest result.
+  const double new_score = Score(entry, term_positions, signals);
+  if (Top10.size() == MaxResults_ && new_score <= Top10.top().score)
+    return;
 
   RankedResult candidate;
   candidate.entry = entry;
   candidate.title = title;
-  candidate.score = Score(entry, term_positions, signals);
+  candidate.score = new_score;
+  candidate.shardOrdinal = shardOrdinal;
+  candidate.insertionIndex = insertionCount_++;
 
-  size_t insert_pos = 0;
-  while (insert_pos < TopResults_.size() && TopResults_[insert_pos].score >= candidate.score)
+  Top10.push(candidate);
+  RetainedUrls_.insert(entry.url, 1u);
+
+  if (Top10.size() > MaxResults_)
   {
-    ++insert_pos;
+    const RankedResult evicted = Top10.top();
+    Top10.pop();
+    RetainedUrls_.insert(evicted.entry.url, 0u);
   }
-
-  if (TopResults_.size() >= MaxResults_ && insert_pos >= MaxResults_)
-    return;
-
-  TopResults_.insert(insert_pos, candidate);
-
-  if (TopResults_.size() > MaxResults_)
-    TopResults_.popBack();
 }
 
-const vector<Ranker::RankedResult>& Ranker::TopResults() const
+vector<Ranker::RankedResult> Ranker::TopResults() const
 {
-  return TopResults_;
+  // Copy the heap and drain it (pops ascending: worst first).
+  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
+  vector<RankedResult> ascending;
+  while (!copy.empty())
+  {
+    ascending.pushBack(copy.top());
+    copy.pop();
+  }
+
+  // Reverse to return highest score first.
+  vector<RankedResult> result;
+  for (size_t i = ascending.size(); i > 0; --i)
+    result.pushBack(ascending[i - 1]);
+  return result;
 }
 
 double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,

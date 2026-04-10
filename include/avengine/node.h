@@ -15,8 +15,17 @@ extern size_t numPeers;
 enum class MessageType : uint64_t
 {
   FRONTIER_UPDATE,
+  SEARCH_QUERY,
+  SEARCH_REPLY,
   // Add more message types here.
 };
+
+using MessageHandler = void (*)(size_t peerIndex, const avengine::vector<uint8_t>& payload);
+
+// Registers a handler for one message type on the current process.
+// Search_server uses this to install query/reply handlers on top of the shared
+// peer mesh. Passing nullptr clears the handler.
+void registerMessageHandler(MessageType messageType, MessageHandler handler);
 
 // Initialises the gossip node with the given ID and expected peer count,
 // then starts the UDP gossip, UDP broadcast, and TCP server threads.

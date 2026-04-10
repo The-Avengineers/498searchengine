@@ -175,6 +175,7 @@ def main() -> int:
                     {
                         "label": spec.label,
                         "query": spec.query,
+                        "group": spec.group,
                         "limit": spec.limit,
                         "iterations": args.iterations,
                         "mean_total_hits": statistics.fmean(actual_hits),

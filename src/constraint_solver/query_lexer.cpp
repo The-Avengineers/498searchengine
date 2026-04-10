@@ -23,6 +23,38 @@ bool isWordChar(char c)
   return std::isalpha(static_cast<unsigned char>(c)) != 0;
 }
 
+bool isInternalDelimiter(char c)
+{
+  return c == '-' || c == '\'';
+}
+
+size_t skipWhitespace(const string& input, size_t offset);
+
+bool startsPrimary(const string& input, size_t offset)
+{
+  offset = skipWhitespace(input, offset);
+  if (offset >= input.size())
+    return false;
+
+  const char c = input[offset];
+  return isWordChar(c) || c == '"' || c == '(';
+}
+
+bool minusStartsUnary(const string& input, size_t offset)
+{
+  if (offset >= input.size() || input[offset] != '-')
+    return false;
+
+  if (!startsPrimary(input, offset + 1))
+    return false;
+
+  if (offset == 0)
+    return true;
+
+  const char prev = input[offset - 1];
+  return isWhitespace(prev) || prev == '(' || prev == '|';
+}
+
 size_t skipWhitespace(const string& input, size_t offset)
 {
   while (offset < input.size() && isWhitespace(input[offset]))
@@ -54,7 +86,9 @@ LexStep lexFrom(const string& input, size_t offset)
   case '|':
     return {{QueryTokenKind::Or, string("|"), offset}, offset + 1};
   case '-':
-    return {{QueryTokenKind::Minus, string("-"), offset}, offset + 1};
+    if (minusStartsUnary(input, offset))
+      return {{QueryTokenKind::Minus, string("-"), offset}, offset + 1};
+    break;
   case '(':
     return {{QueryTokenKind::LeftParen, string("("), offset}, offset + 1};
   case ')':
@@ -87,12 +121,30 @@ LexStep lexFrom(const string& input, size_t offset)
   {
     string word;
     size_t cursor = offset;
-    while (cursor < input.size() && isWordChar(input[cursor]))
+    bool sawDelimiter = false;
+    while (cursor < input.size())
     {
-      word.pushBack(lowerAscii(input[cursor]));
-      ++cursor;
+      const char current = input[cursor];
+      if (isWordChar(current))
+      {
+        word.pushBack(lowerAscii(current));
+        ++cursor;
+        continue;
+      }
+
+      if (isInternalDelimiter(current) && cursor + 1 < input.size() &&
+          isWordChar(input[cursor + 1]))
+      {
+        sawDelimiter = true;
+        word.pushBack(current);
+        ++cursor;
+        continue;
+      }
+
+      break;
     }
-    return {{QueryTokenKind::Word, word, offset}, cursor};
+
+    return {{sawDelimiter ? QueryTokenKind::Phrase : QueryTokenKind::Word, word, offset}, cursor};
   }
 
   string invalid;

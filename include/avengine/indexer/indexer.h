@@ -30,6 +30,11 @@ constexpr const char* INDEX_DIRECTORY = ".";
 
 // Number of independent index slots for concurrent document ingestion.
 constexpr size_t INDEX_SLOT_COUNT = 8;
+
+// The raw data needed as input to calculate the static rank (distance from seed list, length of
+// document, etc). It MUST be plain old data, no pointers.
+using RankingInput = uint64_t;
+
 struct PostingList
 {
   PostingList() = default;

@@ -83,6 +83,66 @@ void testMinusOperator()
   EXPECT(tok.Kind == QueryTokenKind::End);
 }
 
+void testHyphenatedWordBecomesPhraseToken()
+{
+  QueryLexer lex(string("Spider-man"));
+  QueryToken tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Phrase);
+  EXPECT(tok.Lexeme == string("spider-man"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::End);
+}
+
+void testApostropheWordBecomesPhraseToken()
+{
+  QueryLexer lex(string("Joe's"));
+  QueryToken tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Phrase);
+  EXPECT(tok.Lexeme == string("joe's"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::End);
+}
+
+void testBrownMinusFoxKeepsUnaryMinus()
+{
+  QueryLexer lex(string("brown -fox"));
+  QueryToken tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Word);
+  EXPECT(tok.Lexeme == string("brown"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Minus);
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Word);
+  EXPECT(tok.Lexeme == string("fox"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::End);
+}
+
+void testLeadingMinusBeforeCompoundWord()
+{
+  QueryLexer lex(string("-spider-man"));
+  QueryToken tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Minus);
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Phrase);
+  EXPECT(tok.Lexeme == string("spider-man"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::End);
+}
+
+void testCompoundWordThenRegularWord()
+{
+  QueryLexer lex(string("Joe's Pizza"));
+  QueryToken tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Phrase);
+  EXPECT(tok.Lexeme == string("joe's"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::Word);
+  EXPECT(tok.Lexeme == string("pizza"));
+  tok = lex.Next();
+  EXPECT(tok.Kind == QueryTokenKind::End);
+}
+
 void testPhrase()
 {
   // Phrases are returned as a single Phrase token with the inner text.
@@ -220,6 +280,11 @@ int main()
   testTwoWords();
   testOrOperator();
   testMinusOperator();
+  testHyphenatedWordBecomesPhraseToken();
+  testApostropheWordBecomesPhraseToken();
+  testBrownMinusFoxKeepsUnaryMinus();
+  testLeadingMinusBeforeCompoundWord();
+  testCompoundWordThenRegularWord();
   testPhrase();
   testParentheses();
   testComplexQuery();

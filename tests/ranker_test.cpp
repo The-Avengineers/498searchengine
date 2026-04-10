@@ -126,6 +126,28 @@ void testRankerMethods()
   EXPECT(top[0].score > top[top.size() - 1].score);
 }
 
+void testCustomTopKCapacity()
+{
+  Ranker ranker(3);
+  UrlLengthStrategy len;
+  vector<vector<size_t>> positions;
+  Ranker::RankSignals signals;
+  ranker.AddStrategy(&len, 1.0);
+
+  for (int i = 0; i < 8; ++i)
+  {
+    urlEntry entry = makeEntry("https://example.com/");
+    for (int j = 0; j < i; ++j)
+      entry.url.pushBack('x');
+    ranker.Consider(entry, string(), positions, signals);
+  }
+
+  const vector<Ranker::RankedResult>& top = ranker.TopResults();
+  EXPECT(top.size() == 3);
+  EXPECT(top[0].score >= top[1].score);
+  EXPECT(top[1].score >= top[2].score);
+}
+
 void testDomainStrat()
 {
   DomainStrat strat;
@@ -334,11 +356,37 @@ void testTermCoverage()
       nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {4}}, signals),
                   1.0666666666666667));
 }
+
+void testTermCoveragePresenceCases()
+{
+  TermCoverage strat;
+  Ranker::RankSignals signals;
+
+  // No terms → 0.0
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{}, signals), 0.0));
+
+  // All terms present (each has at least one position)
+  EXPECT(nearlyEqual(
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{0}, {3}, {7}}, signals), 1.0));
+
+  // No term has any positions → 0.0
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{}, {}, {}}, signals),
+                     0.0));
+
+  // One of three terms missing → 2/3
+  const double partial =
+      strat.Score(makeEntry("unused"), vector<vector<size_t>>{{1}, {}, {5}}, signals);
+  EXPECT(nearlyEqual(partial, 2.0 / 3.0));
+
+  // Single term present → 1.0
+  EXPECT(nearlyEqual(strat.Score(makeEntry("unused"), vector<vector<size_t>>{{42}}, signals), 1.0));
+}
 } // namespace
 
 int main()
 {
   testRankerMethods();
+  testCustomTopKCapacity();
   testDomainStrat();
   testShortURLStrat();
   testShortTitleStrat();
@@ -349,5 +397,6 @@ int main()
   testQueryOccurrence();
   testEarlyQueryTermMatch();
   testTermCoverage();
+  testTermCoveragePresenceCases();
   return 0;
 }
