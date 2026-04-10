@@ -142,7 +142,7 @@ protected:
   bool ResolveCurrentDocument(DocumentInfo* out) const;
 
   vector<Location> occurrences_;
-  vector<DocumentInfo> documents_;
+  const vector<DocumentInfo>* documents_ = nullptr;
   uint32_t documentCount_ = 0;
   size_t currentIndex_ = 0;
   bool exhausted_ = true;

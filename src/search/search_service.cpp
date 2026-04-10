@@ -357,7 +357,7 @@ void* RunSolvePhase(void* rawArgs)
 
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
-    if (QueryExceededDeadline(args->deadline))
+    if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
       args->timedOut->store(true);
       return nullptr;
@@ -395,7 +395,7 @@ void* RunCollectPhase(void* rawArgs)
 
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
-    if (QueryExceededDeadline(args->deadline))
+    if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
       args->timedOut->store(true);
       return nullptr;
@@ -450,7 +450,7 @@ void* RunRankPhase(void* rawArgs)
 
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
-    if (QueryExceededDeadline(args->deadline))
+    if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
       args->timedOut->store(true);
       return nullptr;
@@ -459,7 +459,7 @@ void* RunRankPhase(void* rawArgs)
     ShardQueryContext& context = (*args->contexts)[(*args->matchedIndices)[i]];
     for (size_t matchIndex = 0; matchIndex < context.solved.Matches.size(); ++matchIndex)
     {
-      if (QueryExceededDeadline(args->deadline))
+      if ((matchIndex & 63) == 0 && QueryExceededDeadline(args->deadline))
       {
         args->timedOut->store(true);
         return nullptr;

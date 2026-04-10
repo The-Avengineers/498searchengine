@@ -77,11 +77,9 @@ uint64_t Reader::readU64()
 {
   assert(remaining() >= 8 && "readU64: not enough bytes");
 
-  uint64_t value = 0;
-  for (int i = 0; i < 8; ++i)
-    value |= static_cast<uint64_t>(cursor_[i]) << (i * 8);
-
-  cursor_ += 8;
+  uint64_t value;
+  std::memcpy(&value, cursor_, sizeof(value));
+  cursor_ += sizeof(value);
   return value;
 }
 
