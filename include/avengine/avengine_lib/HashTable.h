@@ -101,6 +101,36 @@ public:
     return nullptr;
   }
 
+  bool remove(const Key k)
+  {
+    // Remove the entry with key k. Returns true if found and deleted,
+    // false if the key was not present.
+
+    uint64_t hashValue = hash(k);
+    uint64_t idx = hashValue % numberOfBuckets;
+    Bucket<Key, Value>* curr = buckets[idx];
+    Bucket<Key, Value>* prev = nullptr;
+
+    while (curr != nullptr)
+    {
+      if (compareEqual(curr->tuple.key, k))
+      {
+        if (prev == nullptr)
+          buckets[idx] = curr->next;
+        else
+          prev->next = curr->next;
+
+        delete curr;
+        uniqueKeys--;
+        return true;
+      }
+      prev = curr;
+      curr = curr->next;
+    }
+
+    return false;
+  }
+
   void Optimize(double loading = 1.5)
   {
     // Grow or shrink the table as appropriate once we know the loading. A
