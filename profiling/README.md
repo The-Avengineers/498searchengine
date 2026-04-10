@@ -10,6 +10,9 @@ See **[docs/profiling.md](../docs/profiling.md)** for full documentation includi
 # Ad-hoc query pipeline profile (builds a fresh index automatically):
 bash profiling/scripts/profile_query_pipeline.sh
 
+# CPU callgraph profile against an existing shard corpus:
+python3 profiling/scripts/run_search_cpu_profile.py --help
+
 # Full crawler + HTTP search suite (used by CI):
 bash profiling/run_profiles.sh
 
@@ -26,10 +29,12 @@ profiling, and the reported hit counts come from the corpus actually being profi
 |------|-------------|
 | `run_profiles.sh` | CI runner — crawler profile + HTTP search profile + Markdown summary |
 | `scripts/profile_query_pipeline.sh` | Ad-hoc query latency profiler with per-phase breakdown |
+| `scripts/run_search_cpu_profile.py` | Always-on `gprof` runner for in-process search callgraphs |
 | `scripts/upload_corpus_index.sh` | Optional backup/distribution helper for publishing `.sfi` shards to GitHub Releases |
 | `scripts/run_search_http_profile.py` | HTTP search profiler used by `run_profiles.sh` |
 | `scripts/query_fixture.py` | Shared TSV loader for search query fixtures |
 | `scripts/render_ci_profile_summary.py` | Renders JSON results as a Markdown table |
+| `scripts/render_ci_cpu_profile_summary.py` | Renders CPU hotspot JSON as a Markdown table |
 | `fixtures/search_corpus.tsv` | Small deterministic search corpus for fixture runs |
 | `fixtures/search_queries.tsv` | Shared search query fixture used by local/CI profiling |
 | `fixtures/crawl_pages/` | HTML fixtures for the crawler + indexer profile |

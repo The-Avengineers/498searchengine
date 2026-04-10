@@ -53,3 +53,12 @@ def load_search_queries(path: str | Path) -> list[SearchQuerySpec]:
     if not queries:
         raise RuntimeError(f"no queries found in {fixture_path}")
     return queries
+
+
+def write_plain_query_list(queries: list[SearchQuerySpec], path: str | Path) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        "".join(f"{query.query}\n" for query in queries),
+        encoding="utf-8",
+    )
