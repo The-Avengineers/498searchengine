@@ -39,6 +39,18 @@ For the live corpus profile, `profiling/fixtures/live_search_queries.tsv` may al
 so CI always shows phrase / AND / OR / grouped-query probes even when they are not among the
 highest-hit queries.
 
+### Search CPU callgraph (`run_search_cpu_profile.py`)
+
+Builds the instrumented `search_benchmark` binary with `-DENABLE_PROFILING=ON`, runs the same
+search code path in-process against a shard corpus, and emits a `gprof` callgraph:
+
+```
+search_benchmark → SearchService → solver / collect / ranker
+```
+
+This profile is intended to show where CPU time is actually going. It excludes HTTP/network
+overhead and reports function-level hotspots instead of latency percentiles.
+
 The HTTP query profile reads its query set from `profiling/fixtures/search_queries.tsv`. Each row
 defines a label, query text, and limit; profiles report the observed hit counts from the corpus
 being tested.
@@ -94,6 +106,24 @@ Or point at any directory containing `.sfi` files:
 bash profiling/scripts/profile_query_pipeline.sh --index-dir /path/to/shards --iterations 50
 ```
 
+### Run the CPU callgraph locally
+
+```bash
+cmake -S . -B build-gprof -DCMAKE_BUILD_TYPE=Release -DENABLE_PROFILING=ON
+cmake --build build-gprof --target search_benchmark -j
+
+python3 profiling/scripts/run_search_cpu_profile.py \
+  --search-benchmark build-gprof/search_benchmark \
+  --index-dir /path/to/shards \
+  --queries-file profiling/fixtures/live_search_queries.tsv \
+  --iterations 100 \
+  --warmup 5 \
+  --output-json artifacts/corpus_cpu_profile.json \
+  --output-report artifacts/corpus_cpu_profile_gprof.txt \
+  --output-benchmark artifacts/corpus_cpu_profile_benchmark.txt \
+  --output-query-list artifacts/corpus_cpu_profile_queries.txt
+```
+
 ### Full CI suite (crawler + HTTP search)
 
 Runs both the crawler profile and the HTTP search profile and renders a Markdown summary:
@@ -116,6 +146,8 @@ Outputs:
 |------|-------------|
 | `crawler_index_profile.json` | Crawler + indexer metrics |
 | `search_http_profile.json` | Per-query latency + phase breakdown |
+| `corpus_cpu_profile.json` | Parsed CPU hotspot summary |
+| `corpus_cpu_profile_gprof.txt` | Raw `gprof` callgraph |
 | `profile_summary.md` | Markdown table rendered to CI step summary |
 
 ---
@@ -161,10 +193,13 @@ It runs on the repo's dedicated `avengine-runtime` self-hosted runner for all pu
 - copies the promoted `.sfi` shard set from `avengine-runtime:/var/lib/avengine/corpus-profile/current`
 - profiles `search_server` against those shards using `profiling/fixtures/live_search_queries.tsv`
 - pins `SEARCH_SHARD_WORKERS=8` during the profile run so shard-parallel latency comparisons remain stable
-- uploads `artifacts/corpus_profile.json`
-- writes a Markdown summary table to the GitHub Actions step summary
+- builds `search_benchmark` with `-DENABLE_PROFILING=ON` and profiles it with `gprof` against those same shards
+- uploads `artifacts/corpus_profile.json` plus raw CPU profiler artifacts
+- writes both the latency summary and the CPU callgraph summary to the GitHub Actions step summary
+- pins `SEARCH_SHARD_WORKERS=8` during the HTTP profile run so shard-parallel latency comparisons remain stable
 - fails fast if the runtime container is down or the promoted profiling corpus has not been built yet
 - fails if shards load successfully but every live query returns zero hits
+- fails if the CPU profiler run completes but produces no parsed hotspot functions
 
 A separate push-to-`master` / manual workflow lives at `.github/workflows/live-internet-crawl.yml`.
 It talks to the already-running crawler service on that same dedicated runtime runner, refreshes the

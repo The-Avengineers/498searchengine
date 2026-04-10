@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ python3 python3-pip ccache libssl-dev zlib1g-dev
+          sudo apt-get install -y g++ python3 python3-pip ccache binutils libssl-dev zlib1g-dev
 
       - name: Install CMake
         run: |
@@ -77,12 +77,32 @@ jobs:
             --iterations 50 \
             --output artifacts/corpus_profile.json
 
+      - name: Run corpus CPU profile
+        run: |
+          mkdir -p artifacts
+          cmake -S . -B build-gprof -DCMAKE_BUILD_TYPE=Release -DENABLE_PROFILING=ON
+          cmake --build build-gprof --target search_benchmark -j
+          python3 profiling/scripts/run_search_cpu_profile.py \
+            --search-benchmark build-gprof/search_benchmark \
+            --index-dir corpus-index/ \
+            --queries-file profiling/fixtures/live_search_queries.tsv \
+            --iterations 100 \
+            --warmup 5 \
+            --output-json artifacts/corpus_cpu_profile.json \
+            --output-report artifacts/corpus_cpu_profile_gprof.txt \
+            --output-benchmark artifacts/corpus_cpu_profile_benchmark.txt \
+            --output-query-list artifacts/corpus_cpu_profile_queries.txt
+
       - name: Validate profile hits and render summary
         run: |
           python3 profiling/scripts/render_ci_profile_summary.py \
             --search-json artifacts/corpus_profile.json \
             --output artifacts/corpus_profile_summary.md
           cat artifacts/corpus_profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+          python3 profiling/scripts/render_ci_cpu_profile_summary.py \
+            --cpu-json artifacts/corpus_cpu_profile.json \
+            --output artifacts/corpus_cpu_profile_summary.md
+          cat artifacts/corpus_cpu_profile_summary.md >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY'
           import json
           import pathlib
@@ -96,6 +116,17 @@ jobs:
           if nonzero == 0:
               print("::error::Corpus profile loaded shards but every live query returned zero hits.")
               sys.exit(1)
+          cpu_profile = json.loads(pathlib.Path("artifacts/corpus_cpu_profile.json").read_text(encoding="utf-8"))
+          top_self = cpu_profile.get("top_self_functions", [])
+          top_total = cpu_profile.get("top_total_functions", [])
+          print(f"Corpus CPU profile shard count: {cpu_profile.get('shard_count', 0)}")
+          print(f"Corpus CPU profile query file: {cpu_profile.get('queries_file')}")
+          if not top_self:
+              print("::error::CPU profile did not produce any parsed self-time functions.")
+              sys.exit(1)
+          if not top_total:
+              print("::error::CPU profile did not produce any parsed total-time functions.")
+              sys.exit(1)
           PY
 
       - name: Upload corpus profile artifact
@@ -103,3 +134,15 @@ jobs:
         with:
           name: corpus-profile
           path: artifacts/corpus_profile.json
+
+      - name: Upload corpus CPU profile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-profile-cpu
+          path: |
+            artifacts/corpus_cpu_profile.json
+            artifacts/corpus_cpu_profile_gprof.txt
+            artifacts/corpus_cpu_profile_gprof.gmon.out
+            artifacts/corpus_cpu_profile_benchmark.txt
+            artifacts/corpus_cpu_profile_queries.txt
+            artifacts/corpus_cpu_profile_summary.md
