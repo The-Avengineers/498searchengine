@@ -1,5 +1,7 @@
 #include <avengine/ranker/ranker.h>
 
+#include <algorithm>
+
 namespace avengine
 {
 
@@ -72,19 +74,21 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
 
 vector<Ranker::RankedResult> Ranker::TopResults() const
 {
-  // Copy the heap and drain it (pops ascending: worst first).
-  priorityQueue<RankedResult, greater<RankedResult>> copy = Top10;
-  vector<RankedResult> ascending;
-  while (!copy.empty())
-  {
-    ascending.pushBack(copy.top());
-    copy.pop();
-  }
-
-  // Reverse to return highest score first.
+  // Copy the raw backing vector directly (avoids copying the full heap object + drain).
+  const vector<RankedResult>& raw = Top10.serializeHeap();
   vector<RankedResult> result;
-  for (size_t i = ascending.size(); i > 0; --i)
-    result.pushBack(ascending[i - 1]);
+  result.reserve(raw.size());
+  for (size_t i = 0; i < raw.size(); ++i)
+    result.pushBack(raw[i]);
+
+  // Sort descending by score; on ties, earlier insertions (lower index) come first.
+  std::sort(result.begin(), result.end(),
+            [](const RankedResult& a, const RankedResult& b)
+            {
+              if (a.score != b.score)
+                return a.score > b.score;
+              return a.insertionIndex < b.insertionIndex;
+            });
   return result;
 }
 

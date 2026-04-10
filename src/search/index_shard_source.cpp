@@ -4,6 +4,7 @@
 #include <avengine/search/search_common.h>
 
 #include <algorithm>
+#include <utility>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -196,7 +197,9 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
   sortedTerms.sort([](const ParsedTerm* lhs, const ParsedTerm* rhs)
                    { return lhs->Entry.postingOffset < rhs->Entry.postingOffset; });
 
-  unordered_map<PostingSpan> postingBounds(sortedTerms.size() * 2u + 1u);
+  // Build a term-sorted array for O(log N) binary search with better cache locality.
+  vector<SortedTerm> sortedByTerm;
+  sortedByTerm.reserve(sortedTerms.size());
   const size_t postingsBytes = fileSize_ - postingsStart_;
   for (size_t i = 0; i < sortedTerms.size(); ++i)
   {
@@ -210,9 +213,10 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
     if (startOffset > endOffset || endOffset > fileSize_)
       return false;
 
-    postingBounds.insert(current->Term, {startOffset, endOffset});
+    sortedByTerm.pushBack({current->Term, {startOffset, endOffset}});
   }
-  swap(postingBounds_, postingBounds);
+  sortedByTerm.sort([](const SortedTerm& a, const SortedTerm& b) { return a.Term < b.Term; });
+  std::swap(sortedByTerm_, sortedByTerm);
 
   return true;
 }
@@ -271,12 +275,17 @@ bool IndexShardSource::ParseDocumentMetadata()
 bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** begin,
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
-  const PostingSpan* span = postingBounds_.get(string_slice(term.cstr()));
-  if (!span)
+  // Binary search on the sorted-by-term array for better cache locality than chained hash table.
+  const SortedTerm* first = sortedByTerm_.begin();
+  const SortedTerm* last = sortedByTerm_.end();
+  const SortedTerm* it = std::lower_bound(first, last, term,
+    [](const SortedTerm& entry, const string& key) { return entry.Term < key; });
+
+  if (it == last || it->Term != term)
     return false;
 
-  const size_t startOffset = span->StartOffset;
-  const size_t endOffset = span->EndOffset;
+  const size_t startOffset = it->Span.StartOffset;
+  const size_t endOffset = it->Span.EndOffset;
   if (startOffset + 24u > endOffset || endOffset > fileSize_)
     return false;
 
@@ -292,8 +301,7 @@ void IndexShardSource::Reset()
 {
   const size_t mappedSize = fileSize_;
   terms_.clear();
-  unordered_map<PostingSpan> emptyPostingBounds;
-  swap(postingBounds_, emptyPostingBounds);
+  sortedByTerm_.clear();
   documents_.clear();
   documentUrls_.clear();
   documentTitles_.clear();
