@@ -134,8 +134,9 @@ int main(int argc, char** argv)
       auto metadata = DocumentMetadata{
           .url = file,
           .title = title,
-          .input = ranking_input::Pack(0u, static_cast<uint32_t>(file.size()),
-                                       ranking_input::CountWords(title)),
+          .input = {.depth = 0u,
+                    .urlLength = static_cast<uint16_t>(file.size()),
+                    .titleWordCount = 0},
       };
 
       indexDocument(metadata, phrases);
@@ -174,7 +175,6 @@ int main(int argc, char** argv)
           .url = "(none)",
           .title = title,
           .description = "",
-          .input = ranking_input::Pack(0u, 6u, ranking_input::CountWords(title)),
       };
       avengine::vector<avengine::string_slice> phrases;
       phrases.pushBack(documents[i]);

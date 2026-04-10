@@ -2,7 +2,6 @@
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/codec.h"
-#include "avengine/indexer/ranking_input.h"
 #include "avengine/unordered_map.h"
 #include "avengine/vector.h"
 #include <cstddef>
@@ -33,7 +32,14 @@ constexpr size_t INDEX_SLOT_COUNT = 8;
 
 // The raw data needed as input to calculate the static rank (distance from seed list, length of
 // document, etc). It MUST be plain old data, no pointers.
-using RankingInput = uint64_t;
+struct RankingInput
+{
+  uint32_t domainDepth;
+  uint32_t depth;
+  uint16_t urlLength;
+  uint16_t titleWordCount;
+  uint16_t seedSource;
+};
 
 struct PostingList
 {

@@ -488,11 +488,13 @@ size_t indexDocument(DocumentMetadata& document_metadata,
   pthread_mutex_lock(&slot.mutex);
   slot.index->beginDocument(document_metadata);
   size_t total = 0;
+  size_t titleTotal = 0;
   total += tokenizeInto(phrases, *slot.index, PhraseKind::BODY);
   avengine::string titleCopy = document_metadata.title;
   avengine::vector<avengine::string_slice> titlePhrases;
   titlePhrases.pushBack(avengine::string_slice(titleCopy));
-  total += tokenizeInto(titlePhrases, *slot.index, PhraseKind::TITLE);
+  titleTotal += tokenizeInto(titlePhrases, *slot.index, PhraseKind::TITLE);
+  slot.index->documentMetadata.back().input.titleWordCount = titleTotal;
   slot.index->endDocument();
 
   if (slot.index->offset >= OFFSET_THRESHOLD)
@@ -512,5 +514,5 @@ size_t indexDocument(DocumentMetadata& document_metadata,
   }
 
   pthread_mutex_unlock(&slot.mutex);
-  return total;
+  return total + titleTotal;
 }

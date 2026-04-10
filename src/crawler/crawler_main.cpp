@@ -237,7 +237,6 @@ vector<urlEntry> filterBlockedBatch(const vector<urlEntry>& batch, const domainF
   {
     if (filter.isBlocked(batch[i].url))
     {
-      crawlLogger.log(batch[i].url, "SKIP, BLOCKED URL");
       continue;
     }
     allowedBatch.pushBack(batch[i]);
@@ -448,25 +447,21 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
 
   if (crawlUrl.size() == 0 || !hasValidHost(normalizer, crawlUrl))
   {
-    state.crawlLogger->log(entry.url, "SKIP, INVALID URL");
     return;
   }
 
   if (state.filter->isBlocked(crawlUrl))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED URL");
     return;
   }
 
   if (hasBlockedExtension(crawlUrl))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED EXTENSION");
     return;
   }
 
   if (!passesGitHubCrawlPolicy(normalizer, crawlUrl))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, GITHUB DEPTH POLICY");
     return;
   }
 
@@ -491,25 +486,21 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
 
   if (resp.statusCode != 200)
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, BAD RESP", resp.statusCode);
     return;
   }
 
   if (!fetcher::isEnglishContentLanguage(resp.headers))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, NON-ENGLISH CONTENT-LANGUAGE");
     return;
   }
 
   if (!fetcher::isHtmlContentType(resp.headers))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, NON-HTML CONTENT");
     return;
   }
 
   if (!fetcher::isEnglishHtmlLang(resp.body))
   {
-    state.crawlLogger->log(crawlUrl, "SKIP, NON-ENGLISH HTML LANG");
     return;
   }
 
@@ -533,9 +524,14 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       .url = crawlUrl,
       .title = parser.rawTitle,
       .description = parser.rawDescription,
-      .input = ranking_input::Pack(entry.depth < 0 ? 0u : static_cast<uint32_t>(entry.depth),
-                                   static_cast<uint32_t>(crawlUrl.size()),
-                                   ranking_input::CountWords(parser.rawTitle)),
+      .input =
+          {
+              .domainDepth = static_cast<uint32_t>(entry.seedDomainDepth),
+              .depth = static_cast<uint32_t>(entry.depth),
+              .urlLength = static_cast<uint16_t>(crawlUrl.size()),
+              .titleWordCount = 0,
+              .seedSource = static_cast<uint16_t>(entry.seedSourceLine),
+          },
   };
   indexDocument(documentMetadata, parser.words);
 
@@ -592,13 +588,11 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
 
     if (!hasValidHost(normalizer, normalized))
     {
-      state.crawlLogger->log(normalized, "SKIP, INVALID NORMALIZED URL");
       continue;
     }
 
     if (hasBlockedExtension(normalized))
     {
-      state.crawlLogger->log(normalized, "SKIP, BLOCKED EXTENSION");
       continue;
     }
 
@@ -609,13 +603,11 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
 
     if (anchorContainsBlockedWords(*state.filter, parser.links[j]))
     {
-      state.crawlLogger->log(normalized, "SKIP, BLOCKED ANCHOR TEXT");
       continue;
     }
 
     if (state.filter->isBlocked(normalized))
     {
-      state.crawlLogger->log(normalized, "SKIP, BLOCKED URL");
       continue;
     }
 
