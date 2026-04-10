@@ -7,6 +7,7 @@
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
+#include <avengine/unordered_map.h>
 
 namespace avengine
 {
@@ -14,14 +15,16 @@ namespace avengine
 /**
  * Ranker combines one or more scoring strategies into a single score.
  * Ranker is supposed to rank one url at one time, we have the information of all the positions
- * of the matching query words
+ * of the matching query words.
  *
- * Dynamically output the Top 10 results:
- * using insertion sort (in this scenario faster than other sorting algos)
+ * Dynamically output the top-k results using insertion sort (in this scenario
+ * faster than other sorting algos for small k).
  */
 class Ranker
 {
 public:
+  explicit Ranker(size_t maxResults = 10);
+
   struct RankSignals
   {
     size_t outlink_count{0};
@@ -62,12 +65,17 @@ public:
   void AddStrategy(const Strategy* strategy, double weight = 1.0);
 
   /**
+   * Change the maximum number of retained results.
+   */
+  void SetMaxResults(size_t maxResults);
+
+  /**
    * Remove all strategies.
    */
   void ClearStrategies();
 
   /**
-   * resets top 10 results list before next query
+   * resets the retained top-k results list before next query
    */
   void ResetResults();
 
@@ -82,6 +90,7 @@ public:
     urlEntry entry;
     string title;
     double score{0.0};
+    size_t shardOrdinal{0};
     size_t insertionIndex{0};
 
     // Min-heap ordering
@@ -102,7 +111,8 @@ public:
    * Consider a URL and update the top results using insertion sort.
    */
   void Consider(const urlEntry& entry, const string& title,
-                const vector<vector<size_t>>& term_positions, const RankSignals& signals);
+                const vector<vector<size_t>>& term_positions, const RankSignals& signals,
+                size_t shardOrdinal = 0);
 
   /**
    * Return the current top results (highest score first).
@@ -118,6 +128,8 @@ private:
 
   vector<WeightedStrategy> Strategies;
   priorityQueue<RankedResult, greater<RankedResult>> Top10;
+  unordered_map<uint8_t> RetainedUrls_;
+  size_t MaxResults_ = 10;
   size_t insertionCount_{0};
 };
 

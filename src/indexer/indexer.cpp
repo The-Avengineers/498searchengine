@@ -1,3 +1,4 @@
+#include <atomic>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/codec.h>
 #include <avengine/indexer/anchor_indexer.h>
@@ -223,7 +224,34 @@ void Index::endDocument()
   ingest(DOCEND_TOKEN);
 }
 
-IndexSlot globalIndex = {new Index(), PTHREAD_MUTEX_INITIALIZER};
+// Zero-initialise first so the array exists as a global, then the static
+// SlotArrayInit constructor fills each element before main() runs.
+IndexSlot globalIndexSlots[INDEX_SLOT_COUNT];
+
+namespace
+{
+// Initialises every slot exactly once, at program startup (before main).
+struct SlotArrayInit
+{
+  SlotArrayInit()
+  {
+    for (size_t i = 0; i < INDEX_SLOT_COUNT; i++)
+    {
+      globalIndexSlots[i].index = new Index();
+      pthread_mutex_init(&globalIndexSlots[i].mutex, nullptr);
+    }
+  }
+} g_slotArrayInit;
+} // namespace
+
+// Shared .sfi filename counter — atomically incremented on every flush.
+static std::atomic<size_t> indexCounter{0};
+
+// Round-robin slot selector.
+static std::atomic<size_t> g_nextSlot{0};
+
+static avengine::vector<pthread_t> g_serializeThreads;
+static pthread_mutex_t g_serializeThreadsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Walks `texts`, lowercases each alpha run in-place via the mutable slice, and
 // ingests each resulting token into `idx` with the given field decorator.
@@ -274,14 +302,12 @@ size_t tokenizeInto(avengine::vector<avengine::string_slice>& texts, Index& idx,
   return words;
 }
 
-size_t indexCounter = 0;
-avengine::vector<pthread_t> serializeThreads;
-
 void* serializeIndex(Index* index)
 {
-  // Write to a temporary file first, then atomically rename it into place.
-  // This ensures that a reader never sees a partially-written index file.
-  size_t counter = indexCounter++;
+  // Atomically claim a unique filename counter so concurrent flushes never
+  // collide on the same filename.
+  size_t counter = indexCounter.fetch_add(1);
+
   char filename[16];
   snprintf(filename, sizeof(filename), "%05zu.sfi", counter);
 
@@ -311,12 +337,27 @@ void* serializeIndex(Index* index)
 
 void cleanUpIndexer()
 {
-  serializeIndex(globalIndex.index);
-
-  for (size_t i = 0; i < serializeThreads.size(); i++)
+  // Flush the live Index* in every slot (direct call, not a new thread, so we
+  // can safely join all background threads afterwards).
+  for (size_t i = 0; i < INDEX_SLOT_COUNT; i++)
   {
-    pthread_join(serializeThreads[i], nullptr);
+    pthread_mutex_lock(&globalIndexSlots[i].mutex);
+    Index* live = globalIndexSlots[i].index;
+    globalIndexSlots[i].index = nullptr;
+    pthread_mutex_unlock(&globalIndexSlots[i].mutex);
+
+    if (live)
+      serializeIndex(live);
   }
+
+  // Join every background serialize thread that was spawned during ingestion.
+  pthread_mutex_lock(&g_serializeThreadsMutex);
+  avengine::vector<pthread_t> threads = g_serializeThreads;
+  g_serializeThreads.clear();
+  pthread_mutex_unlock(&g_serializeThreadsMutex);
+
+  for (pthread_t tid : threads)
+    pthread_join(tid, nullptr);
 
   closeAnchorLog();
 }
@@ -327,6 +368,7 @@ void resumeIndexer()
   DIR* dir = opendir(INDEX_DIRECTORY);
   if (dir == nullptr)
   {
+    openAnchorLog();
     return;
   }
 
@@ -376,7 +418,7 @@ void resumeIndexer()
   closedir(dir);
 
   if (found)
-    indexCounter = maxIndex + 1;
+    indexCounter.store(maxIndex + 1);
 
   openAnchorLog();
 }
@@ -384,27 +426,33 @@ void resumeIndexer()
 size_t indexDocument(DocumentMetadata& document_metadata,
                      avengine::vector<avengine::string_slice>& phrases)
 {
-  pthread_mutex_lock(&globalIndex.mutex);
-  globalIndex.index->beginDocument(document_metadata);
+  // Select this document's slot via a round-robin atomic counter.
+  size_t slotIdx = g_nextSlot.fetch_add(1) % INDEX_SLOT_COUNT;
+  IndexSlot& slot = globalIndexSlots[slotIdx];
+
+  pthread_mutex_lock(&slot.mutex);
+  slot.index->beginDocument(document_metadata);
   size_t total = 0;
-  total += tokenizeInto(phrases, *globalIndex.index, PhraseKind::BODY);
+  total += tokenizeInto(phrases, *slot.index, PhraseKind::BODY);
   avengine::string titleCopy = document_metadata.title;
   avengine::vector<avengine::string_slice> titlePhrases;
   titlePhrases.pushBack(avengine::string_slice(titleCopy));
-  total += tokenizeInto(titlePhrases, *globalIndex.index, PhraseKind::TITLE);
-  globalIndex.index->endDocument();
+  total += tokenizeInto(titlePhrases, *slot.index, PhraseKind::TITLE);
+  slot.index->endDocument();
 
-  if (globalIndex.index->offset >= OFFSET_THRESHOLD)
+  if (slot.index->offset >= OFFSET_THRESHOLD)
   {
-    Index* oldIndex = globalIndex.index;
-    globalIndex.index = new Index();
+    Index* oldIndex = slot.index;
+    slot.index = new Index();
 
     pthread_t tid;
     pthread_create(&tid, nullptr, reinterpret_cast<void* (*)(void*)>(serializeIndex), oldIndex);
 
-    serializeThreads.pushBack(tid);
+    pthread_mutex_lock(&g_serializeThreadsMutex);
+    g_serializeThreads.pushBack(tid);
+    pthread_mutex_unlock(&g_serializeThreadsMutex);
   }
 
-  pthread_mutex_unlock(&globalIndex.mutex);
+  pthread_mutex_unlock(&slot.mutex);
   return total;
 }

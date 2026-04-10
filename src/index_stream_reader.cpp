@@ -102,7 +102,7 @@ Post* ISR::SetCurrent(Location start, Location end, const Attributes& attributes
 
 ISRWord::ISRWord(const vector<Location>& occurrences, const vector<DocumentInfo>& documents,
                  uint32_t documentCount)
-    : occurrences_(occurrences), documents_(documents), documentCount_(documentCount),
+    : occurrences_(occurrences), documents_(&documents), documentCount_(documentCount),
       currentIndex_(0), exhausted_(occurrences.empty())
 {
   if (!exhausted_)
@@ -124,15 +124,17 @@ Post* ISRWord::SetCurrentFromIndex(size_t index)
   currentIndex_ = index;
   exhausted_ = false;
   const Location location = occurrences_[index];
-  return SetCurrent(location, location, make_word_attributes(documents_, location, documentCount_));
+  return SetCurrent(location, location,
+                    documents_ ? make_word_attributes(*documents_, location, documentCount_)
+                               : Attributes{});
 }
 
 bool ISRWord::ResolveCurrentDocument(DocumentInfo* out) const
 {
-  if (!hasCurrentPost_)
+  if (!hasCurrentPost_ || !documents_)
     return false;
 
-  return find_document_for_location(documents_, currentPost_.GetStartLocation(), out);
+  return find_document_for_location(*documents_, currentPost_.GetStartLocation(), out);
 }
 
 Post* ISRWord::Next()
@@ -174,7 +176,7 @@ unsigned ISRWord::GetDocumentCount() const
 
 ISREndDoc::ISREndDoc(const vector<DocumentInfo>& documents)
 {
-  documents_ = documents;
+  documents_ = &documents;
   documentCount_ = static_cast<uint32_t>(documents.size());
 
   for (const DocumentInfo& document : documents)
@@ -634,7 +636,7 @@ void Dictionary::AddDocument(Location endLocation, uint32_t titleLength, uint32_
     return;
 
   documents_.pushBack({static_cast<uint32_t>(documents_.size()), startLocation, endLocation,
-                       titleLength, urlLength});
+                       titleLength, urlLength, 0});
 }
 
 void Dictionary::AddOccurrence(const char* token, Location location)

@@ -12,6 +12,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(ENABLE_PROFILING "Build with gprof instrumentation (-pg -fno-omit-frame-pointer -O2)" OFF)
+if(ENABLE_PROFILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(PROFILING_FLAGS -pg -fno-omit-frame-pointer -O2 -DNDEBUG)
+  message(STATUS "CPU profiling ON: ${PROFILING_FLAGS}")
+endif()
+
 # Needed for clang-tidy / tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -54,6 +60,11 @@ target_include_directories(avengine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(avengine PUBLIC OpenSSL::SSL OpenSSL::Crypto
                                       Threads::Threads ZLIB::ZLIB)
 
+if(ENABLE_PROFILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(avengine PRIVATE ${PROFILING_FLAGS})
+  target_link_options(avengine PRIVATE -pg)
+endif()
+
 # Simple tool for building index from text files.
 add_executable(index_builder src/indexer/indexbuilder.cpp)
 target_link_libraries(index_builder PRIVATE avengine)
@@ -76,6 +87,12 @@ add_executable(probing_benchmark src/probing_benchmark.cpp)
 target_include_directories(probing_benchmark
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Offline profiling harness for parser/link-normalization/indexing throughput.
+add_executable(crawler_index_profile src/crawler_index_profile.cpp)
+target_link_libraries(crawler_index_profile PRIVATE avengine)
+target_include_directories(crawler_index_profile
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Crawler entrypoint executable.
 add_executable(crawler_main src/crawler/crawler_main.cpp)
 target_link_libraries(crawler_main PRIVATE avengine)
@@ -88,14 +105,27 @@ target_link_libraries(search_server PRIVATE avengine)
 target_include_directories(search_server
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Standalone benchmark binary for CPU profiling.
+add_executable(search_benchmark src/search_benchmark.cpp)
+target_link_libraries(search_benchmark PRIVATE avengine)
+target_include_directories(search_benchmark
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Optional warnings
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(anchor_processor PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(crawler_index_profile PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(search_server PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(search_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(ENABLE_PROFILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(search_benchmark PRIVATE ${PROFILING_FLAGS})
+  target_link_options(search_benchmark PRIVATE -pg)
 endif()
 
 if(BUILD_TESTING)

@@ -135,13 +135,17 @@ void testIndexDocumentTokenization()
   const size_t words = indexDocument(meta, phrases);
 
   EXPECT(words == 6u);
-  EXPECT(globalIndex.index->documentMetadata.size() == 1);
+  // The round-robin counter starts at 0, so the first indexDocument() call
+  // always lands in slot 0 (assuming no prior indexDocument() calls in the
+  // test binary, which is the case here since this is the first such call).
+  Index* activeIndex = globalIndexSlots[0].index;
+  EXPECT(activeIndex->documentMetadata.size() == 1);
 
-  PostingList* alpha = globalIndex.index->getBucket("alpha");
-  PostingList* beta = globalIndex.index->getBucket("beta");
-  PostingList* gamma = globalIndex.index->getBucket("gamma");
-  PostingList* title = globalIndex.index->getBucket("#title");
-  PostingList* caseWord = globalIndex.index->getBucket("#case");
+  PostingList* alpha = activeIndex->getBucket("alpha");
+  PostingList* beta = activeIndex->getBucket("beta");
+  PostingList* gamma = activeIndex->getBucket("gamma");
+  PostingList* title = activeIndex->getBucket("#title");
+  PostingList* caseWord = activeIndex->getBucket("#case");
 
   EXPECT(alpha->postings.size() == 1);
   EXPECT(alpha->postings[0].termFreq == 2u);

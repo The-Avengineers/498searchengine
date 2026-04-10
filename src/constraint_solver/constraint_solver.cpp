@@ -177,22 +177,21 @@ SolveResult ConstraintSolver::SolveQuery(const string& query, const IsrSource& s
 
 SolveResult ConstraintSolver::SolveParsed(const QueryNode* root, const IsrSource& source) const
 {
+  const auto startedAt = std::chrono::steady_clock::now();
+  return SolveParsedUntil(root, source,
+                          startedAt + std::chrono::milliseconds(executionTimeThresholdMs_));
+}
+
+SolveResult ConstraintSolver::SolveParsedUntil(const QueryNode* root, const IsrSource& source,
+                                               std::chrono::steady_clock::time_point deadline) const
+{
   SolveResult result = {};
   if (!root)
   {
     return result;
   }
 
-  const auto startedAt = std::chrono::steady_clock::now();
-  const auto timedOut = [this, &startedAt]()
-  {
-    if (executionTimeThresholdMs_ == 0)
-      return true;
-
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - startedAt);
-    return static_cast<size_t>(elapsed.count()) > executionTimeThresholdMs_;
-  };
+  const auto timedOut = [deadline]() { return std::chrono::steady_clock::now() >= deadline; };
 
   IsrExecutionState state;
   state.DocumentEnd = state.Own(source.OpenEndDocIsr());
@@ -214,9 +213,10 @@ SolveResult ConstraintSolver::SolveParsed(const QueryNode* root, const IsrSource
   }
 
   uint32_t lastDocId = std::numeric_limits<uint32_t>::max();
+  size_t matchCount = 0;
   for (Post* match = executionRoot->Seek(1); match != nullptr;)
   {
-    if (timedOut())
+    if ((matchCount++ & 63) == 0 && timedOut())
     {
       result.Matches.clear();
       result.TimedOut = true;

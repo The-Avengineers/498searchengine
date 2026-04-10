@@ -1,6 +1,7 @@
 #pragma once
 
 #include "avengine/HashTable.h"
+#include "avengine/indexer/ranking_input.h"
 #include "avengine/string.h"
 #include "avengine/vector.h"
 #include <cstddef>
@@ -103,6 +104,7 @@ struct DocumentInfo
   Location end = 0;
   uint32_t titleLength = 0;
   uint32_t urlLength = 0;
+  RankingInput rankingInput = 0;
 };
 
 class ISR
@@ -140,7 +142,7 @@ protected:
   bool ResolveCurrentDocument(DocumentInfo* out) const;
 
   vector<Location> occurrences_;
-  vector<DocumentInfo> documents_;
+  const vector<DocumentInfo>* documents_ = nullptr;
   uint32_t documentCount_ = 0;
   size_t currentIndex_ = 0;
   bool exhausted_ = true;

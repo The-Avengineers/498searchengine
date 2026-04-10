@@ -134,8 +134,7 @@ string domainFilter::extractDomain(const string& url) const
     {
       c += 32;
     }
-    char temp[2] = {c, '\0'};
-    domain += string(temp);
+    domain.pushBack(c);
   }
   return domain;
 }

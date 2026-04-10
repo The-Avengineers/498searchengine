@@ -1,0 +1,26 @@
+label	query	limit	group
+github	github	10	top
+python	python	10	top
+docker	docker	10	top
+linux	linux	10	top
+ubuntu	ubuntu	10	top
+wikipedia	wikipedia	10	top
+mozilla	mozilla	10	top
+openai	openai	10	top
+reddit	reddit	10	top
+youtube	youtube	10	top
+weather	weather	10	top
+news	news	10	top
+documentation	documentation	10	top
+reference	reference	10	top
+software	software	10	top
+search	search	10	top
+privacy	policy	10	top
+contact	contact	10	top
+about	about	10	top
+api	api	10	top
+phrase-privacy-policy	"privacy policy"	10	coverage
+and-documentation-reference	documentation reference	10	coverage
+or-github-wikipedia	github | wikipedia	10	coverage
+and-not-news-weather	news -weather	10	coverage
+grouped-docs-or-ref-api	(documentation | reference) api	10	coverage

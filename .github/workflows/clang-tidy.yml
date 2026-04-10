@@ -11,30 +11,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ cmake ninja-build clang-tidy clang-tools
+          sudo apt-get install -y g++ cmake ninja-build clang-tidy clang-tools ccache
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ runner.os }}-ccache-clang-tidy-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-clang-tidy-
+          max-size: 500M
 
       - name: Configure (GCC)
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Build
         run: cmake --build build -j
 
       - name: Run clang-tidy
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
-          files=$(find src include tests -type f \( \
-            -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' \
-            -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' \
-          \))
-          if [ -z "$files" ]; then
-            echo "No C/C++ files found."
+          base_ref="${GITHUB_BASE_REF:-master}"
+          git fetch --no-tags origin "${base_ref}"
+
+          mapfile -t files < <(
+            git diff --name-only "origin/${base_ref}...HEAD" -- \
+              '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' | \
+              rg '^(src|include|tests)/' || true
+          )
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed C/C++ files to analyze."
             exit 0
           fi
 
-          run-clang-tidy -p build $files
+          printf 'Running clang-tidy on:\n'
+          printf '  %s\n' "${files[@]}"
+          run-clang-tidy -p build "${files[@]}"
