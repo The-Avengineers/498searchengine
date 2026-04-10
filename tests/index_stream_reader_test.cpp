@@ -4,6 +4,7 @@
 #include <avengine/codec.h>
 #include <avengine/index_stream_reader.h>
 #include <avengine/indexer/indexer.h>
+#include <avengine/search/index_shard_source.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -129,6 +130,33 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   CHECK(fieldStreams == bytes + alphaStart + 24u);
 
   std::free(bytes);
+}
+
+TEST_CASE("IndexShardSource preserves packed ranking input")
+{
+  Index index;
+  const RankingInput expected = ranking_input::Pack(7u, 31u, 4u);
+  index.beginDocument({.url = "doc://static", .title = "Static Title", .input = expected});
+  index.ingest("alpha");
+  index.endDocument();
+
+  char pathTemplate[] = "/tmp/index_stream_reader_rank_input_XXXXXX";
+  const int fd = mkstemp(pathTemplate);
+  REQUIRE(fd >= 0);
+
+  CHECK(index.serialize(fd) == false);
+  CHECK(close(fd) == 0);
+
+  avengine::search::IndexShardSource shard(pathTemplate);
+  REQUIRE(shard.IsLoaded());
+  const avengine::DocumentInfo* info = shard.GetDocumentInfo(0);
+  REQUIRE(info != nullptr);
+  CHECK(info->rankingInput == expected);
+  CHECK(ranking_input::Depth(info->rankingInput) == 7u);
+  CHECK(ranking_input::UrlLength(info->rankingInput) == 31u);
+  CHECK(ranking_input::TitleWordCount(info->rankingInput) == 4u);
+
+  CHECK(unlink(pathTemplate) == 0);
 }
 
 TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")

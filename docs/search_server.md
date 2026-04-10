@@ -60,14 +60,14 @@ Query parameters:
 |-----------|----------|-------------|
 | `q` | yes | Search query (URL-encoded) |
 | `page` | no | 1-based page number (default 1) |
-| `limit` | no | Max results to return (clamped to 1–100, default 10) |
+| `limit` | no | Max results per page (clamped to 1–10, default 10) |
 
 Response:
 
 ```json
 {
-  "query": "distributed search",
-  "page": 1,
+  "query": "apple",
+  "page": 2,
   "limit": 10,
   "total_hits": 3,
   "took_ms": 2,
@@ -77,8 +77,11 @@ Response:
   "rank_ms": 0,
   "errors": [],
   "results": [
-    { "url": "https://example.com/page", "title": "Distributed Search Systems", "score": 1 },
-    ...
+    {
+      "url": "https://example.com/page",
+      "title": "Apple Result",
+      "score": 1.234
+    }
   ]
 }
 ```
@@ -93,6 +96,8 @@ Timing fields:
 | `collect_ms` | ISR position collection for ranking signals |
 | `rank_ms` | Scoring and top-K selection |
 
+`page` is 1-based. The coordinator overfetches internally before merging worker responses.
+
 ### Query syntax
 
 | Syntax | Example | Meaning |
@@ -101,6 +106,7 @@ Timing fields:
 | AND | `apple banana` | Documents containing both terms |
 | Phrase | `"apple pie"` | Documents containing the exact phrase |
 | OR | `apple OR banana` | Documents containing either term |
+
 
 ### Error response
 
@@ -128,29 +134,28 @@ Timeout:
 
 | Path | Response |
 |------|----------|
-| Anything outside `/api/search` | `404 Not Found` |
+| `/`, `/results.html`, and frontend assets | `200 OK` when file exists |
+| Anything outside `/api/search` and the frontend static files | `404 Not Found` |
 | `OPTIONS /api/search` | `204 No Content` (CORS preflight) |
 | Non-GET/OPTIONS methods | `405 Method Not Allowed` |
 
 ## Quick checks
 
 ```bash
-# Basic query
+curl -i 'http://127.0.0.1:8080/'
 curl -s 'http://127.0.0.1:8080/api/search?q=apple&limit=5' | python3 -m json.tool
-
-# Paginated
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=1&limit=10'
 curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=2&limit=10'
-
-# Phrase query
 curl -s 'http://127.0.0.1:8080/api/search?q=%22distributed+search%22'
-
-# Empty query (returns empty results, no error)
 curl -s 'http://127.0.0.1:8080/api/search?q='
 ```
 
 ## Notes
 
 - Only `GET` and `OPTIONS` are supported.
+- `limit` is clamped to `10`.
+- `page` defaults to `1`.
+- Result scores are real floating-point values from the ranker.
+- `/`, `/results.html`, and frontend assets are served from `frontend/`.
 - A blank query returns an empty result set.
 - The coordinator returns partial results when a worker times out or is unreachable.

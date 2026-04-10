@@ -64,12 +64,17 @@ public:
   void AddStrategy(const Strategy* strategy, double weight = 1.0);
 
   /**
+   * Change the maximum number of retained results.
+   */
+  void SetMaxResults(size_t maxResults);
+
+  /**
    * Remove all strategies.
    */
   void ClearStrategies();
 
   /**
-   * resets top 10 results list before next query
+   * resets the retained top-k results list before next query
    */
   void ResetResults();
 

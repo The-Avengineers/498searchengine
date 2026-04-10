@@ -2,6 +2,7 @@
 #include "avengine/avengine_lib/string.h"
 #include "avengine/avengine_lib/string_slice.h"
 #include "avengine/codec.h"
+#include "avengine/indexer/ranking_input.h"
 #include "avengine/unordered_map.h"
 #include "avengine/vector.h"
 #include <cstddef>
@@ -23,7 +24,7 @@ struct Posting
 // A special token used to signify the end of a document. This should NEVER be parsed as a regular
 // token.
 constexpr const char* DOCEND_TOKEN = "DOCUMENT_END";
-constexpr const size_t OFFSET_THRESHOLD = 40000000;
+constexpr const size_t OFFSET_THRESHOLD = 1 << 25;
 
 constexpr const char* INDEX_DIRECTORY = ".";
 

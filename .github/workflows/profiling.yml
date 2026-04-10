@@ -1,72 +1,18 @@
 name: Profiling
 
+concurrency:
+  group: profiling-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
-    branches: [main, master]
-    paths:
-      - "CMakeLists.txt"
-      - "src/**"
-      - "include/**"
-      - "profiling/**"
-      - ".github/workflows/profiling.yml"
   push:
-    branches: [main, master]
-    paths:
-      - "CMakeLists.txt"
-      - "src/**"
-      - "include/**"
-      - "profiling/**"
-      - ".github/workflows/profiling.yml"
   workflow_dispatch:
 
 jobs:
-  # Fixture-based profile: correctness + baseline latency using the small test corpus.
-  # Runs on both PRs and pushes.
-  profile:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 ccache
-
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ runner.os }}-ccache-profile-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-profile-
-          max-size: 500M
-
-      - name: Configure
-        run: mkdir -p artifacts
-
-      - name: Run profiling suite
-        run: |
-          CRAWLER_REPETITIONS=80 SEARCH_ITERATIONS=12 \
-            bash profiling/run_profiles.sh artifacts build
-
-      - name: Render summary
-        run: |
-          cat artifacts/profile_summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload profiling artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: profiling-artifacts
-          path: artifacts/
-
-  # Corpus-based profile: realistic latency using the large crawl index.
-  # Runs only on pushes to avoid downloading ~1 GB on every PR.
   corpus-profile:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    env:
-      CORPUS_INDEX_TAG: corpus-index-latest
+    runs-on: [self-hosted, linux, x64, avengine-runtime]
+    timeout-minutes: 90
     permissions:
       contents: read
 
@@ -77,7 +23,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ python3 ccache
+          sudo apt-get install -y g++ python3 python3-pip ccache libssl-dev zlib1g-dev
+
+      - name: Install CMake
+        run: |
+          python3 -m pip install --user "cmake>=3.20"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cmake" --version
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -87,41 +39,62 @@ jobs:
             ${{ runner.os }}-ccache-corpus-profile-
           max-size: 500M
 
-      - name: Restore corpus index from cache
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: corpus-index/
-          key: ${{ env.CORPUS_INDEX_TAG }}
-
-      - name: Download corpus index from release
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Copy persistent corpus profile from runtime container
         run: |
+          if ! docker inspect avengine-runtime >/dev/null 2>&1; then
+            echo "::error::Container avengine-runtime was not found on this runner. Route this job to the dedicated avengine-runtime self-hosted runner and deploy the long-lived runtime service first."
+            exit 1
+          fi
+          running=$(docker inspect -f '{{.State.Running}}' avengine-runtime)
+          if [[ "${running}" != "true" ]]; then
+            echo "::error::Container avengine-runtime is not running. Restore the long-lived runtime service on the dedicated avengine-runtime runner before running corpus-profile."
+            exit 1
+          fi
+          remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
+          if [[ "${remote_count}" -eq 0 ]]; then
+            echo "::error::No promoted profiling shards found at /var/lib/avengine/corpus-profile/current. Push to master or run the live crawl workflow to build the persistent corpus first."
+            exit 1
+          fi
+          rm -rf corpus-index
           mkdir -p corpus-index
-          gh release download "$CORPUS_INDEX_TAG" \
-            --repo "${{ github.repository }}" \
-            --dir corpus-index/ \
-            --pattern "*.sfi"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate corpus index
-        run: |
+          docker cp avengine-runtime:/var/lib/avengine/corpus-profile/current/. corpus-index
           count=$(ls corpus-index/*.sfi 2>/dev/null | wc -l | tr -d ' ')
           echo "Found ${count} .sfi shard(s) in corpus-index/"
           if [[ "${count}" -eq 0 ]]; then
-            echo "::error::No .sfi files found — corpus download failed or release has no assets. Run profiling/scripts/upload_corpus_index.sh to publish the index."
+            echo "::error::Promoted profiling corpus exists in the runtime container, but no shards were copied into the job workspace."
             exit 1
           fi
+          echo "Persistent corpus profile shard count: ${count}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run corpus profile
         run: |
           mkdir -p artifacts
           bash profiling/scripts/profile_query_pipeline.sh \
             --index-dir corpus-index/ \
+            --queries-file profiling/fixtures/live_search_queries.tsv \
             --iterations 50 \
-            --output artifacts/corpus_profile.json \
-            2>&1 | tee /dev/stderr | grep -v "^$" >> "$GITHUB_STEP_SUMMARY"
+            --output artifacts/corpus_profile.json
+
+      - name: Validate profile hits and render summary
+        run: |
+          python3 profiling/scripts/render_ci_profile_summary.py \
+            --search-json artifacts/corpus_profile.json \
+            --output artifacts/corpus_profile_summary.md
+          cat artifacts/corpus_profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          profile = json.loads(pathlib.Path("artifacts/corpus_profile.json").read_text(encoding="utf-8"))
+          nonzero = int(profile.get("nonzero_hit_query_count", 0))
+          print(f"Corpus profile shard count: {profile.get('shard_count', 0)}")
+          print(f"Corpus profile query file: {profile.get('queries_file')}")
+          print(f"Corpus profile queries with hits: {nonzero}")
+          if nonzero == 0:
+              print("::error::Corpus profile loaded shards but every live query returned zero hits.")
+              sys.exit(1)
+          PY
 
       - name: Upload corpus profile artifact
         uses: actions/upload-artifact@v4

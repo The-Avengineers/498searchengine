@@ -1,5 +1,6 @@
 #include <avengine/indexer/indexer.h>
 
+#include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
 
 #include <cstdio>
@@ -63,7 +64,12 @@ void writeShard(const char* path, std::initializer_list<TestDocument> docs)
   ::Index index;
   for (const TestDocument& doc : docs)
   {
-    index.beginDocument({.url = doc.Url, .title = doc.Title, .input = 0});
+    string url(doc.Url);
+    string title(doc.Title);
+    index.beginDocument({.url = url,
+                         .title = title,
+                         .input = ranking_input::Pack(0u, static_cast<uint32_t>(url.size()),
+                                                      ranking_input::CountWords(title))});
     ingestBody(index, doc.Body);
     index.endDocument();
   }
@@ -93,6 +99,32 @@ void expectUrls(const SearchResponse& response, std::initializer_list<const char
   }
 }
 
+void testRankingInputRoundTrip()
+{
+  char dirTemplate[] = "/tmp/search_service_round_trip_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(), {{"doc://static", "Static Title", "static body"}});
+
+  avengine::search::IndexShardSource shard(shardPath);
+  EXPECT(shard.IsLoaded());
+  const avengine::DocumentInfo* info = shard.GetDocumentInfo(0);
+  EXPECT(info != nullptr);
+
+  const RankingInput expected =
+      ranking_input::Pack(0u, static_cast<uint32_t>(string("doc://static").size()),
+                          ranking_input::CountWords(string("Static Title")));
+  EXPECT(info->rankingInput == expected);
+  EXPECT(ranking_input::Depth(info->rankingInput) == 0u);
+  EXPECT(ranking_input::UrlLength(info->rankingInput) == 12u);
+  EXPECT(ranking_input::TitleWordCount(info->rankingInput) == 2u);
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 void testSolverQueries()
 {
   char dirTemplate[] = "/tmp/search_service_test_XXXXXX";
@@ -110,16 +142,16 @@ void testSolverQueries()
 
   SearchService service(dir);
 
-  expectUrls(service.Search("apple", 10), {"doc://apollo", "doc://fruit-a", "doc://brown-fox"});
+  expectUrls(service.Search("apple", 10), {"doc://brown-fox", "doc://apollo", "doc://fruit-a"});
   const SearchResponse page2 = service.SearchPage("apple", 2, 1);
   EXPECT(page2.Page == 2u);
   EXPECT(page2.Limit == 1u);
-  expectUrls(page2, {"doc://fruit-a"});
+  expectUrls(page2, {"doc://apollo"});
 
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
-  expectUrls(service.Search("banana cherry", 10), {"doc://fruit-a", "doc://fruit-b"});
+  expectUrls(service.Search("banana cherry", 10), {"doc://fruit-b", "doc://fruit-a"});
   expectUrls(service.Search("apple | brown", 10),
-             {"doc://apollo", "doc://fruit-a", "doc://brown-fox", "doc://fruit-b"});
+             {"doc://brown-fox", "doc://apollo", "doc://fruit-b", "doc://fruit-a"});
   expectUrls(service.Search("brown -fox", 10), {"doc://fruit-b"});
   expectUrls(service.Search("(apple | banana) cherry", 10), {"doc://fruit-a", "doc://fruit-b"});
 
@@ -127,8 +159,8 @@ void testSolverQueries()
   EXPECT(limited.TotalHits == 3u);
   EXPECT(limited.Page == 1u);
   EXPECT(limited.Results.size() == 1u);
-  EXPECT(limited.Results[0].Url == string("doc://apollo"));
-  EXPECT(limited.Results[0].Score == 1.0);
+  EXPECT(limited.Results[0].Url == string("doc://brown-fox"));
+  EXPECT(limited.Results[0].Score > 0.0);
 
   const SearchResponse noHit = service.Search("kiwi", 10);
   EXPECT(noHit.Errors.empty());
@@ -156,10 +188,90 @@ void testSolverQueries()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testPaging()
+{
+  char dirTemplate[] = "/tmp/search_service_paging_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  for (size_t i = 0; i < 12; ++i)
+  {
+    char filename[16];
+    std::snprintf(filename, sizeof(filename), "%05zu.sfi", i);
+    const string shardPath = joinPath(dir, filename);
+
+    char url[32];
+    std::snprintf(url, sizeof(url), "doc://page-%02zu", i);
+    char title[32];
+    std::snprintf(title, sizeof(title), "Page %02zu", i);
+
+    writeShard(shardPath.cstr(), {{url, title, "alpha"}});
+  }
+
+  SearchService service(dir);
+
+  const SearchResponse page0 = service.SearchPage("alpha", 0, 10);
+  EXPECT(page0.Page == 1u);
+  EXPECT(page0.Limit == 10u);
+  EXPECT(page0.Results.size() == 10u);
+  expectUrls(page0,
+             {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03", "doc://page-04",
+              "doc://page-05", "doc://page-06", "doc://page-07", "doc://page-08", "doc://page-09"});
+
+  const SearchResponse wrapper = service.Search("alpha", 10);
+  EXPECT(wrapper.Page == 1u);
+  expectUrls(wrapper,
+             {"doc://page-00", "doc://page-01", "doc://page-02", "doc://page-03", "doc://page-04",
+              "doc://page-05", "doc://page-06", "doc://page-07", "doc://page-08", "doc://page-09"});
+
+  const SearchResponse page2 = service.SearchPage("alpha", 2, 10);
+  EXPECT(page2.Page == 2u);
+  EXPECT(page2.Limit == 10u);
+  EXPECT(page2.Results.size() == 2u);
+  expectUrls(page2, {"doc://page-10", "doc://page-11"});
+
+  for (size_t i = 0; i < 12; ++i)
+  {
+    char filename[16];
+    std::snprintf(filename, sizeof(filename), "%05zu.sfi", i);
+    EXPECT(unlink(joinPath(dir, filename).cstr()) == 0);
+  }
+  EXPECT(rmdir(dir) == 0);
+}
+
+void testTitleIntentWins()
+{
+  char dirTemplate[] = "/tmp/search_service_title_intent_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(),
+             {{"doc://projects", "Development Projects",
+               "freebsd projects page with news updates and flash reports"},
+              {"doc://newsflash", "FreeBSD News Flash",
+               "freebsd archive with news items and flash bulletins"},
+              {"doc://generic", "Generic News", "freebsd bulletin with news updates and flash"}});
+
+  SearchService service(dir);
+  const SearchResponse response = service.Search("freebsd news flash", 10);
+
+  EXPECT(response.Errors.empty());
+  EXPECT(response.Results.size() >= 2u);
+  EXPECT(response.Results[0].Url == string("doc://newsflash"));
+  EXPECT(response.Results[0].Score > response.Results[1].Score);
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 } // namespace
 
 int main()
 {
+  testRankingInputRoundTrip();
   testSolverQueries();
+  testPaging();
+  testTitleIntentWins();
   return 0;
 }

@@ -57,10 +57,8 @@ bool hasValidHost(URLNormalizer& normalizer, const string& url)
 
 // Returns true if the URL's path ends with a common non-HTML extension that we
 // should not crawl (images, archives, executables, etc.).
-bool hasBlockedExtension(URLNormalizer& normalizer, const string& url)
+bool hasBlockedExtension(const string& path)
 {
-  URL parsed = normalizer.parseURL(url);
-  const string& path = parsed.path;
   size_t pathLen = path.size();
   if (pathLen == 0)
     return false;
@@ -270,7 +268,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
     return;
   }
 
-  if (hasBlockedExtension(normalizer, crawlUrl))
+  if (hasBlockedExtension(crawlUrl))
   {
     state.crawlLogger->log(crawlUrl, "SKIP, BLOCKED EXTENSION");
     return;
@@ -336,7 +334,9 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
   DocumentMetadata documentMetadata = DocumentMetadata{
       .url = crawlUrl,
       .title = parser.rawTitle,
-      .input = 0,
+      .input = ranking_input::Pack(entry.depth < 0 ? 0u : static_cast<uint32_t>(entry.depth),
+                                   static_cast<uint32_t>(crawlUrl.size()),
+                                   ranking_input::CountWords(parser.rawTitle)),
   };
   indexDocument(documentMetadata, parser.words);
 
@@ -370,7 +370,7 @@ void processBatchEntry(const urlEntry& entry, globalCrawlerState& state, URLNorm
       continue;
     }
 
-    if (hasBlockedExtension(normalizer, normalized))
+    if (hasBlockedExtension(normalized))
     {
       state.crawlLogger->log(normalized, "SKIP, BLOCKED EXTENSION");
       continue;

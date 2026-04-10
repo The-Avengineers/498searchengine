@@ -414,6 +414,26 @@ TEST_CASE("normalizeIndividual - malformed triple-slash absolute URL is repaired
   CHECK(n.normalizeIndividual("https:///www.google.com") == "https://www.google.com/");
 }
 
+TEST_CASE("normalizeIndividual - wayback URL unwraps to original target")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://web.archive.org/web/http://Example.com/a/../b") ==
+        "http://example.com/b");
+}
+
+TEST_CASE("normalizeIndividual - malformed wayback URL missing embedded http returns empty")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://web.archive.org/web/http") == "");
+}
+
+TEST_CASE("normalizeIndividual - non-wayback web.archive.org URL is unchanged")
+{
+  URLNormalizer n;
+  CHECK(n.normalizeIndividual("https://web.archive.org/about/") ==
+        "https://web.archive.org/about/");
+}
+
 // ---------------------------------------------------------------------------
 // normalize - additional edge cases
 // ---------------------------------------------------------------------------
@@ -496,4 +516,12 @@ TEST_CASE("normalize - absolute extension normalizes host/protocol case and defa
   string base = "http://example.com/a";
   string ext = "HTTPS://Other.COM:443/Path";
   CHECK(n.normalize(base, ext) == "https://other.com/Path");
+}
+
+TEST_CASE("normalize - absolute wayback extension unwraps during normalization")
+{
+  URLNormalizer n;
+  string base = "https://example.com/page";
+  string ext = "https://web.archive.org/web/http://Other.com/x";
+  CHECK(n.normalize(base, ext) == "http://other.com/x");
 }

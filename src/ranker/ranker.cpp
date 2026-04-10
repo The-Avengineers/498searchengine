@@ -3,7 +3,10 @@
 namespace avengine
 {
 
-Ranker::Ranker(size_t maxResults) : MaxResults_(maxResults) {}
+Ranker::Ranker(size_t maxResults)
+{
+  SetMaxResults(maxResults);
+}
 
 void Ranker::AddStrategy(const Strategy* strategy, double weight)
 {
@@ -11,6 +14,11 @@ void Ranker::AddStrategy(const Strategy* strategy, double weight)
   entry.strategy = strategy;
   entry.weight = weight;
   Strategies.pushBack(entry);
+}
+
+void Ranker::SetMaxResults(size_t maxResults)
+{
+  MaxResults_ = maxResults == 0 ? 10 : maxResults;
 }
 
 void Ranker::ClearStrategies()
