@@ -18,19 +18,29 @@ namespace avengine
 namespace crawler
 {
 
-fetcher::fetcher()
+// Shared across all fetcher instances and worker threads.  SSL_CTX is
+// thread-safe for concurrent SSL_new() calls once fully initialized.
+// Initialised by fetcher::initSharedContext() before any threads start;
+// freed by fetcher::cleanupSharedContext() after all threads have joined.
+static SSL_CTX* gSslCtx = nullptr;
+
+void fetcher::initSharedContext()
 {
   SSL_library_init();
-  sslCtx_ = SSL_CTX_new(SSLv23_method());
+  gSslCtx = SSL_CTX_new(TLS_method());
 }
 
-fetcher::~fetcher()
+void fetcher::cleanupSharedContext()
 {
-  if (sslCtx_)
+  if (gSslCtx)
   {
-    SSL_CTX_free(static_cast<SSL_CTX*>(sslCtx_));
+    SSL_CTX_free(gSslCtx);
+    gSslCtx = nullptr;
   }
 }
+
+fetcher::fetcher() {}
+fetcher::~fetcher() {}
 
 #define USER_AGENT "Avengineers-Crawler/1.0 marundel@umich.edu"
 #define MAX_REDIRECTS 5
@@ -732,7 +742,7 @@ bool fetcher::isEnglishOkStatus(const string& headers)
 
 expected<fetchResponse, error> fetcher::fetch(const string& url)
 {
-  if (!sslCtx_)
+  if (!gSslCtx)
   {
     return expected<fetchResponse, error>::error({"SSL context not initialized"});
   }
@@ -938,7 +948,7 @@ expected<fetchResponse, error> fetcher::fetchHttps(const string& host, const str
     return expected<fetchResponse, error>::error({"connection failed"});
   }
 
-  SSL* ssl = SSL_new(static_cast<SSL_CTX*>(sslCtx_));
+  SSL* ssl = SSL_new(gSslCtx);
   if (!ssl)
   {
     close(fd);
