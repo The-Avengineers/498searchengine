@@ -59,8 +59,16 @@ SearchSource makeSource(bool isPeer, size_t peerIndex, const vector<SearchHit>& 
 void testMergeResponsesTotalHits()
 {
   vector<SearchSource> sources;
-  sources.pushBack(makeSource(false, 0, vector<SearchHit>{}, 10));
-  sources.pushBack(makeSource(true, 1, vector<SearchHit>{}, 7));
+  vector<SearchHit> hits0;
+  hits0.pushBack(makeHit("https://a.com", 2.0));
+  hits0.pushBack(makeHit("https://b.com", 1.5));
+
+  vector<SearchHit> hits1;
+  hits1.pushBack(makeHit("https://b.com", 1.5));
+  hits1.pushBack(makeHit("https://c.com", 1.0));
+
+  sources.pushBack(makeSource(false, 0, hits0, 10));
+  sources.pushBack(makeSource(true, 1, hits1, 7));
 
   vector<avengine::search::SearchError> noErrors;
   const auto merged = MergeResponses(string("q"), 1, 10, sources, noErrors, 5);
@@ -134,6 +142,32 @@ void testMergeResponsesPagination()
   EXPECT(p2.Results[9].Score == 1.0);
 }
 
+void testMergeResponsesCapAtOneHundred()
+{
+  vector<SearchHit> hits;
+  for (int i = 150; i >= 1; --i)
+  {
+    char url[64];
+    std::snprintf(url, sizeof(url), "https://example.com/%d", i);
+    hits.pushBack(makeHit(url, static_cast<double>(i)));
+  }
+
+  vector<SearchSource> sources;
+  sources.pushBack(makeSource(false, 0, hits, 150));
+
+  vector<avengine::search::SearchError> noErrors;
+
+  const auto page10 = MergeResponses(string("q"), 10, 10, sources, noErrors, 0);
+  EXPECT(page10.TotalHits == 100U);
+  EXPECT(page10.Results.size() == 10U);
+  EXPECT(page10.Results[0].Score == 60.0);
+  EXPECT(page10.Results[9].Score == 51.0);
+
+  const auto page11 = MergeResponses(string("q"), 11, 10, sources, noErrors, 0);
+  EXPECT(page11.TotalHits == 100U);
+  EXPECT(page11.Results.size() == 0U);
+}
+
 } // namespace
 
 int main()
@@ -143,5 +177,6 @@ int main()
   testMergeResponsesDedup();
   testMergeResponsesTransportErrors();
   testMergeResponsesPagination();
+  testMergeResponsesCapAtOneHundred();
   return 0;
 }

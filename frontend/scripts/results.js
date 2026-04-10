@@ -2,9 +2,8 @@
   "use strict";
 
   // core defaults + dom hooks for the results page
-  const RESULTS_PER_PAGE = 10;
-  const DEFAULT_FETCH_LIMIT = 100;
-  const MAX_FETCH_LIMIT = 200;
+  const DEFAULT_PAGE_SIZE = 10;
+  const MAX_PAGE_SIZE = 10;
   const listEl = document.getElementById("results-list");
   const countEl = document.getElementById("results-count");
   const timingEl = document.getElementById("results-timing");
@@ -20,7 +19,7 @@
   // read query state from the url
   const params = new URLSearchParams(window.location.search);
   const query = (params.get("q") || "").trim();
-  const fetchLimit = clampFetchLimit(parseInteger(params.get("limit")));
+  const pageSize = clampLimit(parseInteger(params.get("limit")));
   const requestedPage = clampPage(parseInteger(params.get("page")));
 
   // keep the search input in sync with what we are showing
@@ -43,7 +42,7 @@
   hidePagination();
 
   // fire the request and render whatever comes back
-  const requestUrl = buildApiUrl(query, fetchLimit);
+  const requestUrl = buildApiUrl(query, requestedPage, pageSize);
   void loadSearchResults(requestUrl, query);
 
   async function loadSearchResults(url, currentQuery) {
@@ -94,7 +93,8 @@
     const apiErrors = normalizeErrors(payload && payload.errors);
     const results = normalizeResults(payload && payload.results);
     const totalHits = parseInteger(payload && payload.total_hits);
-    const page = paginateResults(results, requestedPage, RESULTS_PER_PAGE);
+    const currentPage = clampPage(parseInteger(payload && payload.page) || requestedPage);
+    const limitValue = clampLimit(parseInteger(payload && payload.limit) || pageSize);
 
     clearList();
 
@@ -112,17 +112,23 @@
     }
 
     // normal success path
-    setCount(buildCountLine(page.From, page.To, results.length, totalHits));
+    const from = ((currentPage - 1) * limitValue) + 1;
+    const to = from + results.length - 1;
+    setCount(buildCountLine(from, to, results.length, totalHits));
     if (apiErrors.length > 0) {
       showFeedback(`Search completed with warnings: ${apiErrors.join(" ")}`, false);
     } else {
       hideFeedback();
     }
 
-    for (const result of page.Items) {
+    for (const result of results) {
       listEl.appendChild(createResultCard(result));
     }
-    renderPagination(currentQuery, fetchLimit, page.Current, page.TotalPages);
+
+    const totalPages = Number.isInteger(totalHits) && totalHits > 0
+      ? Math.ceil(totalHits / limitValue)
+      : 1;
+    renderPagination(currentQuery, limitValue, currentPage, totalPages);
   }
 
   function createResultCard(result) {
@@ -273,13 +279,13 @@
     return "";
   }
 
-  function clampFetchLimit(value) {
-    // keep fetch window bounded even if url params are noisy
+  function clampLimit(value) {
+    // backend pages in groups of 10, so keep the UI honest
     if (!Number.isInteger(value) || value <= 0) {
-      return DEFAULT_FETCH_LIMIT;
+      return DEFAULT_PAGE_SIZE;
     }
-    if (value > MAX_FETCH_LIMIT) {
-      return MAX_FETCH_LIMIT;
+    if (value > MAX_PAGE_SIZE) {
+      return MAX_PAGE_SIZE;
     }
     return value;
   }
@@ -305,10 +311,11 @@
     return null;
   }
 
-  function buildApiUrl(queryText, limitValue) {
+  function buildApiUrl(queryText, pageNumber, limitValue) {
     // same-origin path; deployment routes /api/* to backend
     const queryParams = new URLSearchParams();
     queryParams.set("q", queryText);
+    queryParams.set("page", String(pageNumber));
     queryParams.set("limit", String(limitValue));
     return `/api/search?${queryParams.toString()}`;
   }
@@ -319,30 +326,6 @@
     queryParams.set("page", String(pageNumber));
     queryParams.set("limit", String(limitValue));
     return `./results.html?${queryParams.toString()}`;
-  }
-
-  function paginateResults(results, requested, pageSize) {
-    if (!Array.isArray(results) || results.length === 0) {
-      return {
-        Current: 1,
-        TotalPages: 1,
-        From: 0,
-        To: 0,
-        Items: [],
-      };
-    }
-
-    const totalPages = Math.ceil(results.length / pageSize);
-    const current = Math.min(Math.max(requested, 1), totalPages);
-    const start = (current - 1) * pageSize;
-    const end = Math.min(start + pageSize, results.length);
-    return {
-      Current: current,
-      TotalPages: totalPages,
-      From: start + 1,
-      To: end,
-      Items: results.slice(start, end),
-    };
   }
 
   function createPaginationNode(label, queryText, targetPage, limitValue, isCurrent, isDisabled) {
@@ -443,11 +426,11 @@
       return "About 0 results";
     }
 
-    let countPart = `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${loadedCount.toLocaleString()} loaded result${loadedCount === 1 ? "" : "s"}`;
-    if (Number.isInteger(totalHits) && totalHits > loadedCount) {
-      countPart += ` (of about ${totalHits.toLocaleString()} total)`;
+    if (Number.isInteger(totalHits) && totalHits > 0) {
+      return `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${totalHits.toLocaleString()} result${totalHits === 1 ? "" : "s"}`;
     }
-    return countPart;
+
+    return `Showing ${from.toLocaleString()}-${to.toLocaleString()} of ${loadedCount.toLocaleString()} loaded result${loadedCount === 1 ? "" : "s"}`;
   }
 
   function readErrorMessage(error) {

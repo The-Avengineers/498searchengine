@@ -7,6 +7,10 @@ namespace avengine
 namespace search
 {
 
+static const size_t kDefaultSearchLimit = 10u;
+static const size_t kMaxSearchPageSize = 10u;
+static const size_t kMaxVisibleSearchResults = 100u;
+
 inline bool IsBlankText(const string& value)
 {
   for (size_t i = 0; i < value.size(); ++i)
@@ -20,8 +24,8 @@ inline bool IsBlankText(const string& value)
 
 inline size_t ClampSearchLimit(size_t limit)
 {
-  if (limit == 0 || limit > 10)
-    return 10;
+  if (limit == 0 || limit > kMaxSearchPageSize)
+    return kDefaultSearchLimit;
   return limit;
 }
 

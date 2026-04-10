@@ -176,11 +176,11 @@ async function testRendersApiResults() {
 
   assert.equal(
     capturedUrl,
-    "/api/search?q=dog&limit=100",
+    "/api/search?q=dog&page=1&limit=10",
     "frontend should call expected api endpoint"
   );
   assert.equal(refs.query.value, "dog", "query box should reflect URL query");
-  assert.equal(refs.count.textContent, "Showing 1-2 of 2 loaded results");
+  assert.equal(refs.count.textContent, "Showing 1-2 of 2 results");
   assert.equal(refs.timing.textContent, "Elapsed time: 12 ms");
   assert.equal(refs.timing.hidden, false, "elapsed-time line should be visible after a search");
   assert.equal(refs.list.children.length, 2, "two results should render");
@@ -214,7 +214,7 @@ async function testPaginatesResultsArray() {
   global.fetch = async (url) => {
     capturedUrl = url;
     const results = [];
-    for (let i = 1; i <= 23; ++i) {
+    for (let i = 11; i <= 20; ++i) {
       results.push({
         url: `https://example.com/dog-${i}`,
         title: `Dog Result ${i}`,
@@ -229,7 +229,8 @@ async function testPaginatesResultsArray() {
       text: async () =>
         JSON.stringify({
           query: "dog",
-          limit: 25,
+          page: 2,
+          limit: 10,
           total_hits: 23,
           took_ms: 9,
           errors: [],
@@ -241,9 +242,9 @@ async function testPaginatesResultsArray() {
   runResultsScript();
   await flushMicrotasks();
 
-  assert.equal(capturedUrl, "/api/search?q=dog&limit=25");
+  assert.equal(capturedUrl, "/api/search?q=dog&page=2&limit=10");
   assert.equal(refs.list.children.length, 10, "page two should show exactly ten results");
-  assert.equal(refs.count.textContent, "Showing 11-20 of 23 loaded results");
+  assert.equal(refs.count.textContent, "Showing 11-20 of 23 results");
   assert.equal(refs.timing.textContent, "Elapsed time: 9 ms");
   assert.equal(refs.pagination.hidden, false, "multi-page results should show pagination");
   assert.equal(refs.pagination.children.length, 5, "pager should render prev/pages/next");
@@ -252,10 +253,10 @@ async function testPaginatesResultsArray() {
   const current = refs.pagination.children[2];
   const next = refs.pagination.children[4];
   assert.equal(prev.textContent, "Prev");
-  assert.equal(prev.href, "./results.html?q=dog&page=1&limit=25");
+  assert.equal(prev.href, "./results.html?q=dog&page=1&limit=10");
   assert.equal(current.textContent, "2");
   assert.equal(next.textContent, "Next");
-  assert.equal(next.href, "./results.html?q=dog&page=3&limit=25");
+  assert.equal(next.href, "./results.html?q=dog&page=3&limit=10");
 
   const firstCard = refs.list.children[0];
   const titleNode = firstCard.children[1].children[0];
