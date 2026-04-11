@@ -410,7 +410,8 @@ public:
 
   // REQUIRES: Nothing
   // MODIFIES: *this, size()
-  // EFFECTS: Constructs a new element in-place at the end using args for that type and allocates more space if needed
+  // EFFECTS: Constructs a new element in-place at the end using args for that type and allocates
+  // more space if needed
   template <typename... Args> void emplaceBack(Args&&... args)
   {
     if (Size == Capacity)

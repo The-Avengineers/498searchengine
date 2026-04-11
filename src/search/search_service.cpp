@@ -547,9 +547,9 @@ void LaunchSolvePhase(vector<ShardQueryContext>& contexts,
   delete[] workers;
 }
 
-void LaunchCollectPhase(vector<ShardQueryContext>& contexts,
-                        const vector<size_t>& matchedIndices, const vector<string>& queryTerms,
-                        size_t workerCount, SteadyTimePoint deadline, atomic_counter& timedOut)
+void LaunchCollectPhase(vector<ShardQueryContext>& contexts, const vector<size_t>& matchedIndices,
+                        const vector<string>& queryTerms, size_t workerCount,
+                        SteadyTimePoint deadline, atomic_counter& timedOut)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
   if (phaseWorkers == 0)
@@ -590,12 +590,10 @@ void LaunchCollectPhase(vector<ShardQueryContext>& contexts,
   delete[] workers;
 }
 
-void LaunchRankPhase(vector<ShardQueryContext>& contexts,
-                     const vector<size_t>& matchedIndices, const vector<string>& queryTerms,
-                     size_t workerCount, size_t candidateLimit, SteadyTimePoint deadline,
-                     atomic_counter& timedOut,
-                     vector<vector<PooledRankedHit>>& workerOutputs,
-                     const RankerWeights& weights)
+void LaunchRankPhase(vector<ShardQueryContext>& contexts, const vector<size_t>& matchedIndices,
+                     const vector<string>& queryTerms, size_t workerCount, size_t candidateLimit,
+                     SteadyTimePoint deadline, atomic_counter& timedOut,
+                     vector<vector<PooledRankedHit>>& workerOutputs, const RankerWeights& weights)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
   workerOutputs.clear();

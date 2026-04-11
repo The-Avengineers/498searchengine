@@ -90,7 +90,7 @@ void testConcurrentFetchAdd()
 struct StoreArgs
 {
   avengine::atomic_counter* flag;
-  avengine::atomic_counter* result; 
+  avengine::atomic_counter* result;
 };
 
 void* storeWorker(void* raw)
@@ -103,7 +103,7 @@ void* storeWorker(void* raw)
 void* loadWorker(void* raw)
 {
   StoreArgs* args = static_cast<StoreArgs*>(raw);
-  
+
   while (args->flag->get_val() == 0)
     ;
   args->result->store(1);
