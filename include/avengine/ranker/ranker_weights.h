@@ -49,31 +49,44 @@ inline RankerWeights LoadRankerWeights(const char* path)
     *eq = '\0';
 
     char* key = line;
-    while (*key == ' ' || *key == '\t') ++key;
+    while (*key == ' ' || *key == '\t')
+      ++key;
     char* end = eq - 1;
-    while (end > key && (*end == ' ' || *end == '\t')) --end;
+    while (end > key && (*end == ' ' || *end == '\t'))
+      --end;
     *(end + 1) = '\0';
 
     if (key[0] == '#' || key[0] == '\0')
       continue;
 
     char* val = eq + 1;
-    while (*val == ' ' || *val == '\t') ++val;
+    while (*val == ' ' || *val == '\t')
+      ++val;
     end = val + strlen(val) - 1;
-    while (end >= val && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) --end;
+    while (end >= val && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n'))
+      --end;
     *(end + 1) = '\0';
 
     const double v = strtod(val, nullptr);
 
-    if      (strcmp(key, "exact_phrase")     == 0) w.exact_phrase     = v;
-    else if (strcmp(key, "correct_ordering") == 0) w.correct_ordering = v;
-    else if (strcmp(key, "early_query_term") == 0) w.early_query_term = v;
-    else if (strcmp(key, "term_coverage")    == 0) w.term_coverage    = v;
-    else if (strcmp(key, "query_occurrence") == 0) w.query_occurrence = v;
-    else if (strcmp(key, "short_title")      == 0) w.short_title      = v;
-    else if (strcmp(key, "short_url")        == 0) w.short_url        = v;
-    else if (strcmp(key, "domain")           == 0) w.domain           = v;
-    else if (strcmp(key, "url_depth")        == 0) w.url_depth        = v;
+    if (strcmp(key, "exact_phrase") == 0)
+      w.exact_phrase = v;
+    else if (strcmp(key, "correct_ordering") == 0)
+      w.correct_ordering = v;
+    else if (strcmp(key, "early_query_term") == 0)
+      w.early_query_term = v;
+    else if (strcmp(key, "term_coverage") == 0)
+      w.term_coverage = v;
+    else if (strcmp(key, "query_occurrence") == 0)
+      w.query_occurrence = v;
+    else if (strcmp(key, "short_title") == 0)
+      w.short_title = v;
+    else if (strcmp(key, "short_url") == 0)
+      w.short_url = v;
+    else if (strcmp(key, "domain") == 0)
+      w.domain = v;
+    else if (strcmp(key, "url_depth") == 0)
+      w.url_depth = v;
   }
 
   fclose(f);
