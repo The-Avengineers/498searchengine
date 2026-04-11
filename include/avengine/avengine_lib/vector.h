@@ -392,6 +392,37 @@ public:
     return Size;
   }
 
+  // REQUIRES: Nothing
+  // MODIFIES: *this, size()
+  // EFFECTS: Resizes the vector to new_size. New elements are default
+  //    constructed. If new_size < size(), elements are cut off.
+  void resize(size_t new_size)
+  {
+    if (new_size > Capacity)
+      reserve(new_size);
+    if (new_size > Size)
+    {
+      for (size_t i = Size; i < new_size; ++i)
+        Data[i] = T();
+    }
+    Size = new_size;
+  }
+
+  // REQUIRES: Nothing
+  // MODIFIES: *this, size()
+  // EFFECTS: Constructs a new element in-place at the end using args for that type and allocates
+  // more space if needed
+  template <typename... Args> void emplaceBack(Args&&... args)
+  {
+    if (Size == Capacity)
+    {
+      size_t newCapacity = (Capacity == 0) ? 1 : (Capacity * 2);
+      reserve(newCapacity);
+    }
+    new (&Data[Size]) T(std::forward<Args>(args)...);
+    ++Size;
+  }
+
   // REQUIRES: Nothing (but T must support += operator, intended for string)
   // MODIFIES: Nothing
   // EFFECTS: Joins all elements in the vector using separator.
