@@ -786,16 +786,17 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
       pooledHits.pushBack(workerOutputs[workerIndex][i]);
   }
 
-  pooledHits.sort([](const PooledRankedHit& lhs, const PooledRankedHit& rhs)
-  {
-    if (lhs.ranked.score != rhs.ranked.score)
-      return lhs.ranked.score > rhs.ranked.score;
-    if (lhs.shardOrdinal != rhs.shardOrdinal)
-      return lhs.shardOrdinal < rhs.shardOrdinal;
-    if (lhs.ranked.insertionIndex != rhs.ranked.insertionIndex)
-      return lhs.ranked.insertionIndex < rhs.ranked.insertionIndex;
-    return lhs.ranked.entry.url < rhs.ranked.entry.url;
-  });
+  pooledHits.sort(
+      [](const PooledRankedHit& lhs, const PooledRankedHit& rhs)
+      {
+        if (lhs.ranked.score != rhs.ranked.score)
+          return lhs.ranked.score > rhs.ranked.score;
+        if (lhs.shardOrdinal != rhs.shardOrdinal)
+          return lhs.shardOrdinal < rhs.shardOrdinal;
+        if (lhs.ranked.insertionIndex != rhs.ranked.insertionIndex)
+          return lhs.ranked.insertionIndex < rhs.ranked.insertionIndex;
+        return lhs.ranked.entry.url < rhs.ranked.entry.url;
+      });
 
   unordered_map<uint8_t> seenUrls;
   const size_t pageStart = ComputeWindowStart(response.Page, response.Limit);
