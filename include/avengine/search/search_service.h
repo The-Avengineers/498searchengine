@@ -3,6 +3,7 @@
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/constraint_solver/constraint_solver.h>
+#include <avengine/ranker/ranker_weights.h>
 
 namespace avengine
 {

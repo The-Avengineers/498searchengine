@@ -7,13 +7,11 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <dirent.h>
 #include <unistd.h>
-#include <vector>
 
 namespace avengine
 {
@@ -424,6 +422,7 @@ struct RankPhaseArgs
   SteadyTimePoint deadline = {};
   std::atomic<bool>* timedOut = nullptr;
   std::vector<PooledRankedHit>* output = nullptr;
+  const RankerWeights* weights = nullptr;
 };
 
 void* RunRankPhase(void* rawArgs)
@@ -432,26 +431,30 @@ void* RunRankPhase(void* rawArgs)
   if (!args || !args->contexts || !args->matchedIndices || !args->queryTerms || !args->output)
     return nullptr;
 
+  const RankerWeights defaultWeights;
+  const RankerWeights& w = args->weights ? *args->weights : defaultWeights;
+
   Ranker ranker(args->candidateLimit);
-  DomainStrat domainStrategy;
-  ShortURLStrat shortUrlStrategy;
-  ShortTitleStrat shortTitleStrategy;
   ExactPhraseMatch exactPhraseStrategy;
   CorrectOrdering correctOrderingStrategy;
   EarlyQueryTermMatch earlyQueryStrategy;
   TermCoverage termCoverageStrategy;
-  UrlDepth urlDepthStrategy;
   QueryOccurrence queryOccurrenceStrategy(*args->queryTerms);
+  ShortTitleStrat shortTitleStrategy;
+  ShortURLStrat shortUrlStrategy;
+  DomainStrat domainStrategy;
+  UrlDepth urlDepthStrategy;
 
-  ranker.AddStrategy(&exactPhraseStrategy, 2.4);
-  ranker.AddStrategy(&correctOrderingStrategy, 1.6);
-  ranker.AddStrategy(&earlyQueryStrategy, 1.25);
-  ranker.AddStrategy(&termCoverageStrategy, 0.85);
-  ranker.AddStrategy(&queryOccurrenceStrategy, 0.8);
-  ranker.AddStrategy(&shortTitleStrategy, 0.5);
-  ranker.AddStrategy(&shortUrlStrategy, 0.15);
-  ranker.AddStrategy(&domainStrategy, 0.1);
-  ranker.AddStrategy(&urlDepthStrategy, 0.15);
+  // Strategies are always registered in the ranker_weights.conf fixed order
+  ranker.AddStrategy(&exactPhraseStrategy, w.exact_phrase);
+  ranker.AddStrategy(&correctOrderingStrategy, w.correct_ordering);
+  ranker.AddStrategy(&earlyQueryStrategy, w.early_query_term);
+  ranker.AddStrategy(&termCoverageStrategy, w.term_coverage);
+  ranker.AddStrategy(&queryOccurrenceStrategy, w.query_occurrence);
+  ranker.AddStrategy(&shortTitleStrategy, w.short_title);
+  ranker.AddStrategy(&shortUrlStrategy, w.short_url);
+  ranker.AddStrategy(&domainStrategy, w.domain);
+  ranker.AddStrategy(&urlDepthStrategy, w.url_depth);
 
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
@@ -591,7 +594,8 @@ void LaunchRankPhase(std::vector<ShardQueryContext>& contexts,
                      const std::vector<size_t>& matchedIndices, const vector<string>& queryTerms,
                      size_t workerCount, size_t candidateLimit, SteadyTimePoint deadline,
                      std::atomic<bool>& timedOut,
-                     std::vector<std::vector<PooledRankedHit>>& workerOutputs)
+                     std::vector<std::vector<PooledRankedHit>>& workerOutputs,
+                     const RankerWeights& weights)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
   workerOutputs.clear();
@@ -614,6 +618,7 @@ void LaunchRankPhase(std::vector<ShardQueryContext>& contexts,
         .deadline = deadline,
         .timedOut = &timedOut,
         .output = &workerOutputs[workerIndex],
+        .weights = &weights,
     };
     workers[workerIndex - 1].start(RunRankPhase, &args[workerIndex - 1]);
   }
@@ -628,6 +633,7 @@ void LaunchRankPhase(std::vector<ShardQueryContext>& contexts,
       .deadline = deadline,
       .timedOut = &timedOut,
       .output = &workerOutputs[0],
+      .weights = &weights,
   };
   RunRankPhase(&current);
 
@@ -688,6 +694,8 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
 
   if (IsBlankText(query))
     return response;
+
+  const RankerWeights weights = LoadRankerWeights("ranker_weights.conf");
 
   const auto startedAt = std::chrono::steady_clock::now();
   const size_t thresholdMs = solver_.GetExecutionTimeThresholdMs();
@@ -762,7 +770,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   const auto rankStartedAt = std::chrono::steady_clock::now();
   std::vector<std::vector<PooledRankedHit>> workerOutputs;
   LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit, deadline,
-                  timedOut, workerOutputs);
+                  timedOut, workerOutputs, weights);
   response.RankMs = DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
 
   if (timedOut.load())
