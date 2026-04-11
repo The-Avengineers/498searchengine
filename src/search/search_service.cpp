@@ -7,7 +7,7 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
 
-#include <atomic>
+#include <avengine/avengine_lib/atomic.h>
 #include <chrono>
 #include <cstdlib>
 #include <dirent.h>
@@ -345,11 +345,11 @@ struct SolvePhaseArgs
 {
   const constraint_solver::ConstraintSolver* solver = nullptr;
   const constraint_solver::QueryNode* root = nullptr;
-  std::vector<ShardQueryContext>* contexts = nullptr;
+  vector<ShardQueryContext>* contexts = nullptr;
   size_t begin = 0;
   size_t end = 0;
   SteadyTimePoint deadline = {};
-  std::atomic<bool>* timedOut = nullptr;
+  atomic_counter* timedOut = nullptr;
 };
 
 void* RunSolvePhase(void* rawArgs)
@@ -362,7 +362,7 @@ void* RunSolvePhase(void* rawArgs)
   {
     if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
-      args->timedOut->store(true);
+      args->timedOut->store(1);
       return nullptr;
     }
 
@@ -371,7 +371,7 @@ void* RunSolvePhase(void* rawArgs)
         args->solver->SolveParsedUntil(args->root, context.querySource, args->deadline);
     if (context.solved.TimedOut)
     {
-      args->timedOut->store(true);
+      args->timedOut->store(1);
       return nullptr;
     }
   }
@@ -381,13 +381,13 @@ void* RunSolvePhase(void* rawArgs)
 
 struct CollectPhaseArgs
 {
-  std::vector<ShardQueryContext>* contexts = nullptr;
-  const std::vector<size_t>* matchedIndices = nullptr;
+  vector<ShardQueryContext>* contexts = nullptr;
+  const vector<size_t>* matchedIndices = nullptr;
   const vector<string>* queryTerms = nullptr;
   size_t begin = 0;
   size_t end = 0;
   SteadyTimePoint deadline = {};
-  std::atomic<bool>* timedOut = nullptr;
+  atomic_counter* timedOut = nullptr;
 };
 
 void* RunCollectPhase(void* rawArgs)
@@ -400,7 +400,7 @@ void* RunCollectPhase(void* rawArgs)
   {
     if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
-      args->timedOut->store(true);
+      args->timedOut->store(1);
       return nullptr;
     }
 
@@ -413,15 +413,15 @@ void* RunCollectPhase(void* rawArgs)
 
 struct RankPhaseArgs
 {
-  std::vector<ShardQueryContext>* contexts = nullptr;
-  const std::vector<size_t>* matchedIndices = nullptr;
+  vector<ShardQueryContext>* contexts = nullptr;
+  const vector<size_t>* matchedIndices = nullptr;
   const vector<string>* queryTerms = nullptr;
   size_t begin = 0;
   size_t end = 0;
   size_t candidateLimit = 0;
   SteadyTimePoint deadline = {};
-  std::atomic<bool>* timedOut = nullptr;
-  std::vector<PooledRankedHit>* output = nullptr;
+  atomic_counter* timedOut = nullptr;
+  vector<PooledRankedHit>* output = nullptr;
   const RankerWeights* weights = nullptr;
 };
 
@@ -460,7 +460,7 @@ void* RunRankPhase(void* rawArgs)
   {
     if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
-      args->timedOut->store(true);
+      args->timedOut->store(1);
       return nullptr;
     }
 
@@ -469,7 +469,7 @@ void* RunRankPhase(void* rawArgs)
     {
       if ((matchIndex & 63) == 0 && QueryExceededDeadline(args->deadline))
       {
-        args->timedOut->store(true);
+        args->timedOut->store(1);
         return nullptr;
       }
 
@@ -498,15 +498,15 @@ void* RunRankPhase(void* rawArgs)
   const vector<Ranker::RankedResult> topResults = ranker.TopResults();
   args->output->clear();
   for (size_t i = 0; i < topResults.size(); ++i)
-    args->output->push_back({topResults[i], topResults[i].shardOrdinal});
+    args->output->pushBack({topResults[i], topResults[i].shardOrdinal});
 
   return nullptr;
 }
 
-void LaunchSolvePhase(std::vector<ShardQueryContext>& contexts,
+void LaunchSolvePhase(vector<ShardQueryContext>& contexts,
                       const constraint_solver::ConstraintSolver& solver,
                       const constraint_solver::QueryNode* root, size_t workerCount,
-                      SteadyTimePoint deadline, std::atomic<bool>& timedOut)
+                      SteadyTimePoint deadline, atomic_counter& timedOut)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, contexts.size());
   if (phaseWorkers == 0)
@@ -547,9 +547,9 @@ void LaunchSolvePhase(std::vector<ShardQueryContext>& contexts,
   delete[] workers;
 }
 
-void LaunchCollectPhase(std::vector<ShardQueryContext>& contexts,
-                        const std::vector<size_t>& matchedIndices, const vector<string>& queryTerms,
-                        size_t workerCount, SteadyTimePoint deadline, std::atomic<bool>& timedOut)
+void LaunchCollectPhase(vector<ShardQueryContext>& contexts,
+                        const vector<size_t>& matchedIndices, const vector<string>& queryTerms,
+                        size_t workerCount, SteadyTimePoint deadline, atomic_counter& timedOut)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
   if (phaseWorkers == 0)
@@ -590,11 +590,11 @@ void LaunchCollectPhase(std::vector<ShardQueryContext>& contexts,
   delete[] workers;
 }
 
-void LaunchRankPhase(std::vector<ShardQueryContext>& contexts,
-                     const std::vector<size_t>& matchedIndices, const vector<string>& queryTerms,
+void LaunchRankPhase(vector<ShardQueryContext>& contexts,
+                     const vector<size_t>& matchedIndices, const vector<string>& queryTerms,
                      size_t workerCount, size_t candidateLimit, SteadyTimePoint deadline,
-                     std::atomic<bool>& timedOut,
-                     std::vector<std::vector<PooledRankedHit>>& workerOutputs,
+                     atomic_counter& timedOut,
+                     vector<vector<PooledRankedHit>>& workerOutputs,
                      const RankerWeights& weights)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
@@ -726,13 +726,13 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     return response;
   }
 
-  std::vector<ShardQueryContext> contexts;
+  vector<ShardQueryContext> contexts;
   contexts.reserve(shards_.size());
   for (size_t i = 0; i < shards_.size(); ++i)
-    contexts.emplace_back(shards_[i], i);
+    contexts.emplaceBack(shards_[i], i);
 
   const size_t shardWorkerCount = ResolveShardWorkerCount(shards_.size());
-  std::atomic<bool> timedOut(false);
+  atomic_counter timedOut(0);
 
   const auto solveStartedAt = std::chrono::steady_clock::now();
   LaunchSolvePhase(contexts, solver_, parsed.Root, shardWorkerCount, deadline, timedOut);
@@ -746,12 +746,12 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     return response;
   }
 
-  std::vector<size_t> matchedIndices;
+  vector<size_t> matchedIndices;
   matchedIndices.reserve(contexts.size());
   for (size_t i = 0; i < contexts.size(); ++i)
   {
     if (!contexts[i].solved.Matches.empty())
-      matchedIndices.push_back(i);
+      matchedIndices.pushBack(i);
     response.TotalHits += contexts[i].solved.Matches.size();
   }
 
@@ -768,7 +768,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   }
 
   const auto rankStartedAt = std::chrono::steady_clock::now();
-  std::vector<std::vector<PooledRankedHit>> workerOutputs;
+  vector<vector<PooledRankedHit>> workerOutputs;
   LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit, deadline,
                   timedOut, workerOutputs, weights);
   response.RankMs = DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
@@ -781,11 +781,11 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     return response;
   }
 
-  std::vector<PooledRankedHit> pooledHits;
+  vector<PooledRankedHit> pooledHits;
   for (size_t workerIndex = 0; workerIndex < workerOutputs.size(); ++workerIndex)
   {
     for (size_t i = 0; i < workerOutputs[workerIndex].size(); ++i)
-      pooledHits.push_back(workerOutputs[workerIndex][i]);
+      pooledHits.pushBack(workerOutputs[workerIndex][i]);
   }
 
   std::sort(pooledHits.begin(), pooledHits.end(),
