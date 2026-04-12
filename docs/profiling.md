@@ -51,6 +51,24 @@ search_benchmark → SearchService → solver / collect / ranker
 This profile is intended to show where CPU time is actually going. It excludes HTTP/network
 overhead and reports function-level hotspots instead of latency percentiles.
 
+### Live runtime profile (`av-live-profile`)
+
+The runtime container includes a DTrace-style live profiler for the long-running crawler and search
+processes. On Ubuntu it uses `bpftrace` by default because native `dtrace` support depends on host
+kernel/provider support. If a compatible `dtrace` binary is present in the container, set
+`AVENGINE_LIVE_PROFILE_BACKEND=dtrace`; otherwise `auto` uses `bpftrace`.
+
+Examples inside the runtime container:
+
+```bash
+av-live-profile 30 crawler
+av-live-profile 60 search
+AVENGINE_LIVE_PROFILE_BACKEND=bpftrace av-live-profile 120 all
+```
+
+Outputs are written under `/data/profiling/live/<timestamp>-<target>-<backend>/` and include raw
+trace output, process samples, thread snapshots, and `summary.md`.
+
 The HTTP query profile reads its query set from `profiling/fixtures/search_queries.tsv`. Each row
 defines a label, query text, and limit; profiles report the observed hit counts from the corpus
 being tested.
@@ -123,6 +141,20 @@ python3 profiling/scripts/run_search_cpu_profile.py \
   --output-benchmark artifacts/corpus_cpu_profile_benchmark.txt \
   --output-query-list artifacts/corpus_cpu_profile_queries.txt
 ```
+
+### Profile the running Docker service
+
+The deployed service stores runtime data on `/mnt/data1/avengine/data` by default, mounted as
+`/data` inside the container. The profiling compose overlay grants the tracing privileges and
+tracefs mounts needed by `bpftrace`.
+
+```bash
+docker exec avengine-runtime av-live-profile 30 crawler
+docker exec avengine-runtime av-live-profile 60 all
+```
+
+For local helper usage, `./run-container.sh up` includes the profiling overlay unless
+`AVENGINE_ENABLE_LIVE_PROFILING=0` is set.
 
 ### Full CI suite (crawler + HTTP search)
 

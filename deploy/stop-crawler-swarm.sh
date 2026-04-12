@@ -13,6 +13,8 @@ fi
 
 shopt -s nullglob
 for pid_file in "${DATA_ROOT}"/pids/crawler-*.pid; do
+  worker_name="$(basename "${pid_file}" .pid)"
+  [[ "${worker_name}" =~ ^crawler-[0-9]+$ ]] || continue
   pid="$(cat "${pid_file}")"
   if kill -0 "${pid}" 2>/dev/null; then
     kill "${pid}" 2>/dev/null || true

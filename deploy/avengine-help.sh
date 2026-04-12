@@ -8,7 +8,7 @@ Layout:
   /avengine   binaries and project assets
   /config     seed and block lists
   /data       persistent runtime state
-              crawler and aggregate services stop at AVENGINE_MAX_DATA_BYTES (default 48 GiB)
+              crawler and aggregate services stop at AVENGINE_MAX_DATA_BYTES (default 128 GiB)
   /logs       crawler and search logs
   /crawlers   per-worker crawl outputs
   /corpus     live merged shard directory
@@ -24,6 +24,8 @@ Commands:
   av-profile [output-dir] [auto|fixture|corpus]
                       Run crawler + search profiling inside the container
                       Live corpus mode waits 60s, refreshes /corpus, then profiles with live queries
+  av-live-profile [seconds] [crawler|search|all]
+                      Collect DTrace-style live runtime samples with dtrace or bpftrace
   av-serve [port] [index-dir] [--daemon]
                       Start search server on the given port
   av-stop-search      Stop background search server
@@ -39,6 +41,7 @@ Examples:
   av-watch 2
   av-profile
   av-profile /data/profiling corpus
+  av-live-profile 30 crawler
   av-promote-corpus-profile
   av-serve 8080
   av-serve 8080 /corpus --daemon

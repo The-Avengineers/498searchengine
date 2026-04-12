@@ -2,7 +2,7 @@
 set -euo pipefail
 
 DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
-MAX_DATA_BYTES="${AVENGINE_MAX_DATA_BYTES:-51539607552}"
+MAX_DATA_BYTES="${AVENGINE_MAX_DATA_BYTES:-137438953472}"
 
 format_bytes() {
   if command -v numfmt >/dev/null 2>&1; then
@@ -49,6 +49,8 @@ running_workers=0
 stale_workers=0
 shopt -s nullglob
 for pid_file in "${DATA_ROOT}"/pids/crawler-*.pid; do
+  worker_name="$(basename "${pid_file}" .pid)"
+  [[ "${worker_name}" =~ ^crawler-[0-9]+$ ]] || continue
   worker_count=$((worker_count + 1))
   pid="$(cat "${pid_file}")"
   if kill -0 "${pid}" 2>/dev/null; then
