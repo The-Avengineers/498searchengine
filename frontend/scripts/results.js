@@ -1,6 +1,15 @@
 (() => {
   "use strict";
 
+  const NAMED_HTML_ENTITIES = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: "\"",
+    apos: "'",
+    nbsp: " ",
+  };
+
   // core defaults + dom hooks for the results page
   const DEFAULT_PAGE_SIZE = 10;
   const MAX_PAGE_SIZE = 10;
@@ -197,9 +206,12 @@
 
       const url = pickString(raw, ["url", "link", "href", "document_url", "documentUrl"]);
       const safeUrl = sanitizeUrl(url);
-      const title =
+      const titleSource =
         pickString(raw, ["title", "name", "headline"]) || (safeUrl.length > 0 ? safeUrl : "Untitled result");
-      const snippet = pickString(raw, ["snippet", "description", "summary", "extract", "body"]);
+      const title = decodeHtmlEntities(titleSource);
+      const snippet = decodeHtmlEntities(
+        pickString(raw, ["snippet", "description", "summary", "extract", "body"])
+      );
       const score = formatScore(raw.score);
       const displayUrl = safeUrl.length > 0 ? compactUrl(safeUrl) : "URL unavailable";
 
@@ -212,6 +224,37 @@
       });
     }
     return output;
+  }
+
+  function decodeHtmlEntities(input) {
+    if (typeof input !== "string" || input.indexOf("&") === -1) {
+      return input;
+    }
+
+    return input.replace(/&(#(?:[xX][0-9A-Fa-f]+|\d+)|[A-Za-z][A-Za-z0-9]{1,31});?/g, (match, entity) => {
+      if (entity.charAt(0) === "#") {
+        const isHex = entity.charAt(1) === "x" || entity.charAt(1) === "X";
+        const digits = isHex ? entity.slice(2) : entity.slice(1);
+        const radix = isHex ? 16 : 10;
+        const codePoint = Number.parseInt(digits, radix);
+        if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+          return match;
+        }
+        if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
+          return match;
+        }
+        try {
+          return String.fromCodePoint(codePoint);
+        } catch (error) {
+          return match;
+        }
+      }
+
+      const named = entity.toLowerCase();
+      return Object.prototype.hasOwnProperty.call(NAMED_HTML_ENTITIES, named)
+        ? NAMED_HTML_ENTITIES[named]
+        : match;
+    });
   }
 
   function normalizeErrors(rawErrors) {
