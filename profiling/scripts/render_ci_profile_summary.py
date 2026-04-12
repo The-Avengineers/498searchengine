@@ -12,6 +12,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--crawler-json")
     parser.add_argument("--search-json", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--title", default="Profiling Summary",
+                        help="Top-level heading for the summary document")
     return parser.parse_args()
 
 
@@ -35,7 +37,7 @@ def main() -> int:
     )[:15]
 
     lines = [
-        "## Profiling Summary",
+        f"## {args.title}",
         "",
         "### Search HTTP",
         "",
