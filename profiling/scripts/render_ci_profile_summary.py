@@ -77,8 +77,9 @@ def main() -> int:
         ]
 
     for sample in top_samples:
+        hits = int(round(sample.get('mean_total_hits', sample.get('total_hits', 0))))
         lines.append(
-            f"| `{sample['query']}` | {sample.get('mean_total_hits', sample.get('total_hits', 0)):.2f} |"
+            f"| `{sample['query']}` | {hits} |"
             f" {sample['mean_client_ms']:.2f} |"
             f" {sample['p50_client_ms']:.2f} |"
             f" {sample['p95_client_ms']:.2f} |"
@@ -102,11 +103,12 @@ def main() -> int:
 
         zero_hit_coverage: list[str] = []
         for sample in coverage_samples:
-            if sample.get("mean_total_hits", sample.get("total_hits", 0)) <= 0:
+            hits = int(round(sample.get('mean_total_hits', sample.get('total_hits', 0))))
+            if hits <= 0:
                 zero_hit_coverage.append(sample["label"])
             lines.append(
                 f"| `{sample['label']}` | `{sample['query']}` |"
-                f" {sample.get('mean_total_hits', sample.get('total_hits', 0)):.2f} |"
+                f" {hits} |"
                 f" {sample['mean_client_ms']:.2f} |"
                 f" {sample['p50_client_ms']:.2f} |"
                 f" {sample['p95_client_ms']:.2f} |"

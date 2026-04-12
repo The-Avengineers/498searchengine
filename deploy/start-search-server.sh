@@ -16,6 +16,9 @@ if [[ ! -d "${INDEX_DIR}" ]]; then
   exit 1
 fi
 
+AVENGINE_ROOT="${AVENGINE_ROOT:-/avengine}"
+cd "${AVENGINE_ROOT}"
+
 if [[ "${MODE}" == "--daemon" || "${MODE}" == "daemon" ]]; then
   if [[ -f "${PID_FILE}" ]]; then
     existing_pid="$(cat "${PID_FILE}")"

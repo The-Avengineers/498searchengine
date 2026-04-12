@@ -97,6 +97,8 @@ COPY --from=builder /src/profiling/fixtures/search_corpus.tsv /avengine/profilin
 COPY --from=builder /src/profiling/fixtures/search_queries.tsv /avengine/profiling/fixtures/search_queries.tsv
 COPY --from=builder /src/profiling/fixtures/live_search_queries.tsv /avengine/profiling/fixtures/live_search_queries.tsv
 COPY --from=builder /src/profiling/fixtures/crawl_pages /avengine/profiling/fixtures/crawl_pages
+COPY --from=builder /src/frontend /avengine/frontend
+COPY --from=builder /src/ranker_weights.conf /avengine/ranker_weights.conf
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     /avengine/bin/data-limit.sh \
