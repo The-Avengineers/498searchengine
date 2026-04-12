@@ -325,11 +325,69 @@ async function testFailedSearchStillReportsElapsedTime() {
   assert.equal(refs.pagination.hidden, true, "failed searches should not show pagination");
 }
 
+async function testDecodesHtmlEntitiesButKeepsTextSafe() {
+  const { document, refs } = buildDom();
+
+  global.document = document;
+  global.window = {
+    location: { search: "?q=google" },
+    localStorage: createLocalStorage(),
+    AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [10, 14];
+      return () => values.shift();
+    })(),
+  };
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        query: "google",
+        page: 1,
+        limit: 10,
+        total_hits: 1,
+        errors: [],
+        results: [
+          {
+            url: "https://developers.google.com/youtube",
+            title:
+              "YouTube&nbsp;|&nbsp;Google for Developers &amp; Friends &#39; &#x3C;script&#x3E;alert(1)&#x3C;/script&#x3E;",
+            snippet: "Privacy &amp; Terms &#39; &#x3C;b&#x3E;safe&#x3C;/b&#x3E;",
+            score: 1.0,
+          },
+        ],
+      }),
+  });
+
+  runResultsScript();
+  await flushMicrotasks();
+
+  const firstCard = refs.list.children[0];
+  const titleNode = firstCard.children[1].children[0];
+  const snippetNode = firstCard.children[2];
+
+  assert.equal(
+    titleNode.textContent,
+    "YouTube | Google for Developers & Friends ' <script>alert(1)</script>"
+  );
+  assert.equal(snippetNode.textContent, "Privacy & Terms ' <b>safe</b>");
+  assert.equal(
+    titleNode.textContent.includes("&nbsp;") || titleNode.textContent.includes("&amp;"),
+    false,
+    "entity sequences should be decoded before render"
+  );
+}
+
 async function main() {
   await testRendersApiResults();
   await testPaginatesResultsArray();
   await testEmptyQuerySkipsFetch();
   await testFailedSearchStillReportsElapsedTime();
+  await testDecodesHtmlEntitiesButKeepsTextSafe();
   console.log("frontend_results_test passed");
 }
 
