@@ -15,6 +15,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
 
     steps:
       - name: Checkout
@@ -41,15 +43,7 @@ jobs:
 
       - name: Copy persistent corpus profile from runtime container
         run: |
-          if ! docker inspect avengine-runtime >/dev/null 2>&1; then
-            echo "::error::Container avengine-runtime was not found on this runner. Route this job to the dedicated avengine-runtime self-hosted runner and deploy the long-lived runtime service first."
-            exit 1
-          fi
-          running=$(docker inspect -f '{{.State.Running}}' avengine-runtime)
-          if [[ "${running}" != "true" ]]; then
-            echo "::error::Container avengine-runtime is not running. Restore the long-lived runtime service on the dedicated avengine-runtime runner before running corpus-profile."
-            exit 1
-          fi
+          bash deploy/wait-runtime-ready.sh 120
           remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
           if [[ "${remote_count}" -eq 0 ]]; then
             echo "::error::No promoted profiling shards found at /var/lib/avengine/corpus-profile/current. Push to master or run the live crawl workflow to build the persistent corpus first."

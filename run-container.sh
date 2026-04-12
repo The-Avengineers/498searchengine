@@ -9,6 +9,8 @@ SERVICE_NAME="avengine"
 CONTAINER_NAME="avengine-runtime"
 SSH_PORT="${AVENGINE_SSH_PORT:-2222}"
 HOST_DATA_ROOT="${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}"
+ENGINE_UID="${AVENGINE_DATA_UID:-1000}"
+ENGINE_GID="${AVENGINE_DATA_GID:-1000}"
 export DOCKER_CONTEXT="${DOCKER_CONTEXT:-default}"
 
 usage() {
@@ -26,6 +28,8 @@ commands:
 Environment:
   DOCKER_CONTEXT=default  use the host Docker Engine so /mnt/data1 bind mounts work
   AVENGINE_HOST_DATA_ROOT=/mnt/data1/avengine/data
+  AVENGINE_DATA_UID=1000 AVENGINE_DATA_GID=1000
+  AVENGINE_REPAIR_DATA_OWNERSHIP=0  skip host data chown repair
   AVENGINE_ENABLE_LIVE_PROFILING=1  include profiling privileges and tracefs mounts
 EOF
 }
@@ -53,7 +57,32 @@ ensure_pubkey() {
 }
 
 ensure_data_root() {
-  install -d -m 755 "${HOST_DATA_ROOT}"
+  local dirs=(
+    "${HOST_DATA_ROOT}"
+    "${HOST_DATA_ROOT}/logs"
+    "${HOST_DATA_ROOT}/pids"
+    "${HOST_DATA_ROOT}/crawlers"
+    "${HOST_DATA_ROOT}/corpus-index/generations"
+    "${HOST_DATA_ROOT}/corpus-profile/generations"
+    "${HOST_DATA_ROOT}/profiling"
+  )
+
+  if ! install -d -m 775 "${dirs[@]}" 2>/dev/null; then
+    sudo -n install -d -m 775 "${dirs[@]}"
+  fi
+
+  if [[ "${AVENGINE_REPAIR_DATA_OWNERSHIP:-1}" == "0" ]]; then
+    return
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown -R "${ENGINE_UID}:${ENGINE_GID}" "${HOST_DATA_ROOT}"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo chown -R "${ENGINE_UID}:${ENGINE_GID}" "${HOST_DATA_ROOT}"
+  else
+    echo "warning: could not repair ${HOST_DATA_ROOT} ownership without passwordless sudo" >&2
+    echo "warning: run: sudo chown -R ${ENGINE_UID}:${ENGINE_GID} ${HOST_DATA_ROOT}" >&2
+  fi
 }
 
 compose() {
