@@ -1,8 +1,10 @@
 {
-	"name": "search-cli",
+	"name": "avengine",
 	"version": "0.0.0",
 	"license": "MIT",
-	"bin": "dist/cli.js",
+	"bin": {
+		"avengine": "dist/source/cli.js"
+	},
 	"type": "module",
 	"engines": {
 		"node": ">=16"
@@ -10,12 +12,14 @@
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc --watch",
-		"test": "prettier --check . && xo && ava"
+		"test": "prettier --check . && xo",
+		"cli": "node dist/source/cli.js"
 	},
 	"files": [
 		"dist"
 	],
 	"dependencies": {
+		"cfonts": "^3.3.0",
 		"ink": "^4.1.0",
 		"meow": "^11.0.0",
 		"react": "^18.2.0"
@@ -48,7 +52,12 @@
 		"extends": "xo-react",
 		"prettier": true,
 		"rules": {
-			"react/prop-types": "off"
+			"complexity": "off",
+			"@typescript-eslint/ban-ts-comment": "off",
+			"@typescript-eslint/naming-convention": "off",
+			"react/prop-types": "off",
+			"unicorn/expiring-todo-comments": "off",
+			"unicorn/filename-case": "off"
 		}
 	},
 	"prettier": "@vdemedes/prettier-config"
