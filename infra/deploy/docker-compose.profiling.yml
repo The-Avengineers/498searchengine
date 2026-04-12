@@ -1,0 +1,19 @@
+services:
+  avengine:
+    privileged: true
+    pid: host
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+      - BPF
+    volumes:
+      - type: bind
+        source: /sys/kernel/debug
+        target: /sys/kernel/debug
+      - type: bind
+        source: /sys/kernel/tracing
+        target: /sys/kernel/tracing

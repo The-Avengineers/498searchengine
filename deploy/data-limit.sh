@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 DATA_ROOT="${AVENGINE_DATA_ROOT:-/data}"
-MAX_DATA_BYTES="${AVENGINE_MAX_DATA_BYTES:-51539607552}"
+MAX_DATA_BYTES="${AVENGINE_MAX_DATA_BYTES:-137438953472}"
 
 validate_data_limit_env() {
   if ! [[ "${MAX_DATA_BYTES}" =~ ^[0-9]+$ ]]; then

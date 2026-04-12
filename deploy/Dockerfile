@@ -35,7 +35,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
   openssh-server \
   ca-certificates \
+  binutils \
+  bpftrace \
+  procps \
   python3 \
+  psmisc \
+  sudo \
   libssl3t64 \
   zlib1g \
   && rm -rf /var/lib/apt/lists/* \
@@ -77,6 +82,7 @@ COPY --from=builder /src/deploy/avengine-help.sh /avengine/bin/avengine-help.sh
 COPY --from=builder /src/deploy/avengine-stats.sh /avengine/bin/avengine-stats.sh
 COPY --from=builder /src/deploy/avengine-watch.sh /avengine/bin/avengine-watch.sh
 COPY --from=builder /src/deploy/avengine-profile.sh /avengine/bin/avengine-profile.sh
+COPY --from=builder /src/deploy/avengine-live-profile.sh /avengine/bin/avengine-live-profile.sh
 COPY --from=builder /src/seed_list.txt /avengine/config/seed_list.txt
 COPY --from=builder /src/banned_urls.txt /avengine/config/banned_urls.txt
 COPY --from=builder /src/banned_words.txt /avengine/config/banned_words.txt
@@ -111,6 +117,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     /avengine/bin/avengine-stats.sh \
     /avengine/bin/avengine-watch.sh \
     /avengine/bin/avengine-profile.sh \
+    /avengine/bin/avengine-live-profile.sh \
     /avengine/profiling/run_profiles.sh \
     /avengine/profiling/scripts/profile_query_pipeline.sh \
     && ln -s /avengine/bin/avengine-start.sh /usr/local/bin/av-start \
@@ -119,6 +126,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     && ln -s /avengine/bin/avengine-stats.sh /usr/local/bin/av-stats \
     && ln -s /avengine/bin/avengine-watch.sh /usr/local/bin/av-watch \
     && ln -s /avengine/bin/avengine-profile.sh /usr/local/bin/av-profile \
+    && ln -s /avengine/bin/avengine-live-profile.sh /usr/local/bin/av-live-profile \
     && ln -s /avengine/bin/start-crawler-supervisor.sh /usr/local/bin/av-start-crawlers \
     && ln -s /avengine/bin/stop-crawler-supervisor.sh /usr/local/bin/av-stop-crawler-supervisor \
     && ln -s /avengine/bin/stop-crawler-swarm.sh /usr/local/bin/av-stop-crawlers \
@@ -128,6 +136,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     && ln -s /avengine/bin/start-search-server.sh /usr/local/bin/av-serve \
     && ln -s /avengine/bin/stop-search-server.sh /usr/local/bin/av-stop-search \
     && ln -s /avengine/bin/avengine-status.sh /usr/local/bin/av-status \
+    && printf 'engine ALL=(root) NOPASSWD: /avengine/bin/avengine-live-profile.sh, /avengine/bin/avengine-live-profile.sh *\n' > /etc/sudoers.d/avengine-live-profile \
+    && chmod 440 /etc/sudoers.d/avengine-live-profile \
     && printf 'export PATH=/avengine/bin:$PATH\n' > /etc/profile.d/avengine-path.sh \
     && cat > /etc/profile.d/avengine-shell.sh <<'EOF'
 if [[ $- == *i* ]]; then
@@ -136,6 +146,7 @@ if [[ $- == *i* ]]; then
   echo "AVEngine container"
   echo "  Layout: /avengine  /config  /data  /logs  /crawlers  /corpus  /profiling"
   echo "  Commands: av-help  av-status  av-stats  av-watch [seconds]  av-profile"
+  echo "            av-live-profile [seconds] [crawler|search|all]"
   echo "            av-start  av-stop  av-serve [port] [index-dir] [--daemon]"
   echo "            av-start-crawlers  av-stop-crawler-supervisor  av-stop-crawlers"
   echo "            av-start-aggregate  av-stop-aggregate  av-promote-corpus-profile  av-stop-search"

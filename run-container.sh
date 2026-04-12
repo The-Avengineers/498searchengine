@@ -4,9 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_DIR="${SCRIPT_DIR}/infra/deploy"
 COMPOSE_FILE="docker-compose.avengine.yml"
+COMPOSE_PROFILING_FILE="docker-compose.profiling.yml"
 SERVICE_NAME="avengine"
 CONTAINER_NAME="avengine-runtime"
 SSH_PORT="${AVENGINE_SSH_PORT:-2222}"
+HOST_DATA_ROOT="${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}"
+export DOCKER_CONTEXT="${DOCKER_CONTEXT:-default}"
 
 usage() {
   cat <<'EOF'
@@ -18,6 +21,12 @@ commands:
   logs     Follow container logs
   ssh      SSH into the running container as engine
   status   Show compose status
+  config   Show resolved compose config
+
+Environment:
+  DOCKER_CONTEXT=default  use the host Docker Engine so /mnt/data1 bind mounts work
+  AVENGINE_HOST_DATA_ROOT=/mnt/data1/avengine/data
+  AVENGINE_ENABLE_LIVE_PROFILING=1  include profiling privileges and tracefs mounts
 EOF
 }
 
@@ -43,10 +52,18 @@ ensure_pubkey() {
   AVENGINE_SSH_PUBKEY="$(<"${key_path}")"
 }
 
+ensure_data_root() {
+  install -d -m 755 "${HOST_DATA_ROOT}"
+}
+
 compose() {
   (
     cd "${COMPOSE_DIR}"
-    docker compose -f "${COMPOSE_FILE}" "$@"
+    local compose_args=(-f "${COMPOSE_FILE}")
+    if [[ "${AVENGINE_ENABLE_LIVE_PROFILING:-1}" != "0" ]]; then
+      compose_args+=(-f "${COMPOSE_PROFILING_FILE}")
+    fi
+    docker compose "${compose_args[@]}" "$@"
   )
 }
 
@@ -55,6 +72,7 @@ cmd="${1:-}"
 case "${cmd}" in
   up)
     ensure_pubkey
+    ensure_data_root
     compose up --build -d
     compose ps
     ;;
@@ -70,6 +88,9 @@ case "${cmd}" in
     ;;
   status)
     compose ps
+    ;;
+  config)
+    compose config
     ;;
   ""|-h|--help|help)
     usage

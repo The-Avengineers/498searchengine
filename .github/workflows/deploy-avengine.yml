@@ -36,18 +36,26 @@ jobs:
       - name: Deploy container
         shell: bash
         env:
+          DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
           AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
-          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
-          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '64' }}
+          AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
+          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '16' }}
+          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
           AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
+          AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
         run: |
+          sudo install -d -m 755 "${AVENGINE_HOST_DATA_ROOT}"
           docker compose \
             -f infra/deploy/docker-compose.avengine.yml \
+            -f infra/deploy/docker-compose.profiling.yml \
             up -d --build --remove-orphans
 
       - name: Deployment status
         shell: bash
         run: |
-          docker compose -f infra/deploy/docker-compose.avengine.yml ps
+          docker compose \
+            -f infra/deploy/docker-compose.avengine.yml \
+            -f infra/deploy/docker-compose.profiling.yml \
+            ps
           docker exec avengine-runtime /usr/local/bin/av-status
