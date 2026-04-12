@@ -44,8 +44,21 @@ jobs:
           AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
           AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
           AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
+          AVENGINE_DATA_UID: ${{ vars.AVENGINE_DATA_UID || '1000' }}
+          AVENGINE_DATA_GID: ${{ vars.AVENGINE_DATA_GID || '1000' }}
+          AVENGINE_REPAIR_DATA_OWNERSHIP: ${{ vars.AVENGINE_REPAIR_DATA_OWNERSHIP || '1' }}
         run: |
-          sudo install -d -m 755 "${AVENGINE_HOST_DATA_ROOT}"
+          sudo install -d -m 775 \
+            "${AVENGINE_HOST_DATA_ROOT}" \
+            "${AVENGINE_HOST_DATA_ROOT}/logs" \
+            "${AVENGINE_HOST_DATA_ROOT}/pids" \
+            "${AVENGINE_HOST_DATA_ROOT}/crawlers" \
+            "${AVENGINE_HOST_DATA_ROOT}/corpus-index/generations" \
+            "${AVENGINE_HOST_DATA_ROOT}/corpus-profile/generations" \
+            "${AVENGINE_HOST_DATA_ROOT}/profiling"
+          if [[ "${AVENGINE_REPAIR_DATA_OWNERSHIP}" != "0" ]]; then
+            sudo chown -R "${AVENGINE_DATA_UID}:${AVENGINE_DATA_GID}" "${AVENGINE_HOST_DATA_ROOT}"
+          fi
           docker compose \
             -f infra/deploy/docker-compose.avengine.yml \
             -f infra/deploy/docker-compose.profiling.yml \
@@ -53,9 +66,18 @@ jobs:
 
       - name: Deployment status
         shell: bash
+        env:
+          DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
+          AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
+          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
+          AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
+          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '16' }}
+          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
+          AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
+          AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
         run: |
           docker compose \
             -f infra/deploy/docker-compose.avengine.yml \
             -f infra/deploy/docker-compose.profiling.yml \
             ps
-          docker exec avengine-runtime /usr/local/bin/av-status
+          bash deploy/wait-runtime-ready.sh 120
