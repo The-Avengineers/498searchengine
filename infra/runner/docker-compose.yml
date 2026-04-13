@@ -6,17 +6,16 @@ services:
     env_file:
       - .env
     environment:
-      RUNNER_NAME: ${RUNNER_NAME:-avengine-desktop-runner}
+      RUNNER_NAME: ""
+      RUNNER_NAME_PREFIX: ${RUNNER_NAME_PREFIX:-avengine-desktop-runner}
+      RANDOM_RUNNER_SUFFIX: "true"
       RUNNER_WORKDIR: /tmp/runner/work
       RUNNER_SCOPE: repo
-      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-config
-      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
       LABELS: ${RUNNER_LABELS:-self-hosted,linux,x64,avengine,avengine-runtime}
       RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,linux,x64,avengine,avengine-runtime}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - runner-data:/tmp/runner
-      - runner-config:/runner-config
 
   github-runner-2:
     image: myoung34/github-runner:latest
@@ -25,17 +24,16 @@ services:
     env_file:
       - .env
     environment:
-      RUNNER_NAME: ${RUNNER_NAME_2:-avengine-desktop-runner-2}
+      RUNNER_NAME: ""
+      RUNNER_NAME_PREFIX: ${RUNNER_NAME_PREFIX_2:-avengine-desktop-runner-2}
+      RANDOM_RUNNER_SUFFIX: "true"
       RUNNER_WORKDIR: /tmp/runner/work
       RUNNER_SCOPE: repo
-      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-config
-      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
       LABELS: ${RUNNER_LABELS_2:-self-hosted,linux,x64,avengine,avengine-runtime}
       RUNNER_LABELS: ${RUNNER_LABELS_2:-self-hosted,linux,x64,avengine,avengine-runtime}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - runner-data-2:/tmp/runner
-      - runner-config-2:/runner-config
 
   github-runner-3:
     image: myoung34/github-runner:latest
@@ -44,22 +42,18 @@ services:
     env_file:
       - .env
     environment:
-      RUNNER_NAME: ${RUNNER_NAME_3:-avengine-desktop-runner-3}
+      RUNNER_NAME: ""
+      RUNNER_NAME_PREFIX: ${RUNNER_NAME_PREFIX_3:-avengine-desktop-runner-3}
+      RANDOM_RUNNER_SUFFIX: "true"
       RUNNER_WORKDIR: /tmp/runner/work
       RUNNER_SCOPE: repo
-      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-config
-      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
       LABELS: ${RUNNER_LABELS_3:-self-hosted,linux,x64,avengine,avengine-runtime}
       RUNNER_LABELS: ${RUNNER_LABELS_3:-self-hosted,linux,x64,avengine,avengine-runtime}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - runner-data-3:/tmp/runner
-      - runner-config-3:/runner-config
 
 volumes:
   runner-data:
   runner-data-2:
   runner-data-3:
-  runner-config:
-  runner-config-2:
-  runner-config-3:
