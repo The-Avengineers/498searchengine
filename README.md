@@ -1,5 +1,22 @@
 # 498searchengine
 
+## CLI
+
+A terminal UI for searching, crawler management, live stats, and remote deploy container access is available in [`search-cli/`](search-cli/README.md).
+
+```bash
+cd search-cli && npm install && npm install -g .
+avengine                                    # interactive TUI
+avengine query "spider man" --verbose       # one-shot search
+avengine stats                              # live crawler stats
+avengine open                               # start server + open browser
+AVENGINE_SSH_HOST=myhost avengine open      # tunnel to remote container
+```
+
+See [`search-cli/README.md`](search-cli/README.md) for the full reference.
+
+---
+
 ## How To Run
 
 ### Local single-node search
