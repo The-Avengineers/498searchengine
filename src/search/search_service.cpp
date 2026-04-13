@@ -833,8 +833,9 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     if (log != nullptr)
     {
       static const char* kNames[] = {
-          "exact_phrase", "correct_ordering", "early_query_term", "term_coverage",
-          "query_occurrence", "short_title", "short_url", "domain", "url_depth", "url_path_depth",
+          "exact_phrase",     "correct_ordering", "early_query_term", "term_coverage",
+          "query_occurrence", "short_title",      "short_url",        "domain",
+          "url_depth",        "url_path_depth",
       };
       static const size_t kNamesLen = sizeof(kNames) / sizeof(kNames[0]);
 
@@ -848,8 +849,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
         if (seen && *seen != 0)
           continue;
         logSeen.insert(url, 1u);
-        fprintf(log, "  #%zu total=%.4f %s\n", rank + 1,
-                pooledHits[i].ranked.score, url.cstr());
+        fprintf(log, "  #%zu total=%.4f %s\n", rank + 1, pooledHits[i].ranked.score, url.cstr());
         const vector<double>& ss = pooledHits[i].ranked.strategy_scores;
         for (size_t s = 0; s < ss.size() && s < kNamesLen; ++s)
           fprintf(log, "        %-22s %.4f\n", kNames[s], ss[s]);

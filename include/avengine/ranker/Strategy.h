@@ -460,7 +460,7 @@ public:
     }
 
     if (segments == 0)
-      return 1.0; 
+      return 1.0;
     if (segments >= max_depth)
       return 0.0;
     return static_cast<double>(max_depth - segments) / static_cast<double>(max_depth);

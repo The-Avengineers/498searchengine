@@ -93,8 +93,8 @@ vector<Ranker::RankedResult> Ranker::TopResults() const
 }
 
 double Ranker::ScoreDetailed(const urlEntry& url_entry,
-                              const vector<vector<size_t>>& term_positions,
-                              const RankSignals& signals, vector<double>& out_scores) const
+                             const vector<vector<size_t>>& term_positions,
+                             const RankSignals& signals, vector<double>& out_scores) const
 {
   double combined = 0.0;
   out_scores.clear();
