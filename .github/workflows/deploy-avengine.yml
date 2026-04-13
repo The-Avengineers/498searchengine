@@ -38,7 +38,8 @@ jobs:
         env:
           DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
-          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
+          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '22222' }}
+          AVENGINE_HTTP_PORT: ${{ vars.AVENGINE_HTTP_PORT || '18080' }}
           AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
           AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
           AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
@@ -69,7 +70,8 @@ jobs:
         env:
           DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
-          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '2222' }}
+          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '22222' }}
+          AVENGINE_HTTP_PORT: ${{ vars.AVENGINE_HTTP_PORT || '18080' }}
           AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
           AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
           AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}

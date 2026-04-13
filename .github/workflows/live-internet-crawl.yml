@@ -5,13 +5,18 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Deploy avengine
+    types:
+      - completed
     branches:
       - master
   workflow_dispatch:
 
 jobs:
   live-crawl:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, linux, x64, avengine-runtime]
     timeout-minutes: 120
     permissions:

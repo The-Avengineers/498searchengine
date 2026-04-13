@@ -6,11 +6,18 @@ concurrency:
 
 on:
   pull_request:
-  push:
+  workflow_run:
+    workflows:
+      - Live Internet Crawl
+    types:
+      - completed
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
   corpus-profile:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, linux, x64, avengine-runtime]
     timeout-minutes: 90
     permissions:
@@ -43,6 +50,7 @@ jobs:
 
       - name: Copy persistent corpus profile from runtime container
         run: |
+          bash deploy/wait-runtime-ready.sh 600
           remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
           if [[ "${remote_count}" -eq 0 ]]; then
             echo "::error::No promoted profiling shards found at /var/lib/avengine/corpus-profile/current. Push to master or run the live crawl workflow to build the persistent corpus first."
