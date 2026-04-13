@@ -48,7 +48,8 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
     return;
 
   // When full, skip scoring entirely if this candidate can't beat the weakest result.
-  const double new_score = Score(entry, term_positions, signals);
+  vector<double> per_strategy;
+  const double new_score = ScoreDetailed(entry, term_positions, signals, per_strategy);
   if (Top10.size() == MaxResults_ && new_score <= Top10.top().score)
     return;
 
@@ -56,6 +57,7 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   candidate.entry = entry;
   candidate.title = title;
   candidate.score = new_score;
+  candidate.strategy_scores = per_strategy;
   candidate.shardOrdinal = shardOrdinal;
   candidate.insertionIndex = insertionCount_++;
 
@@ -90,23 +92,34 @@ vector<Ranker::RankedResult> Ranker::TopResults() const
   return result;
 }
 
-double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
-                     const RankSignals& signals) const
+double Ranker::ScoreDetailed(const urlEntry& url_entry,
+                              const vector<vector<size_t>>& term_positions,
+                              const RankSignals& signals, vector<double>& out_scores) const
 {
   double combined = 0.0;
+  out_scores.clear();
 
   for (size_t i = 0; i < Strategies.size(); ++i)
   {
     const WeightedStrategy& weighted = Strategies[i];
     if (weighted.strategy == nullptr)
     {
-      return 0.0;
+      out_scores.pushBack(0.0);
+      continue;
     }
-
-    combined += weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+    const double s = weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+    out_scores.pushBack(s);
+    combined += s;
   }
 
   return combined;
+}
+
+double Ranker::Score(const urlEntry& url_entry, const vector<vector<size_t>>& term_positions,
+                     const RankSignals& signals) const
+{
+  vector<double> ignored;
+  return ScoreDetailed(url_entry, term_positions, signals, ignored);
 }
 
 } // namespace avengine

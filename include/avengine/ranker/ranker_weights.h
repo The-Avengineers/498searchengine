@@ -17,6 +17,7 @@ namespace avengine
 //   7. short_url
 //   8. domain
 //   9. url_depth
+//  10. url_path_depth
 struct RankerWeights
 {
   double exact_phrase{2.4};
@@ -28,6 +29,7 @@ struct RankerWeights
   double short_url{0.15};
   double domain{0.1};
   double url_depth{0.15};
+  double url_path_depth{0.5};
 };
 
 // Load weights from path
@@ -87,6 +89,8 @@ inline RankerWeights LoadRankerWeights(const char* path)
       w.domain = v;
     else if (strcmp(key, "url_depth") == 0)
       w.url_depth = v;
+    else if (strcmp(key, "url_path_depth") == 0)
+      w.url_path_depth = v;
   }
 
   fclose(f);

@@ -85,6 +85,12 @@ public:
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const RankSignals& signals) const;
 
+  /**
+   * Same as Score but also fills out_scores with each strategy's weighted contribution.
+   */
+  double ScoreDetailed(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+                       const RankSignals& signals, vector<double>& out_scores) const;
+
   struct RankedResult
   {
     urlEntry entry;
@@ -92,6 +98,7 @@ public:
     double score{0.0};
     size_t shardOrdinal{0};
     size_t insertionIndex{0};
+    vector<double> strategy_scores; // raw weighted score per strategy, in AddStrategy order
 
     // Min-heap ordering
     // Evict lower scores first and for equal scores evict newer items bc found later in index

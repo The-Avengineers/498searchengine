@@ -51,7 +51,7 @@ string SearchLogger::logSearch(const string& query, const vector<Ranker::RankedR
   {
     log.urls_shown.pushBack(results[i].entry.url);
     log.final_scores.pushBack(results[i].score);
-    log.feature_scores.pushBack(vector<double>());
+    log.feature_scores.pushBack(results[i].strategy_scores);
   }
 
   lock_guard<mutex> guard(mu_);

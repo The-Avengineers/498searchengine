@@ -5,6 +5,8 @@
 #include <avengine/constraint_solver/constraint_solver.h>
 #include <avengine/ranker/ranker_weights.h>
 
+#include <cstdio>
+
 namespace avengine
 {
 namespace search
