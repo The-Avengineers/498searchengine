@@ -80,4 +80,3 @@ jobs:
             -f infra/deploy/docker-compose.avengine.yml \
             -f infra/deploy/docker-compose.profiling.yml \
             ps
-          bash deploy/wait-runtime-ready.sh 120
