@@ -40,7 +40,9 @@ class LinkParser(html.parser.HTMLParser):
         super().__init__()
         self.links: list[str] = []
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
         if tag != "a":
             return
         for key, value in attrs:
@@ -59,7 +61,9 @@ class ManifestEntry:
     def disk_dir(self) -> str:
         match = re.search(r"/mnt/(crawler-[^/]+)/", self.source_path)
         if not match:
-            raise ValueError(f"Could not determine disk directory from {self.source_path}")
+            raise ValueError(
+                f"Could not determine disk directory from {self.source_path}"
+            )
         return match.group(1)
 
     @property
@@ -72,14 +76,16 @@ class ManifestEntry:
 
     @property
     def local_relative_path(self) -> Path:
-        return Path(self.disk_dir) / self.remote_filename
+        return Path(self.archive_name)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download all files for the index group containing a given chunk id"
     )
-    parser.add_argument("chunk_id", help="Chunk id to look up, e.g. 24 or 00024")
+    parser.add_argument(
+        "chunk_id", help="Chunk id to look up, e.g. 24 or 00024"
+    )
     parser.add_argument(
         "--base-url",
         default="http://34.24.237.188/",
@@ -115,13 +121,19 @@ def fetch_text(url: str) -> str:
 
 
 def list_group_manifests(base_url: str) -> list[str]:
-    listing_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "crawler-0-disk/")
+    listing_url = urllib.parse.urljoin(
+        base_url.rstrip("/") + "/", "crawler-0-disk/"
+    )
     html = fetch_text(listing_url)
     parser = LinkParser()
     parser.feed(html)
-    manifests = sorted({link for link in parser.links if GROUP_RE.search(link)})
+    manifests = sorted(
+        {link for link in parser.links if GROUP_RE.search(link)}
+    )
     if not manifests:
-        raise RuntimeError(f"No index_group_XXX.txt manifests found at {listing_url}")
+        raise RuntimeError(
+            f"No index_group_XXX.txt manifests found at {listing_url}"
+        )
     return manifests
 
 
@@ -146,7 +158,9 @@ def parse_manifest(text: str) -> list[ManifestEntry]:
     return entries
 
 
-def find_manifest_for_chunk(base_url: str, chunk_id: str) -> tuple[str, list[ManifestEntry]]:
+def find_manifest_for_chunk(
+    base_url: str, chunk_id: str
+) -> tuple[str, list[ManifestEntry]]:
     for manifest_name in list_group_manifests(base_url):
         manifest_url = urllib.parse.urljoin(
             base_url.rstrip("/") + "/", f"crawler-0-disk/{manifest_name}"
@@ -159,7 +173,9 @@ def find_manifest_for_chunk(base_url: str, chunk_id: str) -> tuple[str, list[Man
 
 def download_file(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(url) as response, destination.open("wb") as out:
+    with urllib.request.urlopen(url) as response, destination.open(
+        "wb"
+    ) as out:
         while True:
             block = response.read(1024 * 1024)
             if not block:
@@ -178,7 +194,9 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    manifest_url = urllib.parse.urljoin(base_url, f"crawler-0-disk/{manifest_name}")
+    manifest_url = urllib.parse.urljoin(
+        base_url, f"crawler-0-disk/{manifest_name}"
+    )
     output_dir: Path = args.output_dir
 
     print(f"Chunk id: {chunk_id}")
@@ -186,22 +204,23 @@ def main() -> int:
     print(f"Manifest URL: {manifest_url}")
     print(f"Files in group: {len(entries)}")
 
-    if args.dry_run:
-        for entry in entries:
-            print(f"  {entry.remote_relative_path} -> {entry.local_relative_path}")
-        return 0
-
     try:
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if not args.dry_run:
+            output_dir.mkdir(parents=True, exist_ok=True)
         manifest_destination = output_dir / manifest_name
-        download_file(manifest_url, manifest_destination)
+
+        if not args.dry_run:
+            download_file(manifest_url, manifest_destination)
         print(f"Saved manifest to {manifest_destination}")
 
         for entry in entries:
-            file_url = urllib.parse.urljoin(base_url, entry.remote_relative_path)
+            file_url = urllib.parse.urljoin(
+                base_url, entry.remote_relative_path
+            )
             destination = output_dir / entry.local_relative_path
             print(f"Downloading {file_url} -> {destination}")
-            download_file(file_url, destination)
+            if not args.dry_run:
+                download_file(file_url, destination)
     except (OSError, urllib.error.URLError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

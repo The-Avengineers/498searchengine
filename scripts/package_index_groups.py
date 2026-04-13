@@ -7,14 +7,17 @@ This script:
   `anchor_00042.sfi` always land in the same group
 - stripes units round-robin across groups so earlier chunks are spread across
   different outputs
-- writes one text file per group listing the files assigned to that group
+- writes one text file per group listing the flattened files assigned to it
 - uses estimated plain `.tar` sizes to ensure each group would fit strictly
   under the requested size limit if archived later
 
-Archive member names are represented in a flat layout. To avoid collisions
-across disks, each file is prefixed with a short disk label based on input
-order: `A_`, `B_`, `C_`, and so on. For the default two disks, members look
-like `A_00042.sfi` or `B_anchor_00042.sfi`.
+Each output line is tab-separated:
+- column 1: flattened downloaded filename
+- column 2: original source path
+
+To avoid collisions across disks, flattened names are prefixed with a short
+ disk label based on input order: `A_`, `B_`, `C_`, and so on. For the default
+ two disks, names look like `A_00042.sfi` or `B_anchor_00042.sfi`.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ INDEX_RE = re.compile(r"^(anchor_)?(\d{5})\.sfi$")
 @dataclass(frozen=True)
 class SourceFile:
     source_path: Path
-    archive_path: str
+    downloaded_name: str
     size_bytes: int
 
     @property
@@ -130,7 +133,7 @@ def collect_units(disks: list[Path]) -> list[ChunkUnit]:
             unit.files.append(
                 SourceFile(
                     source_path=child,
-                    archive_path=f"{disk_label}_{child.name}",
+                    downloaded_name=f"{disk_label}_{child.name}",
                     size_bytes=child.stat().st_size,
                 )
             )
@@ -141,7 +144,7 @@ def collect_units(disks: list[Path]) -> list[ChunkUnit]:
         )
 
     for unit in units.values():
-        unit.files.sort(key=lambda f: f.archive_path)
+        unit.files.sort(key=lambda f: f.downloaded_name)
 
     return sorted(units.values(), key=lambda unit: unit.chunk_id)
 
@@ -193,8 +196,7 @@ def write_group_files(
         for unit in group:
             for source_file in unit.files:
                 lines.append(
-                    f"{source_file.archive_path}\t{source_file.source_path}\t"
-                    f"{source_file.size_bytes}\t{unit.chunk_id:05d}"
+                    f"{source_file.downloaded_name}\t{source_file.source_path}"
                 )
 
         group_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -216,7 +218,14 @@ def main() -> int:
         return 1
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = args.output_dir / f"{args.prefix}_manifest.txt"
+
+    if args.dry_run:
+        for i, group in enumerate(groups):
+            print(
+                f"{args.prefix}_{i:03d}.txt\tchunks={len(group)}\t"
+                f"estimated_tar_bytes={estimate_archive_size_for_units(group)}"
+            )
+        return 0
 
     try:
         write_group_files(args.output_dir, args.prefix, groups)
@@ -225,7 +234,6 @@ def main() -> int:
         return 1
 
     print(f"Wrote {len(groups)} group files to {args.output_dir}")
-    print(f"Manifest: {manifest_path}")
     return 0
 
 
