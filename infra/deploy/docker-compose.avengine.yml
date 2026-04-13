@@ -6,6 +6,7 @@ services:
     image: avengine-runtime:latest
     container_name: avengine-runtime
     restart: unless-stopped
+    mem_limit: ${AVENGINE_MEMORY_LIMIT:-12g}
     environment:
       AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY}
       AVENGINE_SWARM_SIZE: ${AVENGINE_SWARM_SIZE:-4}
