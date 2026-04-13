@@ -19,6 +19,7 @@ services:
       - "${AVENGINE_SSH_PORT:-2222}:22"
       - "${AVENGINE_HTTP_PORT:-8080}:8080"
     volumes:
-      - type: bind
-        source: ${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}
-        target: /data
+      - "${AVENGINE_HOST_DATA_ROOT:-avengine-data}:/data"
+
+volumes:
+  avengine-data:

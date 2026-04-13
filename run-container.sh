@@ -8,7 +8,7 @@ COMPOSE_PROFILING_FILE="docker-compose.profiling.yml"
 SERVICE_NAME="avengine"
 CONTAINER_NAME="avengine-runtime"
 SSH_PORT="${AVENGINE_SSH_PORT:-2222}"
-HOST_DATA_ROOT="${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}"
+HOST_DATA_ROOT="${AVENGINE_HOST_DATA_ROOT:-}"
 ENGINE_UID="${AVENGINE_DATA_UID:-1000}"
 ENGINE_GID="${AVENGINE_DATA_GID:-1000}"
 export DOCKER_CONTEXT="${DOCKER_CONTEXT:-default}"
@@ -26,8 +26,8 @@ commands:
   config   Show resolved compose config
 
 Environment:
-  DOCKER_CONTEXT=default  use the host Docker Engine so /mnt/data1 bind mounts work
-  AVENGINE_HOST_DATA_ROOT=/mnt/data1/avengine/data
+  DOCKER_CONTEXT=default  use the host Docker Engine
+  AVENGINE_HOST_DATA_ROOT=/path/to/data  optional host bind mount; default uses Docker volume
   AVENGINE_DATA_UID=1000 AVENGINE_DATA_GID=1000
   AVENGINE_REPAIR_DATA_OWNERSHIP=0  skip host data chown repair
   AVENGINE_ENABLE_LIVE_PROFILING=1  include profiling privileges and tracefs mounts
@@ -57,6 +57,10 @@ ensure_pubkey() {
 }
 
 ensure_data_root() {
+  if [[ -z "${HOST_DATA_ROOT}" ]]; then
+    return
+  fi
+
   local dirs=(
     "${HOST_DATA_ROOT}"
     "${HOST_DATA_ROOT}/logs"

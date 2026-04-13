@@ -144,9 +144,9 @@ python3 profiling/scripts/run_search_cpu_profile.py \
 
 ### Profile the running Docker service
 
-The deployed service stores runtime data on `/mnt/data1/avengine/data` by default, mounted as
-`/data` inside the container. The profiling compose overlay grants the tracing privileges and
-tracefs mounts needed by `bpftrace`.
+The deployed service stores runtime data in the Docker named volume `avengine-data` by default,
+mounted as `/data` inside the container. The profiling compose overlay grants the tracing privileges
+and tracefs mounts needed by `bpftrace`.
 
 ```bash
 docker exec avengine-runtime av-live-profile 30 crawler

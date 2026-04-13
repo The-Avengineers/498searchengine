@@ -16,10 +16,9 @@ The deployed Docker container now acts as a long-lived crawler box:
 - the default crawler scale is 16 `crawler_main` processes with 32 crawl threads each
 - the GitHub Actions runner that hosts this service should have a dedicated label such as `avengine-runtime`
 
-The compose deploy stores `/data` on the host at `/mnt/data1/avengine/data` by default. Use the
-normal host Docker Engine (`DOCKER_CONTEXT=default`) for this deploy; Docker Desktop blocks `/mnt`
-bind mounts unless the path is manually added to its file-sharing allowlist. Override
-`AVENGINE_HOST_DATA_ROOT` if the runtime data should live on a different mounted drive.
+The compose deploy stores `/data` in the Docker named volume `avengine-data` by default. Override
+`AVENGINE_HOST_DATA_ROOT` only when the runtime data should live on a specific host directory; that
+path must be writable by UID/GID 1000 from inside Docker.
 
 When you SSH in, the container exposes a simplified layout at the filesystem root:
 
@@ -58,7 +57,8 @@ tracing privileges and tracefs mounts.
 The intended operating model is:
 
 - `deploy-avengine.yml` deploys or refreshes the long-lived runtime service on the dedicated `avengine-runtime` runner
-- the deploy workflow prepares `AVENGINE_HOST_DATA_ROOT` before starting the container
+- the deploy workflow prepares `AVENGINE_HOST_DATA_ROOT` before starting the container when a host
+  bind mount is configured
 - the crawler supervisor and aggregate watcher keep running in the background on that host
 - `live-internet-crawl.yml` no longer boots or tears down the service; it refreshes the aggregated corpus, promotes `/var/lib/avengine/corpus-profile/current`, and profiles that snapshot
 - `profiling.yml` reads only the promoted snapshot from the same dedicated runtime runner
