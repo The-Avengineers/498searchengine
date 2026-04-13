@@ -1,8 +1,10 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
+import BrowseView from '../components/BrowseView.js';
 import ResultsList from '../components/ResultsList.js';
 import SearchBox from '../components/SearchBox.js';
+import StatsDashboard from '../components/StatsDashboard.js';
 import StatusBar from '../components/StatusBar.js';
 import {runCliAction} from '../lib/actions.js';
 import {parseCommandBar} from '../lib/commands.js';
@@ -52,7 +54,13 @@ export default function App({
 	const [busy, setBusy] = useState(false);
 	const [hasInteracted, setHasInteracted] = useState(false);
 	const [showHelp, setShowHelp] = useState(false);
+	const [showStats, setShowStats] = useState(false);
+	const [showBrowser, setShowBrowser] = useState(false);
+	const [page, setPage] = useState(defaultPage);
 	const bannerLines = useMemo(() => getBannerLines(), []);
+
+	// Track the last search action for pagination replay
+	const lastSearchActionRef = useRef<CommandAction | null>(null);
 
 	async function executeAction(action: CommandAction) {
 		if (action.kind === 'quit') {
@@ -69,15 +77,99 @@ export default function App({
 			return;
 		}
 
+		if (action.kind === 'stats') {
+			setShowStats(true);
+			setHasInteracted(true);
+			setStatus('Stats dashboard opened.');
+			setUiMode('normal');
+			setCommandBuffer('');
+			return;
+		}
+
+		if (action.kind === 'open') {
+			setShowBrowser(true);
+			setHasInteracted(true);
+			setStatus('Browser view opened.');
+			setUiMode('normal');
+			setCommandBuffer('');
+			return;
+		}
+
+		if (action.kind === 'paginate') {
+			const lastAction = lastSearchActionRef.current;
+			if (
+				!lastAction ||
+				(lastAction.kind !== 'search' && lastAction.kind !== 'lucky')
+			) {
+				setStatus('No previous search to paginate.');
+				setUiMode('normal');
+				setCommandBuffer('');
+				return;
+			}
+
+			let nextPage: number;
+			if (action.direction === 'next') {
+				nextPage = page + 1;
+			} else if (action.direction === 'prev') {
+				nextPage = Math.max(1, page - 1);
+			} else {
+				nextPage = Math.max(1, action.page ?? 1);
+			}
+
+			setPage(nextPage);
+
+			// Replay the last search with the new page
+			const replayAction: CommandAction =
+				lastAction.kind === 'search'
+					? {
+							...lastAction,
+							request: {...lastAction.request, page: nextPage},
+					  }
+					: {
+							...lastAction,
+							request: {...lastAction.request, page: nextPage},
+					  };
+
+			setUiMode('normal');
+			setCommandBuffer('');
+			void executeAction(replayAction);
+			return;
+		}
+
 		setBusy(true);
 		setHasInteracted(true);
 		setShowHelp(false);
 		setStatus('Running command...');
 
+		// Store the action for pagination replay
+		if (action.kind === 'search' || action.kind === 'lucky') {
+			lastSearchActionRef.current = action;
+		}
+
 		try {
 			const result = await runner(action, {config});
 			if (result.shouldExit) {
 				exit();
+				return;
+			}
+
+			// Stats sentinel from action runner
+			if (result.view === 'stats') {
+				setShowStats(true);
+				setStatus('Stats dashboard opened.');
+				setBusy(false);
+				setUiMode('normal');
+				setCommandBuffer('');
+				return;
+			}
+
+			// Open sentinel from action runner
+			if (result.view === 'open') {
+				setShowBrowser(true);
+				setStatus('Browser view opened.');
+				setBusy(false);
+				setUiMode('normal');
+				setCommandBuffer('');
 				return;
 			}
 
@@ -108,7 +200,7 @@ export default function App({
 			return;
 		}
 
-		if (busy) {
+		if (busy || showStats) {
 			return;
 		}
 
@@ -125,7 +217,7 @@ export default function App({
 					mode: searchMode,
 					request: {
 						query,
-						page: defaultPage,
+						page,
 						limit: defaultLimit,
 					},
 				});
@@ -161,7 +253,7 @@ export default function App({
 				const parsedCommand = parseCommandBar(
 					commandBuffer,
 					query,
-					defaultPage,
+					page,
 					defaultLimit,
 				);
 				if ('noop' in parsedCommand) {
@@ -223,6 +315,34 @@ export default function App({
 		}
 	});
 
+	// Full-screen stats overlay
+	if (showStats) {
+		return (
+			<StatsDashboard
+				config={config}
+				once={false}
+				onExit={() => {
+					setShowStats(false);
+					setStatus('Returned from stats dashboard.');
+				}}
+			/>
+		);
+	}
+
+	// Full-screen browser/tunnel overlay
+	if (showBrowser) {
+		return (
+			<BrowseView
+				config={config}
+				localPort={8080}
+				onExit={() => {
+					setShowBrowser(false);
+					setStatus('Returned from browser view.');
+				}}
+			/>
+		);
+	}
+
 	const visibleLines = showHelp ? getHelpLines() : lines;
 
 	return (
@@ -247,6 +367,7 @@ export default function App({
 				status={status}
 				serverUrl={config.serverUrl}
 				isBusy={busy}
+				sshHost={config.ssh?.host}
 			/>
 			<SearchBox uiMode={uiMode} query={query} commandBuffer={commandBuffer} />
 			<ResultsList lines={visibleLines} />

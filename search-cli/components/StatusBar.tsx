@@ -9,6 +9,7 @@ type Props = {
 	status: string;
 	serverUrl: string;
 	isBusy: boolean;
+	sshHost?: string;
 };
 
 function formatMode(mode: UiMode) {
@@ -25,11 +26,17 @@ export default function StatusBar({
 	status,
 	serverUrl,
 	isBusy,
+	sshHost,
 }: Readonly<Props>) {
 	return (
 		<Text>
-			{formatMode(uiMode)} | {formatSearchMode(searchMode)} | {serverUrl} |{' '}
-			{isBusy ? 'busy' : status}
+			{formatMode(uiMode)} | {formatSearchMode(searchMode)} | {serverUrl}
+			{sshHost ? (
+				<Text color="yellow">{` [remote: ${sshHost}]`}</Text>
+			) : (
+				''
+			)}{' '}
+			| {isBusy ? 'busy' : status}
 		</Text>
 	);
 }

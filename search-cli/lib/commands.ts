@@ -7,9 +7,12 @@ import type {
 
 type InvocationOptions = {
 	server?: string;
+	host?: string;
 	page?: number;
 	limit?: number;
 	verbose: boolean;
+	once?: boolean;
+	port?: number;
 };
 
 type ParsedCommandBar =
@@ -96,18 +99,58 @@ export function parseCliInvocation(
 	}
 
 	if (command === 'crawler') {
-		const crawlerCommand = rest[0] as
+		const subcommand = rest[0] as
 			| 'status'
 			| 'start'
 			| 'stop'
 			| 'index'
+			| 'watch'
+			| 'profile'
 			| undefined;
+		const resolved = subcommand ?? 'status';
+
+		// crawler watch is an alias for the stats dashboard
+		if (resolved === 'watch') {
+			return {
+				interactive: false,
+				action: {kind: 'stats', once: false},
+			};
+		}
+
 		return {
 			interactive: false,
 			action: {
 				kind: 'crawler',
-				command: crawlerCommand ?? 'status',
+				command: resolved,
 			},
+		};
+	}
+
+	if (command === 'stats') {
+		return {
+			interactive: false,
+			action: {kind: 'stats', once: options.once ?? false},
+		};
+	}
+
+	if (command === 'status') {
+		return {
+			interactive: false,
+			action: {kind: 'status'},
+		};
+	}
+
+	if (command === 'profile') {
+		return {
+			interactive: false,
+			action: {kind: 'profile'},
+		};
+	}
+
+	if (command === 'open' || command === 'browse') {
+		return {
+			interactive: false,
+			action: {kind: 'open', localPort: options.port ?? 8080},
 		};
 	}
 
@@ -181,7 +224,8 @@ export function parseCommandBar(
 			rest === 'status' ||
 			rest === 'start' ||
 			rest === 'stop' ||
-			rest === 'index'
+			rest === 'index' ||
+			rest === 'profile'
 		) {
 			return {
 				action: {
@@ -191,8 +235,62 @@ export function parseCommandBar(
 			};
 		}
 
+		if (rest === 'watch') {
+			return {
+				action: {kind: 'stats', once: false},
+			};
+		}
+
 		return {
-			error: 'Crawler command must be one of: status, start, stop, index.',
+			error: 'Crawler command must be one of: status, start, stop, index, watch, profile.',
+		};
+	}
+
+	if (command === 'stats') {
+		return {
+			action: {kind: 'stats', once: false},
+		};
+	}
+
+	if (command === 'status') {
+		return {
+			action: {kind: 'status'},
+		};
+	}
+
+	if (command === 'profile') {
+		return {
+			// Profile is non-interactive only; surface a helpful message
+			error: 'Profile runs a long benchmark. Use: avengine profile (one-shot only)',
+		};
+	}
+
+	if (command === 'open' || command === 'browse') {
+		return {
+			action: {kind: 'open', localPort: 8080},
+		};
+	}
+
+	if (command === 'next') {
+		return {
+			action: {kind: 'paginate', direction: 'next'},
+		};
+	}
+
+	if (command === 'prev') {
+		return {
+			action: {kind: 'paginate', direction: 'prev'},
+		};
+	}
+
+	if (command === 'page') {
+		const pageNumber = Number.parseInt(rest, 10);
+		if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+			return {error: 'Usage: :page N (where N is a positive integer)'};
+		}
+
+		return {
+			action: {kind: 'paginate', direction: 'absolute', page: pageNumber},
 		};
 	}
 

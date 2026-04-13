@@ -5,8 +5,10 @@ import {runCrawlerCommand} from './crawler.js';
 import {
 	formatLuckyLines,
 	formatSearchLines,
+	formatSystemStatusLines,
 	getHelpLines,
 } from './presentation.js';
+import {aggregateSystemStatus} from './status.js';
 import type {
 	ActionDependencies,
 	ActionResult,
@@ -78,11 +80,75 @@ export const runCliAction: ActionRunner = async (action, options) => {
 		};
 	}
 
+	if (action.kind === 'stats') {
+		// Signal to cli.tsx / app.tsx to open the stats dashboard
+		return {
+			status: 'Opening stats dashboard.',
+			lines: [],
+			exitCode: 0,
+			view: 'stats',
+		};
+	}
+
+	if (action.kind === 'status') {
+		const statusData = await aggregateSystemStatus(options.config);
+		return {
+			status: 'System status loaded.',
+			lines: formatSystemStatusLines(statusData),
+			exitCode: 0,
+			view: 'results',
+		};
+	}
+
+	if (action.kind === 'open') {
+		// Signal to cli.tsx / app.tsx to render the BrowseView component
+		return {
+			status: 'Opening browser.',
+			lines: [],
+			exitCode: 0,
+			view: 'open' as const,
+		};
+	}
+
+	if (action.kind === 'profile') {
+		const crawlerResult = await dependencies.runCrawlerCommand(
+			options.config,
+			'profile',
+		);
+		return {
+			status: crawlerResult.status,
+			lines: crawlerResult.lines,
+			exitCode: crawlerResult.exitCode,
+			view: 'results',
+		};
+	}
+
+	if (action.kind === 'paginate') {
+		// paginate is handled directly in app.tsx before reaching the runner
+		return {
+			status: 'Pagination handled.',
+			lines: [],
+			exitCode: 0,
+			view: 'results',
+		};
+	}
+
 	if (action.kind === 'crawler') {
 		const crawlerResult = await dependencies.runCrawlerCommand(
 			options.config,
 			action.command,
 		);
+
+		// Crawler 'watch' returns the open-stats sentinel
+		if (crawlerResult.status === 'open-stats') {
+			return {
+				status: 'Opening stats dashboard.',
+				lines: [],
+				exitCode: 0,
+				view: 'stats',
+			};
+		}
+
 		return {
 			status: crawlerResult.status,
 			lines: crawlerResult.lines,

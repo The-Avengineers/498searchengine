@@ -3,9 +3,10 @@ import {existsSync} from 'node:fs';
 import process from 'node:process';
 
 import {formatCrawlerStubLines} from './presentation.js';
+import {executeRemoteScript} from './ssh.js';
 import type {CliConfig, CrawlerCommand, CrawlerCommandResult} from './types.js';
 
-async function executeScript(
+async function executeLocalScript(
 	scriptPath: string,
 	config: CliConfig,
 	arguments_: string[] = [],
@@ -34,6 +35,18 @@ async function executeScript(
 			},
 		);
 	});
+}
+
+async function executeScript(
+	scriptPath: string,
+	config: CliConfig,
+	arguments_: string[] = [],
+): Promise<string> {
+	if (config.ssh) {
+		return executeRemoteScript(scriptPath, config.ssh, arguments_);
+	}
+
+	return executeLocalScript(scriptPath, config, arguments_);
 }
 
 function resolveScriptPath(config: CliConfig, fileName: string) {
@@ -75,6 +88,11 @@ export function extractIndexLines(statusOutput: string) {
 }
 
 function hasRuntimeSupport(config: CliConfig) {
+	// When SSH is configured, assume scripts exist on the remote host
+	if (config.ssh) {
+		return true;
+	}
+
 	const requiredScripts = [
 		resolveScriptPath(config, 'avengine-status.sh'),
 		resolveScriptPath(config, 'avengine-stats.sh'),
@@ -85,6 +103,14 @@ function hasRuntimeSupport(config: CliConfig) {
 	return requiredScripts.every(scriptPath => {
 		return existsSync(scriptPath);
 	});
+}
+
+export async function fetchRawStats(config: CliConfig): Promise<string> {
+	return executeScript(resolveScriptPath(config, 'avengine-stats.sh'), config);
+}
+
+export async function fetchRawStatus(config: CliConfig): Promise<string> {
+	return executeScript(resolveScriptPath(config, 'avengine-status.sh'), config);
 }
 
 export async function runCrawlerCommand(
@@ -113,6 +139,27 @@ export async function runCrawlerCommand(
 		return {
 			status: 'Crawler index status loaded.',
 			lines: extractIndexLines(statusOutput),
+			exitCode: 0,
+		};
+	}
+
+	if (command === 'watch') {
+		// Sentinel: instructs cli.tsx / app.tsx to open the stats dashboard
+		return {
+			status: 'open-stats',
+			lines: [],
+			exitCode: 0,
+		};
+	}
+
+	if (command === 'profile') {
+		const output = await executeScript(
+			resolveScriptPath(config, 'avengine-profile.sh'),
+			config,
+		);
+		return {
+			status: 'Profile complete.',
+			lines: output.length > 0 ? output.split('\n') : ['Profile produced no output.'],
 			exitCode: 0,
 		};
 	}

@@ -1,7 +1,14 @@
 export type SearchDisplayMode = 'query' | 'verbose';
 export type UiMode = 'normal' | 'insert' | 'command';
-export type CrawlerCommand = 'status' | 'start' | 'stop' | 'index';
-export type ActionView = 'results' | 'help';
+export type CrawlerCommand = 'status' | 'start' | 'stop' | 'index' | 'watch' | 'profile';
+export type ActionView = 'results' | 'help' | 'stats' | 'open';
+
+export type SshConfig = {
+	host: string;
+	port: number;
+	user: string;
+	keyPath?: string;
+};
 
 export type CliConfig = {
 	serverUrl: string;
@@ -11,6 +18,7 @@ export type CliConfig = {
 	platform: NodeJS.Platform;
 	linkSupport: boolean;
 	italicSupport: boolean;
+	ssh?: SshConfig;
 };
 
 export type SearchRequest = {
@@ -55,6 +63,35 @@ export type CrawlerCommandResult = {
 	exitCode: number;
 };
 
+export type WorkerStats = {
+	workerId: string;
+	state: 'running' | 'stopped' | 'stale-pid';
+	sfiFiles: number;
+	crawlRows: number;
+	acLogMb: number;
+	checkpoint: boolean;
+	docsPerSec?: number;
+};
+
+export type StatsSnapshot = {
+	timestamp: number;
+	rowsByWorker: Record<string, number>;
+};
+
+export type CrawlerStats = {
+	workers: WorkerStats[];
+	totalWorkerShards: number;
+	currentCorpusShards: number;
+};
+
+export type SystemStatusData = {
+	searchServerOk: boolean;
+	searchServerLatencyMs?: number;
+	crawlerSwarm: string;
+	dataUsage: string;
+	corpusShards: number;
+};
+
 export type CommandAction =
 	| {
 			kind: 'search';
@@ -68,6 +105,25 @@ export type CommandAction =
 	| {
 			kind: 'crawler';
 			command: CrawlerCommand;
+	  }
+	| {
+			kind: 'stats';
+			once: boolean;
+	  }
+	| {
+			kind: 'status';
+	  }
+	| {
+			kind: 'profile';
+	  }
+	| {
+			kind: 'open';
+			localPort: number;
+	  }
+	| {
+			kind: 'paginate';
+			direction: 'next' | 'prev' | 'absolute';
+			page?: number;
 	  }
 	| {
 			kind: 'help';
