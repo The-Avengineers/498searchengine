@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY}
-      AVENGINE_SWARM_SIZE: ${AVENGINE_SWARM_SIZE:-16}
+      AVENGINE_SWARM_SIZE: ${AVENGINE_SWARM_SIZE:-4}
       AVENGINE_CRAWLER_WORKERS: ${AVENGINE_CRAWLER_WORKERS:-32}
       AVENGINE_AUTO_SWARM: ${AVENGINE_AUTO_SWARM:-1}
       AVENGINE_AUTO_AGGREGATE: ${AVENGINE_AUTO_AGGREGATE:-1}
@@ -16,6 +16,7 @@ services:
       AVENGINE_MAX_DATA_BYTES: ${AVENGINE_MAX_DATA_BYTES:-137438953472}
     ports:
       - "${AVENGINE_SSH_PORT:-2222}:22"
+      - "${AVENGINE_HTTP_PORT:-8080}:8080"
     volumes:
       - type: bind
         source: ${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}

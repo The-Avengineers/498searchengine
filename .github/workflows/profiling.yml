@@ -43,7 +43,6 @@ jobs:
 
       - name: Copy persistent corpus profile from runtime container
         run: |
-          bash deploy/wait-runtime-ready.sh 120
           remote_count=$(docker exec avengine-runtime bash -lc "find -L /var/lib/avengine/corpus-profile/current -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' '")
           if [[ "${remote_count}" -eq 0 ]]; then
             echo "::error::No promoted profiling shards found at /var/lib/avengine/corpus-profile/current. Push to master or run the live crawl workflow to build the persistent corpus first."
@@ -71,6 +70,18 @@ jobs:
             --iterations 50 \
             --output artifacts/corpus_profile.json
 
+      - name: Run search HTTP profile
+        env:
+          SEARCH_SHARD_WORKERS: "8"
+        run: |
+          mkdir -p artifacts
+          python3 profiling/scripts/run_search_http_profile.py \
+            --search-server build-profiling/search_server \
+            --index-dir corpus-index/ \
+            --queries-file profiling/fixtures/live_search_queries.tsv \
+            --iterations 50 \
+            --output artifacts/search_http_profile.json
+
       - name: Run corpus CPU profile
         run: |
           mkdir -p artifacts
@@ -91,8 +102,16 @@ jobs:
         run: |
           python3 profiling/scripts/render_ci_profile_summary.py \
             --search-json artifacts/corpus_profile.json \
+            --title "Query Pipeline Profile" \
             --output artifacts/corpus_profile_summary.md
           cat artifacts/corpus_profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+          python3 profiling/scripts/render_ci_profile_summary.py \
+            --search-json artifacts/search_http_profile.json \
+            --title "Search HTTP Profile" \
+            --output artifacts/search_http_profile_summary.md
+          cat artifacts/search_http_profile_summary.md >> "$GITHUB_STEP_SUMMARY"
+
           python3 profiling/scripts/render_ci_cpu_profile_summary.py \
             --cpu-json artifacts/corpus_cpu_profile.json \
             --output artifacts/corpus_cpu_profile_summary.md
@@ -110,6 +129,15 @@ jobs:
           if nonzero == 0:
               print("::error::Corpus profile loaded shards but every live query returned zero hits.")
               sys.exit(1)
+
+          http_profile = json.loads(pathlib.Path("artifacts/search_http_profile.json").read_text(encoding="utf-8"))
+          http_nonzero = int(http_profile.get("nonzero_hit_query_count", 0))
+          print(f"Search HTTP profile shard count: {http_profile.get('shard_count', 0)}")
+          print(f"Search HTTP profile queries with hits: {http_nonzero}")
+          if http_nonzero == 0:
+              print("::error::Search HTTP profile loaded shards but every live query returned zero hits.")
+              sys.exit(1)
+
           cpu_profile = json.loads(pathlib.Path("artifacts/corpus_cpu_profile.json").read_text(encoding="utf-8"))
           top_self = cpu_profile.get("top_self_functions", [])
           top_total = cpu_profile.get("top_total_functions", [])
@@ -128,6 +156,14 @@ jobs:
         with:
           name: corpus-profile
           path: artifacts/corpus_profile.json
+
+      - name: Upload search HTTP profile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-http-profile
+          path: |
+            artifacts/search_http_profile.json
+            artifacts/search_http_profile_summary.md
 
       - name: Upload corpus CPU profile artifact
         uses: actions/upload-artifact@v4

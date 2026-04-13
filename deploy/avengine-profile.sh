@@ -51,13 +51,34 @@ fi
 
 echo "Using query fixture ${QUERIES_FILE}"
 
+# Use the live distributed search server if one is already running, so the
+# profile reflects the real serving stack (including any distributed topology).
+SEARCH_SERVER_PORT="${AVENGINE_SEARCH_PORT:-8080}"
+SEARCH_SERVER_PID_FILE="${DATA_ROOT}/pids/search-server.pid"
+LIVE_SERVER_PORT=""
+if [[ -f "${SEARCH_SERVER_PID_FILE}" ]]; then
+  EXISTING_PID="$(cat "${SEARCH_SERVER_PID_FILE}")"
+  if kill -0 "${EXISTING_PID}" 2>/dev/null; then
+    LIVE_SERVER_PORT="${SEARCH_SERVER_PORT}"
+    echo "Using live search server on port ${LIVE_SERVER_PORT}"
+  fi
+fi
+
 echo "Running search HTTP profile..."
-python3 /profiling/scripts/run_search_http_profile.py \
-  --search-server "${BIN_ROOT}/search_server" \
-  --queries-file "${QUERIES_FILE}" \
-  --output "${OUTPUT_DIR}/search_http_profile.json" \
-  --iterations "${SEARCH_ITERATIONS:-12}" \
-  "${SEARCH_ARGS[@]}"
+if [[ -n "${LIVE_SERVER_PORT}" ]]; then
+  python3 /profiling/scripts/run_search_http_profile.py \
+    --live-server-port "${LIVE_SERVER_PORT}" \
+    --queries-file "${QUERIES_FILE}" \
+    --output "${OUTPUT_DIR}/search_http_profile.json" \
+    --iterations "${SEARCH_ITERATIONS:-12}"
+else
+  python3 /profiling/scripts/run_search_http_profile.py \
+    --search-server "${BIN_ROOT}/search_server" \
+    --queries-file "${QUERIES_FILE}" \
+    --output "${OUTPUT_DIR}/search_http_profile.json" \
+    --iterations "${SEARCH_ITERATIONS:-12}" \
+    "${SEARCH_ARGS[@]}"
+fi
 
 python3 /profiling/scripts/render_ci_profile_summary.py \
   --crawler-json "${OUTPUT_DIR}/crawler_index_profile.json" \

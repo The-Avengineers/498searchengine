@@ -51,7 +51,7 @@ for dir in "${DATA_ROOT}" "${DATA_ROOT}/logs" "${DATA_ROOT}/pids" "${DATA_ROOT}/
   require_engine_writable_dir "${dir}"
 done
 rm -f "${DATA_ROOT}"/pids/*.pid || warn "could not remove stale pid files from ${DATA_ROOT}/pids"
-chown -R engine:engine /avengine /home/engine/.ssh
+chown -R engine:engine "${DATA_ROOT}" /avengine /home/engine/.ssh
 chown engine:engine /run/avengine
 
 # Harden SSH for key-based login only.

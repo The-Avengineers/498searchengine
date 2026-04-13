@@ -16,6 +16,12 @@ usage: av-live-profile [seconds] [crawler|search|all]
 
 Collect a live runtime profile for running AVEngine processes.
 
+Captures:
+  bpftrace  on-CPU stacks (flamegraph folded output), off-CPU blocking time
+            (sched_switch histograms), syscall latency histograms for
+            read / write / connect / futex.
+  dtrace    on-CPU stacks, syscall latency quantize aggregations.
+
 Environment:
   AVENGINE_LIVE_PROFILE_BACKEND=auto|bpftrace|dtrace
   AVENGINE_LIVE_PROFILE_HZ=99
@@ -118,6 +124,7 @@ join_by_comma() {
   echo "$*"
 }
 
+# Build comma-separated pid list for dtrace predicate: pid == 1 || pid == 2
 build_pid_predicate() {
   local predicate=""
   local pid
@@ -130,12 +137,22 @@ build_pid_predicate() {
   printf '%s\n' "${predicate}"
 }
 
+# Build bpftrace BEGIN-block statements to populate a @pids membership map
+build_pids_init() {
+  local init=""
+  local pid
+  for pid in "${PIDS[@]}"; do
+    init+="  @pids[${pid}] = 1;"$'\n'
+  done
+  printf '%s' "${init}"
+}
+
 choose_backend() {
   if [[ "${BACKEND}" == "auto" ]]; then
-    if command -v dtrace >/dev/null 2>&1; then
-      echo "dtrace"
-    elif command -v bpftrace >/dev/null 2>&1; then
+    if command -v bpftrace >/dev/null 2>&1; then
       echo "bpftrace"
+    elif command -v dtrace >/dev/null 2>&1; then
+      echo "dtrace"
     else
       echo "none"
     fi
@@ -165,7 +182,7 @@ fi
 
 ACTIVE_BACKEND="$(choose_backend)"
 if [[ "${ACTIVE_BACKEND}" == "none" ]]; then
-  echo "neither dtrace nor bpftrace is installed in this container" >&2
+  echo "neither bpftrace nor dtrace is installed in this container" >&2
   exit 1
 fi
 if ! command -v "${ACTIVE_BACKEND}" >/dev/null 2>&1; then
@@ -179,6 +196,7 @@ mkdir -p "${OUTPUT_DIR}"
 
 PID_CSV="$(join_by_comma "${PIDS[@]}")"
 PREDICATE="$(build_pid_predicate)"
+PIDS_INIT="$(build_pids_init)"
 SUMMARY="${OUTPUT_DIR}/summary.md"
 PROCESS_SAMPLES="${OUTPUT_DIR}/process-samples.txt"
 TRACE_STATUS=0
@@ -206,10 +224,10 @@ trap cleanup EXIT
 
 {
   echo "AVEngine live profile"
-  echo "  output: ${OUTPUT_DIR}"
-  echo "  backend: ${ACTIVE_BACKEND}"
-  echo "  target: ${TARGET}"
-  echo "  pids: ${PID_LABELS[*]}"
+  echo "  output:   ${OUTPUT_DIR}"
+  echo "  backend:  ${ACTIVE_BACKEND}"
+  echo "  target:   ${TARGET}"
+  echo "  pids:     ${PID_LABELS[*]}"
   echo "  duration: ${DURATION}s"
   echo
 } | tee "${OUTPUT_DIR}/meta.txt"
@@ -218,38 +236,112 @@ ps -eLo pid,tid,ppid,stat,pcpu,pmem,comm,wchan:24,args > "${OUTPUT_DIR}/threads-
 sample_processes "${PID_CSV}" > "${PROCESS_SAMPLES}" 2>&1 &
 SAMPLER_PID="$!"
 
+# ── bpftrace ──────────────────────────────────────────────────────────────────
 if [[ "${ACTIVE_BACKEND}" == "bpftrace" ]]; then
   TRACE_SCRIPT="${OUTPUT_DIR}/live-profile.bt"
   TRACE_OUT="${OUTPUT_DIR}/bpftrace.out"
+  FOLDED_OUT="${OUTPUT_DIR}/on-cpu.folded"
+
   cat > "${TRACE_SCRIPT}" <<EOF
 BEGIN
 {
-  printf("profiling AVEngine processes for ${DURATION}s\\n");
+${PIDS_INIT}
+  printf("AVEngine live profile — target: ${TARGET}, duration: ${DURATION}s\\n");
+  printf("  on-CPU: ${SAMPLE_HZ}Hz sample  |  off-CPU: sched_switch  |  syscalls: read/write/connect/futex\\n\\n");
 }
 
+/* ── On-CPU sampling ─────────────────────────────────────────────── */
 profile:hz:${SAMPLE_HZ}
-/${PREDICATE}/
+/@pids[pid]/
 {
-  @samples[comm] = count();
-  @user_stacks[comm, ustack(20)] = count();
+  @on_cpu_samples[comm] = count();
+  @on_cpu[comm, ustack(20)] = count();
 }
 
-tracepoint:syscalls:sys_enter_*
-/${PREDICATE}/
+/* ── Off-CPU: record when a tracked thread leaves the CPU ─────────── */
+tracepoint:sched:sched_switch
+/@pids[args->prev_pid]/
 {
-  @syscalls[comm, probe] = count();
+  @off_ts[args->prev_pid] = nsecs;
 }
 
+/* ── Off-CPU: accumulate blocking time when the thread returns ─────── */
+tracepoint:sched:sched_switch
+/@pids[args->next_pid] && @off_ts[args->next_pid]/
+{
+  @off_cpu_us = hist((nsecs - @off_ts[args->next_pid]) / 1000);
+  @off_cpu_total_ms[str(args->next_comm)] =
+      sum((nsecs - @off_ts[args->next_pid]) / 1000000);
+  delete(@off_ts[args->next_pid]);
+}
+
+/* ── Syscall latency ─────────────────────────────────────────────── */
+tracepoint:syscalls:sys_enter_read    /@pids[pid]/ { @sys_ts[tid, "read"]    = nsecs; }
+tracepoint:syscalls:sys_enter_write   /@pids[pid]/ { @sys_ts[tid, "write"]   = nsecs; }
+tracepoint:syscalls:sys_enter_connect /@pids[pid]/ { @sys_ts[tid, "connect"] = nsecs; }
+tracepoint:syscalls:sys_enter_futex   /@pids[pid]/ { @sys_ts[tid, "futex"]   = nsecs; }
+
+tracepoint:syscalls:sys_exit_read
+/@sys_ts[tid, "read"]/
+{
+  @syscall_us["read"] = hist((nsecs - @sys_ts[tid, "read"]) / 1000);
+  delete(@sys_ts[tid, "read"]);
+}
+tracepoint:syscalls:sys_exit_write
+/@sys_ts[tid, "write"]/
+{
+  @syscall_us["write"] = hist((nsecs - @sys_ts[tid, "write"]) / 1000);
+  delete(@sys_ts[tid, "write"]);
+}
+tracepoint:syscalls:sys_exit_connect
+/@sys_ts[tid, "connect"]/
+{
+  @syscall_us["connect"] = hist((nsecs - @sys_ts[tid, "connect"]) / 1000);
+  delete(@sys_ts[tid, "connect"]);
+}
+tracepoint:syscalls:sys_exit_futex
+/@sys_ts[tid, "futex"]/
+{
+  @syscall_us["futex"] = hist((nsecs - @sys_ts[tid, "futex"]) / 1000);
+  delete(@sys_ts[tid, "futex"]);
+}
+
+/* ── Progress summary ────────────────────────────────────────────── */
 interval:s:${PROGRESS_INTERVAL}
 {
-  printf("\\n--- live sample summary ---\\n");
-  print(@samples, 20);
-  print(@syscalls, 20);
+  printf("\\n── %lld s elapsed ──\\n", elapsed / 1000000000);
+  printf("on-CPU samples:\\n");    print(@on_cpu_samples);
+  printf("off-CPU total ms:\\n");  print(@off_cpu_total_ms);
 }
 
 interval:s:${DURATION}
 {
   exit();
+}
+
+END
+{
+  printf("\\n════════════════════════════════════════\\n");
+  printf("  ON-CPU STACKS  (comm × stack → sample count)\\n");
+  printf("════════════════════════════════════════\\n");
+  print(@on_cpu);
+
+  printf("\\n════════════════════════════════════════\\n");
+  printf("  OFF-CPU HISTOGRAM  (blocking time in µs)\\n");
+  printf("════════════════════════════════════════\\n");
+  print(@off_cpu_us);
+
+  printf("\\n════════════════════════════════════════\\n");
+  printf("  OFF-CPU TOTAL BY THREAD  (ms blocked)\\n");
+  printf("════════════════════════════════════════\\n");
+  print(@off_cpu_total_ms);
+
+  printf("\\n════════════════════════════════════════\\n");
+  printf("  SYSCALL LATENCY HISTOGRAMS  (µs)\\n");
+  printf("════════════════════════════════════════\\n");
+  print(@syscall_us);
+
+  clear(@pids); clear(@off_ts); clear(@sys_ts);
 }
 EOF
 
@@ -258,18 +350,101 @@ EOF
   else
     TRACE_STATUS=$?
   fi
+
+  # Post-process: convert @on_cpu stacks to flamegraph folded format
+  echo
+  echo "Generating flamegraph input: ${FOLDED_OUT}"
+  python3 - "${TRACE_OUT}" "${FOLDED_OUT}" <<'PYEOF'
+import sys, re, pathlib
+
+src = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+out_path = pathlib.Path(sys.argv[2])
+entries = []
+
+# bpftrace prints 2-key stack maps as:
+#   @mapname[label,
+#           frame3+0xNN
+#           frame2+0xNN
+#           frame1+0xNN
+#   ]: count
+pattern = re.compile(
+    r'@on_cpu\[([^\n,\[]+),\s*\n((?:[ \t]+[^\n]+\n)+)\]:\s*(\d+)',
+    re.MULTILINE,
+)
+for m in pattern.finditer(src):
+    comm   = m.group(1).strip().strip('"')
+    frames = []
+    for line in m.group(2).splitlines():
+        f = line.strip()
+        if not f:
+            continue
+        f = re.sub(r'\+0x[0-9a-f]+', '', f)   # strip hex offsets
+        f = re.sub(r'\s*\[.*?\]$', '', f)       # strip [module] annotations
+        f = f.strip()
+        if f and f not in ('[unknown]', ''):
+            frames.append(f)
+    if frames:
+        frames.reverse()   # outermost frame first (flamegraph convention)
+        entries.append(f"{comm};{';'.join(frames)} {m.group(3)}")
+
+if entries:
+    out_path.write_text('\n'.join(entries) + '\n', encoding='utf-8')
+    print(f"  {len(entries)} stack entries → {out_path}")
+    print(f"  render: flamegraph.pl {out_path} > flame.svg")
+else:
+    print("  (no parseable on-CPU stack entries found in trace output)")
+PYEOF
+
+# ── dtrace ────────────────────────────────────────────────────────────────────
 else
   TRACE_SCRIPT="${OUTPUT_DIR}/live-profile.d"
   TRACE_OUT="${OUTPUT_DIR}/dtrace.out"
+
   cat > "${TRACE_SCRIPT}" <<EOF
+/* ── On-CPU sampling ─────────────────────────────────────────────── */
 profile-997
 /${PREDICATE}/
 {
-  @[execname, ustack()] = count();
+  @on_cpu[execname, ustack(20)] = count();
+  @on_cpu_samples[execname]     = count();
 }
 
+/* ── Syscall latency ─────────────────────────────────────────────── */
+syscall::read:entry,
+syscall::write:entry,
+syscall::connect:entry,
+syscall::futex:entry
+/${PREDICATE}/
+{
+  self->syscall_ts   = timestamp;
+  self->syscall_name = probefunc;
+}
+
+syscall::read:return,
+syscall::write:return,
+syscall::connect:return,
+syscall::futex:return
+/self->syscall_ts/
+{
+  @syscall_ns[self->syscall_name] = quantize(timestamp - self->syscall_ts);
+  self->syscall_ts   = 0;
+  self->syscall_name = "";
+}
+
+/* ── Progress ────────────────────────────────────────────────────── */
+tick-${PROGRESS_INTERVAL}s
+{
+  printf("\\n── progress ──\\n");
+  printa("  %s: %@d cpu samples\\n", @on_cpu_samples);
+}
+
+/* ── Final report ────────────────────────────────────────────────── */
 tick-${DURATION}s
 {
+  printf("\\n=== ON-CPU STACKS ===\\n");
+  printa(@on_cpu);
+  printf("\\n=== SYSCALL LATENCY (ns) ===\\n");
+  printa(@syscall_ns);
   exit(0);
 }
 EOF
