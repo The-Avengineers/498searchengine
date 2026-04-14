@@ -222,7 +222,7 @@ function formatConfig(config: PersistentCliConfig, configPath: string) {
 	if (config.ssh?.host) {
 		lines.push(
 			`ssh host: ${config.ssh.host}`,
-			`ssh port: ${config.ssh.port ?? 2222}`,
+			`ssh port: ${config.ssh.port ?? 22}`,
 			`ssh user: ${config.ssh.user ?? 'engine'}`,
 			`ssh key: ${config.ssh.keyPath ?? '(default ssh agent/key)'}`,
 		);

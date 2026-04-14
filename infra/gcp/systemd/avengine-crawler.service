@@ -1,0 +1,21 @@
+[Unit]
+Description=AVEngine crawler supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=engine
+Group=engine
+EnvironmentFile=/opt/avengine/runtime.env
+WorkingDirectory=/avengine
+PIDFile=/data/pids/crawler-supervisor.pid
+ExecStart=/avengine/bin/start-crawler-supervisor.sh
+ExecStop=/avengine/bin/stop-crawler-supervisor.sh
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=75
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

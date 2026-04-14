@@ -29,12 +29,12 @@ Usage
   $ avengine profile
   $ avengine open [--port 8080]
   $ avengine config show
-  $ avengine config set --server URL --ssh-host HOST --ssh-port 22222 --ssh-key PATH
+  $ avengine config set --server URL --ssh-host HOST --ssh-port 22 --ssh-key PATH
   $ avengine config clear
 
 Options
   --server   Search server URL (overrides AVENGINE_SERVER_URL)
-  --host     SSH host for remote container (overrides AVENGINE_SSH_HOST)
+  --host     SSH host for remote runtime (overrides AVENGINE_SSH_HOST)
   --ssh-host SSH host to save with "config set"
   --ssh-port SSH port to save with "config set"
   --ssh-user SSH user to save with "config set"
@@ -46,8 +46,8 @@ Options
   --port     Local port for the browser tunnel (default 8080, used with open)
 
 Remote access
-  Set AVENGINE_SSH_HOST to connect to a deploy container via SSH.
-  AVENGINE_SSH_PORT (default 2222), AVENGINE_SSH_USER (default engine),
+  Set AVENGINE_SSH_HOST to connect to a deploy runtime via SSH.
+  AVENGINE_SSH_PORT (default 22), AVENGINE_SSH_USER (default engine),
   and AVENGINE_SSH_KEY (path to identity file) are also supported.
 
 Examples
@@ -62,7 +62,7 @@ Examples
   $ avengine profile
   $ avengine open
   $ avengine open --port 9090
-  $ avengine config set --server https://theavengine.com --ssh-host theavengine.com --ssh-port 22222 --ssh-key ~/.ssh/id_ed25519
+  $ avengine config set --server https://theavengine.com --ssh-host theavengine.com --ssh-port 22 --ssh-key ~/.ssh/id_ed25519
   $ AVENGINE_SSH_HOST=myserver avengine open
   $ AVENGINE_SSH_HOST=myserver avengine stats
   $ AVENGINE_SSH_HOST=myserver avengine query "apple"
@@ -152,7 +152,7 @@ async function main() {
 		} else {
 			config.ssh = {
 				host: flags.host,
-				port: 2222,
+				port: 22,
 				user: 'engine',
 			};
 		}

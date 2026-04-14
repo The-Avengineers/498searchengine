@@ -232,7 +232,7 @@ export function formatCrawlerStubLines(runtimeBinRoot: string) {
 		'Crawler mode is not available in this environment yet.',
 		`Expected AVENGINE runtime scripts under ${runtimeBinRoot}.`,
 		'Set AVENGINE_RUNTIME_BIN_ROOT to a managed AVENGINE runtime bin directory to enable crawler control.',
-		'Set AVENGINE_SSH_HOST to connect to a remote deploy container.',
+		'Set AVENGINE_SSH_HOST to connect to a remote deploy runtime.',
 	];
 }
 
@@ -285,6 +285,6 @@ export function getHelpLines() {
 		'  AVENGINE_SSH_HOST=host avengine stats',
 		'  AVENGINE_SSH_HOST=host avengine open',
 		'  AVENGINE_SSH_HOST=host avengine query "apple"',
-		'  env: AVENGINE_SSH_PORT (default 2222) | AVENGINE_SSH_USER (default engine) | AVENGINE_SSH_KEY',
+		'  env: AVENGINE_SSH_PORT (default 22) | AVENGINE_SSH_USER (default engine) | AVENGINE_SSH_KEY',
 	];
 }

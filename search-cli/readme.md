@@ -1,6 +1,6 @@
 # avengine CLI
 
-A terminal UI for AVEngine — search queries, live crawler stats, system status, and remote deploy container access over SSH.
+A terminal UI for AVEngine — search queries, live crawler stats, system status, and remote deploy access over SSH.
 
 ## Requirements
 
@@ -90,7 +90,7 @@ avengine open
 avengine open --port 9090
 ```
 
-Starts the search server (if not already running) and opens `http://localhost:8080` in your browser. When connected to a remote container via SSH this creates a tunnel so the browser connects through your local machine.
+Starts the search server (if not already running) and opens `http://localhost:8080` in your browser. When connected to a remote runtime via SSH this creates a tunnel so the browser connects through your local machine.
 
 Use `--port` to choose a different local port if 8080 is already in use.
 
@@ -139,14 +139,14 @@ avengine --help
 
 ---
 
-## Remote deploy container
+## Remote deploy runtime
 
-Set `AVENGINE_SSH_HOST` to transparently run all commands against a remote container over SSH:
+Set `AVENGINE_SSH_HOST` to transparently run all commands against a remote runtime over SSH:
 
 ```bash
 export AVENGINE_SSH_HOST=myserver.example.com
-avengine stats               # crawler stats from remote container
-avengine status              # system status from remote container
+avengine stats               # crawler stats from remote runtime
+avengine status              # system status from remote runtime
 avengine open                # SSH tunnel → open browser locally
 avengine query "apple"       # search against remote index
 ```
@@ -163,14 +163,14 @@ avengine --host myserver.example.com open
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AVENGINE_SSH_HOST` | — | Container hostname or IP |
-| `AVENGINE_SSH_PORT` | `2222` | SSH port |
+| `AVENGINE_SSH_PORT` | `22` | SSH port |
 | `AVENGINE_SSH_USER` | `engine` | SSH username |
 | `AVENGINE_SSH_KEY` | — | Path to SSH private key |
 
 ### How `avengine open` works remotely
 
-1. Starts the search server on the container in daemon mode (idempotent)
-2. Opens a local SSH tunnel: `localhost:8080 → container:8080`
+1. Starts the search server on the runtime in daemon mode (idempotent)
+2. Opens a local SSH tunnel: `localhost:8080 → runtime:8080`
 3. Polls until the server is reachable through the tunnel
 4. Opens your browser to `http://localhost:8080`
 5. Keeps the tunnel alive — press `q` or `Ctrl+C` to close it and exit
@@ -182,7 +182,7 @@ avengine --host myserver.example.com open
 | Flag | Description |
 |------|-------------|
 | `--server URL` | Override the search server URL (`AVENGINE_SERVER_URL`) |
-| `--host HOST` | SSH host for remote container (`AVENGINE_SSH_HOST`) |
+| `--host HOST` | SSH host for remote runtime (`AVENGINE_SSH_HOST`) |
 | `--page N` | Starting page number (default 1) |
 | `--limit N` | Results per page (default 10, max 10) |
 | `--verbose` | Verbose search output with timing bar |
@@ -197,9 +197,9 @@ avengine --host myserver.example.com open
 | `AVENGINE_RUNTIME_BIN_ROOT` | `/avengine/bin` | Path to avengine runtime scripts |
 | `AVENGINE_DATA_ROOT` | `/data` | Path to data directory |
 | `AVENGINE_CONFIG_ROOT` | `/config` | Path to config directory |
-| `AVENGINE_SSH_HOST` | — | Remote container SSH host |
-| `AVENGINE_SSH_PORT` | `2222` | Remote container SSH port |
-| `AVENGINE_SSH_USER` | `engine` | Remote container SSH user |
+| `AVENGINE_SSH_HOST` | — | Remote runtime SSH host |
+| `AVENGINE_SSH_PORT` | `22` | Remote runtime SSH port |
+| `AVENGINE_SSH_USER` | `engine` | Remote runtime SSH user |
 | `AVENGINE_SSH_KEY` | — | SSH private key path |
 
 ## Development

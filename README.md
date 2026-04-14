@@ -2,7 +2,7 @@
 
 ## CLI
 
-A terminal UI for searching, crawler management, live stats, and remote deploy container access is available in [`search-cli/`](search-cli/README.md).
+A terminal UI for searching, crawler management, live stats, and remote deploy access is available in [`search-cli/`](search-cli/README.md).
 
 ```bash
 cd search-cli && npm install && npm install -g .
@@ -10,7 +10,7 @@ avengine                                    # interactive TUI
 avengine query "spider man" --verbose       # one-shot search
 avengine stats                              # live crawler stats
 avengine open                               # start server + open browser
-AVENGINE_SSH_HOST=myhost avengine open      # tunnel to remote container
+AVENGINE_SSH_HOST=myhost avengine open      # tunnel to remote runtime
 ```
 
 For the hosted VM:
@@ -19,7 +19,7 @@ For the hosted VM:
 avengine config set \
   --server https://theavengine.com \
   --ssh-host theavengine.com \
-  --ssh-port 22222 \
+  --ssh-port 22 \
   --ssh-key ~/.ssh/id_ed25519
 avengine status
 ```
@@ -31,9 +31,9 @@ See [`search-cli/README.md`](search-cli/README.md) for the full reference.
 ## Deploy
 
 GitHub Actions deploys `master` to the Google Cloud VM through Workload Identity
-Federation and IAP SSH. The deployed stack serves the public site through Caddy
-at `https://theavengine.com` and exposes the runtime container SSH port for CLI
-management.
+Federation and IAP SSH. The VM runs native systemd services for the crawler,
+aggregate watcher, and search server. Caddy runs on the host and serves
+`https://theavengine.com`.
 
 See [`infra/gcp/README.md`](infra/gcp/README.md) for required GitHub variables,
 secrets, DNS, and firewall setup.

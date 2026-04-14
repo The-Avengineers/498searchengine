@@ -1,7 +1,0 @@
-www.{$AVENGINE_DOMAIN:theavengine.com} {
-	redir https://{$AVENGINE_DOMAIN:theavengine.com}{uri} permanent
-}
-
-{$AVENGINE_DOMAIN:theavengine.com} {
-	reverse_proxy avengine:8080
-}

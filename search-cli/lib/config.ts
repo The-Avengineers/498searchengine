@@ -48,11 +48,11 @@ function resolveSshConfig(
 	}
 
 	const portRaw = environment['AVENGINE_SSH_PORT'];
-	const port = portRaw ? Number.parseInt(portRaw, 10) : 2222;
+	const port = portRaw ? Number.parseInt(portRaw, 10) : 22;
 
 	return {
 		host,
-		port: Number.isFinite(port) && port > 0 ? port : 2222,
+		port: Number.isFinite(port) && port > 0 ? port : 22,
 		user: environment['AVENGINE_SSH_USER'] ?? 'engine',
 		keyPath: environment['AVENGINE_SSH_KEY'],
 	};
@@ -68,7 +68,7 @@ export function resolveCliConfig(
 	const persistentSsh = persistentConfig.ssh?.host
 		? {
 				host: persistentConfig.ssh.host,
-				port: persistentConfig.ssh.port ?? 2222,
+				port: persistentConfig.ssh.port ?? 22,
 				user: persistentConfig.ssh.user ?? 'engine',
 				keyPath: persistentConfig.ssh.keyPath,
 		  }
