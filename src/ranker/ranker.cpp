@@ -43,6 +43,11 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
     return;
   }
 
+  // Results without a URL are not usable in the UI and they poison URL-based
+  // dedup by collapsing many broken hits onto the same empty key.
+  if (entry.url.size() == 0)
+    return;
+
   const uint8_t* retained = RetainedUrls_.get(string_slice(entry.url.cstr()));
   if (retained && *retained != 0)
     return;
@@ -55,7 +60,7 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
 
   RankedResult candidate;
   candidate.entry = entry;
-  candidate.title = title;
+  candidate.title = title.size() == 0 ? entry.url : title;
   candidate.score = new_score;
   candidate.strategy_scores = per_strategy;
   candidate.shardOrdinal = shardOrdinal;

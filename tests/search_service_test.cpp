@@ -335,6 +335,33 @@ void testResultCap()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testBlankMetadataResultsAreSkipped()
+{
+  char dirTemplate[] = "/tmp/search_service_blank_metadata_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(),
+             {{"", "", "apple apple apple"},
+              {"https://apple.com/", "Apple", "apple"},
+              {"https://allmusic.com/", "AllMusic", "apple"}});
+
+  SearchService service(dir);
+  const SearchResponse response = service.Search("apple", 10);
+
+  EXPECT(response.Errors.empty());
+  EXPECT(response.TotalHits == 3u);
+  EXPECT(response.Results.size() == 2u);
+  EXPECT(response.Results[0].Url == string("https://apple.com/"));
+  EXPECT(response.Results[0].Title == string("Apple"));
+  EXPECT(response.Results[1].Url == string("https://allmusic.com/"));
+  EXPECT(response.Results[1].Title == string("AllMusic"));
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 void testTitleIntentWins()
 {
   char dirTemplate[] = "/tmp/search_service_title_intent_XXXXXX";
@@ -472,6 +499,7 @@ int main()
   testSolverQueries();
   testPaging();
   testResultCap();
+  testBlankMetadataResultsAreSkipped();
   testTitleIntentWins();
   testCompoundTokenQueries();
   testParallelWorkersMatchSingleThreaded();
