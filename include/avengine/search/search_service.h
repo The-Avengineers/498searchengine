@@ -22,6 +22,7 @@ struct SearchHit
 {
   string Url;
   string Title;
+  string Description;
   double Score = 0.0;
 };
 

@@ -150,6 +150,7 @@ struct PooledRankedHit
 {
   Ranker::RankedResult ranked;
   size_t shardOrdinal = 0;
+  string description;
 };
 
 string ExtractDomain(const string& url)
@@ -356,6 +357,27 @@ size_t DurationToMs(std::chrono::steady_clock::duration duration)
 bool QueryExceededDeadline(SteadyTimePoint deadline)
 {
   return std::chrono::steady_clock::now() >= deadline;
+}
+
+string FindDescriptionForRankedHit(const vector<ShardQueryContext>& contexts,
+                                   const vector<size_t>& matchedIndices,
+                                   const Ranker::RankedResult& ranked)
+{
+  for (size_t i = 0; i < matchedIndices.size(); ++i)
+  {
+    const ShardQueryContext& context = contexts[matchedIndices[i]];
+    if (context.shardOrdinal != ranked.shardOrdinal || context.shard == nullptr)
+      continue;
+
+    for (size_t matchIndex = 0; matchIndex < context.solved.Matches.size(); ++matchIndex)
+    {
+      const auto& match = context.solved.Matches[matchIndex];
+      if (match.Url == ranked.entry.url)
+        return context.shard->GetDocumentDescription(match.DocId);
+    }
+  }
+
+  return string();
 }
 
 void MarkTimeout(SearchResponse& response, size_t thresholdMs)
@@ -608,7 +630,11 @@ void* RunRankPhase(void* rawArgs)
   const vector<Ranker::RankedResult> topResults = ranker.TopResults();
   args->output->clear();
   for (size_t i = 0; i < topResults.size(); ++i)
-    args->output->pushBack({topResults[i], topResults[i].shardOrdinal});
+  {
+    args->output->pushBack({topResults[i], topResults[i].shardOrdinal,
+                            FindDescriptionForRankedHit(*args->contexts, *args->matchedIndices,
+                                                        topResults[i])});
+  }
 
   return nullptr;
 }
@@ -941,8 +967,12 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     seenUrls.insert(url, 1u);
     if (uniqueIndex >= pageStart && uniqueIndex < pageEnd)
     {
-      response.Results.pushBack(
-          {pooledHits[i].ranked.entry.url, pooledHits[i].ranked.title, pooledHits[i].ranked.score});
+      SearchHit hit;
+      hit.Url = pooledHits[i].ranked.entry.url;
+      hit.Title = pooledHits[i].ranked.title;
+      hit.Description = pooledHits[i].description;
+      hit.Score = pooledHits[i].ranked.score;
+      response.Results.pushBack(hit);
     }
     ++uniqueIndex;
     if (uniqueIndex >= kMaxVisibleSearchResults)
