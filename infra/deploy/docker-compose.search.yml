@@ -1,0 +1,50 @@
+# Search-server-only deployment.
+# No crawler, no aggregation, no memory limits.
+# Mount your pre-built index at AVENGINE_HOST_INDEX_DIR on the host.
+#
+# Quick start (single node):
+#   AVENGINE_SSH_PUBKEY="$(cat ~/.ssh/id_ed25519.pub)" \
+#   AVENGINE_HOST_INDEX_DIR=/path/to/index \
+#   docker compose -f infra/deploy/docker-compose.search.yml up -d
+#
+# Distributed (set all PEER_N_ADDR vars and use setup-worker-vm.sh for workers):
+#   See deploy/setup-worker-vm.sh and docs/deployment.md for details.
+
+services:
+  avengine:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    image: avengine-runtime:latest
+    container_name: avengine-search
+    restart: unless-stopped
+    environment:
+      AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY}
+      # Disable crawler and aggregation — search only
+      AVENGINE_AUTO_SWARM: "0"
+      AVENGINE_AUTO_AGGREGATE: "0"
+      # Auto-start the search server on container boot
+      AVENGINE_AUTO_SEARCH: "1"
+      AVENGINE_HTTP_PORT: ${AVENGINE_HTTP_PORT:-8080}
+      AVENGINE_SEARCH_INDEX_DIR: "/data/index"
+      # Distributed search config — set SEARCH_ROLE, NODE_ID, NUM_PEERS, PEER_N_ADDR
+      SEARCH_ROLE: ${SEARCH_ROLE:-coordinator}
+      NODE_ID: ${NODE_ID:-0}
+      NUM_PEERS: ${NUM_PEERS:-1}
+      PEER_0_ADDR: ${PEER_0_ADDR:-}
+      PEER_1_ADDR: ${PEER_1_ADDR:-}
+      PEER_2_ADDR: ${PEER_2_ADDR:-}
+      PEER_3_ADDR: ${PEER_3_ADDR:-}
+      PEER_4_ADDR: ${PEER_4_ADDR:-}
+      PEER_5_ADDR: ${PEER_5_ADDR:-}
+      PEER_6_ADDR: ${PEER_6_ADDR:-}
+      PEER_7_ADDR: ${PEER_7_ADDR:-}
+    ports:
+      - "${AVENGINE_SSH_PORT:-2222}:22"
+      - "${AVENGINE_HTTP_PORT:-8080}:8080"
+      - "${AVENGINE_PEER_PORT:-47857}:47857"
+    volumes:
+      - type: bind
+        source: ${AVENGINE_HOST_INDEX_DIR:?set AVENGINE_HOST_INDEX_DIR to the index directory on the host}
+        target: /data/index
+        read_only: true
