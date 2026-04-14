@@ -157,6 +157,9 @@ export function formatSearchLines(
 		lines.push(
 			`${rank} ${link}`,
 			`   ${result.url}`,
+			...(result.description.trim().length > 0
+				? [`   ${result.description}`]
+				: []),
 			`   score ${formatScore(result.score)}`,
 		);
 	}
@@ -188,6 +191,9 @@ export function formatLuckyLines(
 	lines.push(
 		`Lucky hit: ${formatTerminalLink(linkLabel, top.url, linkSupport)}`,
 		`url: ${top.url}`,
+		...(top.description.trim().length > 0
+			? [`description: ${top.description}`]
+			: []),
 		`score: ${formatScore(top.score)}`,
 		openResult.detail,
 	);

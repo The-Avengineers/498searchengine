@@ -81,6 +81,7 @@ Response:
     {
       "url": "https://example.com/page",
       "title": "Apple Result",
+      "description": "Short page description",
       "score": 1.234
     }
   ]

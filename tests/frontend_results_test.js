@@ -325,6 +325,52 @@ async function testFailedSearchStillReportsElapsedTime() {
   assert.equal(refs.pagination.hidden, true, "failed searches should not show pagination");
 }
 
+async function testRendersDescriptionFromApiResults() {
+  const { document, refs } = buildDom();
+
+  global.document = document;
+  global.window = {
+    location: { search: "?q=metadata" },
+    localStorage: createLocalStorage(),
+    AVENGINE_API_BASE: undefined,
+  };
+  global.performance = {
+    now: (() => {
+      const values = [25, 30];
+      return () => values.shift();
+    })(),
+  };
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({
+        query: "metadata",
+        page: 1,
+        limit: 10,
+        total_hits: 1,
+        errors: [],
+        results: [
+          {
+            url: "https://example.com/metadata",
+            title: "Metadata Result",
+            description: "Description from the indexed page.",
+            score: 0.75,
+          },
+        ],
+      }),
+  });
+
+  runResultsScript();
+  await flushMicrotasks();
+
+  const firstCard = refs.list.children[0];
+  const descriptionNode = firstCard.children[2];
+  assert.equal(descriptionNode.className, "result-snippet");
+  assert.equal(descriptionNode.textContent, "Description from the indexed page.");
+}
+
 async function testDecodesHtmlEntitiesButKeepsTextSafe() {
   const { document, refs } = buildDom();
 
@@ -387,6 +433,7 @@ async function main() {
   await testPaginatesResultsArray();
   await testEmptyQuerySkipsFetch();
   await testFailedSearchStillReportsElapsedTime();
+  await testRendersDescriptionFromApiResults();
   await testDecodesHtmlEntitiesButKeepsTextSafe();
   console.log("frontend_results_test passed");
 }
