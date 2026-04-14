@@ -1,4 +1,5 @@
 #include <avengine/constraint_solver/query_lexer.h>
+#include <avengine/indexer/token_rules.h>
 
 #include <cctype>
 
@@ -20,7 +21,7 @@ bool isWhitespace(char c)
 
 bool isWordChar(char c)
 {
-  return std::isalpha(static_cast<unsigned char>(c)) != 0;
+  return avengine::is_index_token_char(static_cast<unsigned char>(c));
 }
 
 bool isInternalDelimiter(char c)
@@ -28,11 +29,26 @@ bool isInternalDelimiter(char c)
   return c == '-' || c == '\'';
 }
 
-size_t skipWhitespace(const string& input, size_t offset);
+bool isIgnoredSeparator(char c)
+{
+  switch (c)
+  {
+  case '.':
+  case ',':
+  case ':':
+  case ';':
+  case '/':
+    return true;
+  default:
+    return false;
+  }
+}
+
+size_t skipIgnored(const string& input, size_t offset);
 
 bool startsPrimary(const string& input, size_t offset)
 {
-  offset = skipWhitespace(input, offset);
+  offset = skipIgnored(input, offset);
   if (offset >= input.size())
     return false;
 
@@ -52,12 +68,12 @@ bool minusStartsUnary(const string& input, size_t offset)
     return true;
 
   const char prev = input[offset - 1];
-  return isWhitespace(prev) || prev == '(' || prev == '|';
+  return isWhitespace(prev) || isIgnoredSeparator(prev) || prev == '(' || prev == '|';
 }
 
-size_t skipWhitespace(const string& input, size_t offset)
+size_t skipIgnored(const string& input, size_t offset)
 {
-  while (offset < input.size() && isWhitespace(input[offset]))
+  while (offset < input.size() && (isWhitespace(input[offset]) || isIgnoredSeparator(input[offset])))
   {
     ++offset;
   }
@@ -72,7 +88,7 @@ struct LexStep
 
 LexStep lexFrom(const string& input, size_t offset)
 {
-  offset = skipWhitespace(input, offset);
+  offset = skipIgnored(input, offset);
 
   if (offset >= input.size())
   {
@@ -127,7 +143,15 @@ LexStep lexFrom(const string& input, size_t offset)
       const char current = input[cursor];
       if (isWordChar(current))
       {
-        word.pushBack(lowerAscii(current));
+        const unsigned char u = static_cast<unsigned char>(current);
+        if (avengine::is_index_alpha(u))
+        {
+          word.pushBack(static_cast<char>(avengine::lower_index_ascii(u)));
+        }
+        else
+        {
+          word.pushBack(current);
+        }
         ++cursor;
         continue;
       }
@@ -169,7 +193,7 @@ QueryToken QueryLexer::Next()
 
 bool QueryLexer::AllConsumed() const
 {
-  return skipWhitespace(Input, Offset) >= Input.size();
+  return skipIgnored(Input, Offset) >= Input.size();
 }
 
 } // namespace constraint_solver

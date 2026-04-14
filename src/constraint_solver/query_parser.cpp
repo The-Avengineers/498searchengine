@@ -1,4 +1,5 @@
 #include <avengine/constraint_solver/query_parser.h>
+#include <avengine/indexer/token_rules.h>
 
 namespace avengine
 {
@@ -47,10 +48,17 @@ vector<string> splitPhraseTerms(const string& phrase)
 
   for (size_t i = 0; i < phrase.size(); ++i)
   {
-    const char c = phrase[i];
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+    const unsigned char c = static_cast<unsigned char>(phrase[i]);
+    if (avengine::is_index_token_char(c))
     {
-      current.pushBack(c);
+      if (avengine::is_index_alpha(c))
+      {
+        current.pushBack(static_cast<char>(avengine::lower_index_ascii(c)));
+      }
+      else
+      {
+        current.pushBack(static_cast<char>(c));
+      }
     }
     else if (current.size() > 0)
     {
