@@ -57,4 +57,5 @@ frontier_checkpoint.bin.tmp
 
 # Misc local artifacts
 profile.json.gz
+score.log
 utils/
