@@ -11,6 +11,10 @@ import SystemStatus from '../components/SystemStatus.js';
 import {runCliAction} from '../lib/actions.js';
 import {parseCliInvocation} from '../lib/commands.js';
 import {resolveCliConfig} from '../lib/config.js';
+import {
+	readPersistentConfigSafe,
+	runConfigCommand,
+} from '../lib/persistent-config.js';
 import {getHelpLines} from '../lib/presentation.js';
 import App from './app.js';
 
@@ -24,10 +28,17 @@ Usage
   $ avengine status
   $ avengine profile
   $ avengine open [--port 8080]
+  $ avengine config show
+  $ avengine config set --server URL --ssh-host HOST --ssh-port 22222 --ssh-key PATH
+  $ avengine config clear
 
 Options
   --server   Search server URL (overrides AVENGINE_SERVER_URL)
   --host     SSH host for remote container (overrides AVENGINE_SSH_HOST)
+  --ssh-host SSH host to save with "config set"
+  --ssh-port SSH port to save with "config set"
+  --ssh-user SSH user to save with "config set"
+  --ssh-key  SSH private key path to save with "config set"
   --page     1-based page number
   --limit    Result page size
   --verbose  Run query mode in verbose mode
@@ -51,6 +62,7 @@ Examples
   $ avengine profile
   $ avengine open
   $ avengine open --port 9090
+  $ avengine config set --server https://theavengine.com --ssh-host theavengine.com --ssh-port 22222 --ssh-key ~/.ssh/id_ed25519
   $ AVENGINE_SSH_HOST=myserver avengine open
   $ AVENGINE_SSH_HOST=myserver avengine stats
   $ AVENGINE_SSH_HOST=myserver avengine query "apple"
@@ -63,6 +75,18 @@ const cli = meow(helpText, {
 			type: 'string',
 		},
 		host: {
+			type: 'string',
+		},
+		sshHost: {
+			type: 'string',
+		},
+		sshPort: {
+			type: 'number',
+		},
+		sshUser: {
+			type: 'string',
+		},
+		sshKey: {
 			type: 'string',
 		},
 		page: {
@@ -94,38 +118,63 @@ function clearInteractiveScreen() {
 }
 
 async function main() {
+	const flags = cli.flags as typeof cli.flags & {
+		sshHost?: string;
+		sshPort?: number;
+		sshUser?: string;
+		sshKey?: string;
+	};
+
+	if (cli.input[0] === 'config') {
+		const result = runConfigCommand(cli.input.slice(1), {
+			server: flags.server,
+			host: flags.host,
+			sshHost: flags.sshHost,
+			sshPort: flags.sshPort,
+			sshUser: flags.sshUser,
+			sshKey: flags.sshKey,
+		});
+		console.log(result.lines.join('\n'));
+		process.exitCode = result.exitCode;
+		return;
+	}
+
 	const config = resolveCliConfig();
 
-	if (cli.flags.server) {
-		config.serverUrl = cli.flags.server;
+	if (flags.server) {
+		config.serverUrl = flags.server;
 	}
 
 	// --host overrides AVENGINE_SSH_HOST
-	if (cli.flags.host) {
+	if (flags.host) {
 		if (config.ssh) {
-			config.ssh.host = cli.flags.host;
+			config.ssh.host = flags.host;
 		} else {
 			config.ssh = {
-				host: cli.flags.host,
+				host: flags.host,
 				port: 2222,
 				user: 'engine',
 			};
 		}
 
-		// Also update serverUrl to point at the SSH host if not explicitly set
-		if (!process.env['AVENGINE_SERVER_URL'] && !cli.flags.server) {
-			config.serverUrl = `http://${cli.flags.host}:8080`;
+		const persistentConfig = readPersistentConfigSafe();
+		if (
+			!process.env['AVENGINE_SERVER_URL'] &&
+			!flags.server &&
+			!persistentConfig.serverUrl
+		) {
+			config.serverUrl = `http://${flags.host}:8080`;
 		}
 	}
 
 	const invocation = parseCliInvocation(cli.input, {
-		server: cli.flags.server,
-		host: cli.flags.host,
-		page: cli.flags.page,
-		limit: cli.flags.limit,
-		verbose: cli.flags.verbose,
-		once: cli.flags.once,
-		port: cli.flags.port,
+		server: flags.server,
+		host: flags.host,
+		page: flags.page,
+		limit: flags.limit,
+		verbose: flags.verbose,
+		once: flags.once,
+		port: flags.port,
 	});
 
 	if (invocation.interactive) {
@@ -149,12 +198,7 @@ async function main() {
 	// Stats dashboard — renders as a live Ink app
 	if (invocation.action.kind === 'stats') {
 		clearInteractiveScreen();
-		render(
-			<StatsDashboard
-				config={config}
-				once={invocation.action.once}
-			/>,
-		);
+		render(<StatsDashboard config={config} once={invocation.action.once} />);
 		return;
 	}
 

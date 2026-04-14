@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     mem_limit: ${AVENGINE_MEMORY_LIMIT:-12g}
     environment:
-      AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY}
+      AVENGINE_SSH_PUBKEY: ${AVENGINE_SSH_PUBKEY:-}
       AVENGINE_SWARM_SIZE: ${AVENGINE_SWARM_SIZE:-4}
       AVENGINE_CRAWLER_WORKERS: ${AVENGINE_CRAWLER_WORKERS:-32}
       AVENGINE_AUTO_SWARM: ${AVENGINE_AUTO_SWARM:-1}
@@ -22,3 +22,7 @@ services:
       - type: bind
         source: ${AVENGINE_HOST_DATA_ROOT:-/mnt/data1/avengine/data}
         target: /data
+      - type: bind
+        source: ./authorized_keys
+        target: /run/avengine/authorized_keys
+        read_only: true

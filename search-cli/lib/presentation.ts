@@ -9,6 +9,23 @@ import type {
 } from './types.js';
 
 const TIMING_BAR_WIDTH = 20;
+type CFontsApi = {
+	render: (
+		text: string,
+		options?: {
+			font?: string;
+			align?: string;
+			colors?: string[];
+			backgroundColor?: string;
+			letterSpacing?: number;
+			lineHeight?: number;
+			space?: boolean;
+			maxLength?: number;
+		},
+	) => false | {string: string};
+};
+
+const cfonts = CFonts as CFontsApi;
 
 function pluralizeResults(count: number) {
 	return count === 1 ? 'result' : 'results';
@@ -57,7 +74,7 @@ function scaleBannerLines(lines: string[], scale: number) {
 
 export function getBannerLines() {
 	const bannerScale = 1.5;
-	const banner = CFonts.render('AVENGINE', {
+	const banner = cfonts.render('AVENGINE', {
 		font: 'block',
 		align: 'left',
 		colors: ['system'],
@@ -195,9 +212,11 @@ export function formatLuckyLines(
 }
 
 export function formatSystemStatusLines(status: SystemStatusData): string[] {
-	const serverStatus = status.searchServerOk
-		? `ok${status.searchServerLatencyMs !== undefined ? ` (${status.searchServerLatencyMs}ms)` : ''}`
-		: 'unreachable';
+	const latency =
+		status.searchServerLatencyMs === undefined
+			? ''
+			: ` (${status.searchServerLatencyMs}ms)`;
+	const serverStatus = status.searchServerOk ? `ok${latency}` : 'unreachable';
 
 	return [
 		'system status:',
@@ -260,6 +279,7 @@ export function getHelpLines() {
 		'  avengine status',
 		'  avengine profile',
 		'  avengine open [--port 8080]         — start server + open browser',
+		'  avengine config show|set|clear      — manage saved connection config',
 		'',
 		'remote access (set AVENGINE_SSH_HOST):',
 		'  AVENGINE_SSH_HOST=host avengine stats',

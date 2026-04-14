@@ -13,72 +13,148 @@ on:
       - "src/**"
       - "include/**"
       - "tests/**"
+      - "frontend/**"
       - "deploy/**"
       - "infra/deploy/**"
+      - "infra/gcp/**"
       - ".github/workflows/deploy-avengine.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, x64, avengine-runtime]
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_ZONE: ${{ vars.GCP_ZONE }}
+      GCP_INSTANCE_NAME: ${{ vars.GCP_INSTANCE_NAME }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      AVENGINE_DOMAIN: ${{ vars.AVENGINE_DOMAIN || 'theavengine.com' }}
+      AVENGINE_PUBLIC_HTTP_PORT: ${{ vars.AVENGINE_PUBLIC_HTTP_PORT || '80' }}
+      AVENGINE_PUBLIC_HTTPS_PORT: ${{ vars.AVENGINE_PUBLIC_HTTPS_PORT || '443' }}
+      AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '22222' }}
+      AVENGINE_HTTP_PORT: ${{ vars.AVENGINE_HTTP_PORT || '127.0.0.1:8080' }}
+      AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
+      AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
+      AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
+      AVENGINE_AUTO_SWARM: ${{ vars.AVENGINE_AUTO_SWARM || '1' }}
+      AVENGINE_AUTO_AGGREGATE: ${{ vars.AVENGINE_AUTO_AGGREGATE || '1' }}
+      AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
+      AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
+      AVENGINE_MEMORY_LIMIT: ${{ vars.AVENGINE_MEMORY_LIMIT || '12g' }}
+      AVENGINE_DATA_UID: ${{ vars.AVENGINE_DATA_UID || '1000' }}
+      AVENGINE_DATA_GID: ${{ vars.AVENGINE_DATA_GID || '1000' }}
+      AVENGINE_REPAIR_DATA_OWNERSHIP: ${{ vars.AVENGINE_REPAIR_DATA_OWNERSHIP || '1' }}
+      AVENGINE_ENABLE_LIVE_PROFILING: ${{ vars.AVENGINE_ENABLE_LIVE_PROFILING || '1' }}
+      AVENGINE_READY_TIMEOUT_SECONDS: ${{ vars.AVENGINE_READY_TIMEOUT_SECONDS || '180' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate SSH public key secret
-        shell: bash
-        run: |
-          if [[ -z "${{ secrets.AVENGINE_SSH_PUBKEY }}" ]]; then
-            echo "Missing required repo secret: AVENGINE_SSH_PUBKEY"
-            exit 1
-          fi
-
-      - name: Deploy container
+      - name: Validate deployment configuration
         shell: bash
         env:
-          DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
-          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '22222' }}
-          AVENGINE_HTTP_PORT: ${{ vars.AVENGINE_HTTP_PORT || '18080' }}
-          AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
-          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
-          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
-          AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
-          AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
-          AVENGINE_DATA_UID: ${{ vars.AVENGINE_DATA_UID || '1000' }}
-          AVENGINE_DATA_GID: ${{ vars.AVENGINE_DATA_GID || '1000' }}
-          AVENGINE_REPAIR_DATA_OWNERSHIP: ${{ vars.AVENGINE_REPAIR_DATA_OWNERSHIP || '1' }}
         run: |
-          sudo install -d -m 775 \
-            "${AVENGINE_HOST_DATA_ROOT}" \
-            "${AVENGINE_HOST_DATA_ROOT}/logs" \
-            "${AVENGINE_HOST_DATA_ROOT}/pids" \
-            "${AVENGINE_HOST_DATA_ROOT}/crawlers" \
-            "${AVENGINE_HOST_DATA_ROOT}/corpus-index/generations" \
-            "${AVENGINE_HOST_DATA_ROOT}/corpus-profile/generations" \
-            "${AVENGINE_HOST_DATA_ROOT}/profiling"
-          if [[ "${AVENGINE_REPAIR_DATA_OWNERSHIP}" != "0" ]]; then
-            sudo chown -R "${AVENGINE_DATA_UID}:${AVENGINE_DATA_GID}" "${AVENGINE_HOST_DATA_ROOT}"
-          fi
-          docker compose \
-            -f infra/deploy/docker-compose.avengine.yml \
-            -f infra/deploy/docker-compose.profiling.yml \
-            up -d --build --remove-orphans
+          missing=0
+          for name in \
+            GCP_PROJECT_ID \
+            GCP_ZONE \
+            GCP_INSTANCE_NAME \
+            GCP_WORKLOAD_IDENTITY_PROVIDER \
+            GCP_SERVICE_ACCOUNT; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required repository variable: ${name}"
+              missing=1
+            fi
+          done
 
-      - name: Deployment status
+          if [[ -z "${AVENGINE_SSH_PUBKEY}" ]]; then
+            echo "::error::Missing required repository secret: AVENGINE_SSH_PUBKEY"
+            missing=1
+          fi
+
+          exit "${missing}"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Package deployment payload
         shell: bash
         env:
-          DOCKER_CONTEXT: ${{ vars.DOCKER_CONTEXT || 'default' }}
           AVENGINE_SSH_PUBKEY: ${{ secrets.AVENGINE_SSH_PUBKEY }}
-          AVENGINE_SSH_PORT: ${{ vars.AVENGINE_SSH_PORT || '22222' }}
-          AVENGINE_HTTP_PORT: ${{ vars.AVENGINE_HTTP_PORT || '18080' }}
-          AVENGINE_HOST_DATA_ROOT: ${{ vars.AVENGINE_HOST_DATA_ROOT || '/mnt/data1/avengine/data' }}
-          AVENGINE_SWARM_SIZE: ${{ vars.AVENGINE_SWARM_SIZE || '4' }}
-          AVENGINE_CRAWLER_WORKERS: ${{ vars.AVENGINE_CRAWLER_WORKERS || '32' }}
-          AVENGINE_AGGREGATE_INTERVAL_SECONDS: ${{ vars.AVENGINE_AGGREGATE_INTERVAL_SECONDS || '300' }}
-          AVENGINE_MAX_DATA_BYTES: ${{ vars.AVENGINE_MAX_DATA_BYTES || '137438953472' }}
         run: |
-          docker compose \
-            -f infra/deploy/docker-compose.avengine.yml \
-            -f infra/deploy/docker-compose.profiling.yml \
-            ps
+          payload_dir="${RUNNER_TEMP}/avengine-deploy"
+          rm -rf "${payload_dir}"
+          mkdir -p "${payload_dir}"
+
+          tar \
+            --exclude='./.git' \
+            --exclude='./build' \
+            --exclude='./build-*' \
+            --exclude='./artifacts' \
+            --exclude='./search-cli/node_modules' \
+            -czf "${payload_dir}/avengine-source.tgz" .
+
+          cat > "${payload_dir}/avengine-deploy.env" <<EOF
+          AVENGINE_RELEASE_ARCHIVE=/tmp/avengine-source.tgz
+          AVENGINE_RELEASE_REF=${GITHUB_SHA}
+          AVENGINE_DOMAIN=${AVENGINE_DOMAIN}
+          AVENGINE_PUBLIC_HTTP_PORT=${AVENGINE_PUBLIC_HTTP_PORT}
+          AVENGINE_PUBLIC_HTTPS_PORT=${AVENGINE_PUBLIC_HTTPS_PORT}
+          AVENGINE_SSH_PORT=${AVENGINE_SSH_PORT}
+          AVENGINE_HTTP_PORT=${AVENGINE_HTTP_PORT}
+          AVENGINE_HOST_DATA_ROOT=${AVENGINE_HOST_DATA_ROOT}
+          AVENGINE_SWARM_SIZE=${AVENGINE_SWARM_SIZE}
+          AVENGINE_CRAWLER_WORKERS=${AVENGINE_CRAWLER_WORKERS}
+          AVENGINE_AUTO_SWARM=${AVENGINE_AUTO_SWARM}
+          AVENGINE_AUTO_AGGREGATE=${AVENGINE_AUTO_AGGREGATE}
+          AVENGINE_AGGREGATE_INTERVAL_SECONDS=${AVENGINE_AGGREGATE_INTERVAL_SECONDS}
+          AVENGINE_MAX_DATA_BYTES=${AVENGINE_MAX_DATA_BYTES}
+          AVENGINE_MEMORY_LIMIT=${AVENGINE_MEMORY_LIMIT}
+          AVENGINE_DATA_UID=${AVENGINE_DATA_UID}
+          AVENGINE_DATA_GID=${AVENGINE_DATA_GID}
+          AVENGINE_REPAIR_DATA_OWNERSHIP=${AVENGINE_REPAIR_DATA_OWNERSHIP}
+          AVENGINE_ENABLE_LIVE_PROFILING=${AVENGINE_ENABLE_LIVE_PROFILING}
+          AVENGINE_READY_TIMEOUT_SECONDS=${AVENGINE_READY_TIMEOUT_SECONDS}
+          AVENGINE_SSH_PUBKEY_FILE=/tmp/avengine-authorized_keys
+          EOF
+          sed -i 's/^          //' "${payload_dir}/avengine-deploy.env"
+
+          printf '%s\n' "${AVENGINE_SSH_PUBKEY}" > "${payload_dir}/avengine-authorized_keys"
+          chmod 600 "${payload_dir}/avengine-authorized_keys" "${payload_dir}/avengine-deploy.env"
+
+      - name: Upload deployment payload to VM
+        shell: bash
+        run: |
+          gcloud compute scp \
+            --project="${GCP_PROJECT_ID}" \
+            --zone="${GCP_ZONE}" \
+            --tunnel-through-iap \
+            "${RUNNER_TEMP}/avengine-deploy/avengine-source.tgz" \
+            "${RUNNER_TEMP}/avengine-deploy/avengine-deploy.env" \
+            "${RUNNER_TEMP}/avengine-deploy/avengine-authorized_keys" \
+            infra/gcp/deploy-vm.sh \
+            "${GCP_INSTANCE_NAME}:/tmp/"
+
+      - name: Deploy on VM
+        shell: bash
+        run: |
+          gcloud compute ssh "${GCP_INSTANCE_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --zone="${GCP_ZONE}" \
+            --tunnel-through-iap \
+            --command="sudo env AVENGINE_DEPLOY_ENV=/tmp/avengine-deploy.env bash /tmp/deploy-vm.sh"

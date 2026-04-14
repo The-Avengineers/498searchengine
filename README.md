@@ -13,7 +13,30 @@ avengine open                               # start server + open browser
 AVENGINE_SSH_HOST=myhost avengine open      # tunnel to remote container
 ```
 
+For the hosted VM:
+
+```bash
+avengine config set \
+  --server https://theavengine.com \
+  --ssh-host theavengine.com \
+  --ssh-port 22222 \
+  --ssh-key ~/.ssh/id_ed25519
+avengine status
+```
+
 See [`search-cli/README.md`](search-cli/README.md) for the full reference.
+
+---
+
+## Deploy
+
+GitHub Actions deploys `master` to the Google Cloud VM through Workload Identity
+Federation and IAP SSH. The deployed stack serves the public site through Caddy
+at `https://theavengine.com` and exposes the runtime container SSH port for CLI
+management.
+
+See [`infra/gcp/README.md`](infra/gcp/README.md) for required GitHub variables,
+secrets, DNS, and firewall setup.
 
 ---
 
