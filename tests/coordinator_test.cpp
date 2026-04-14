@@ -36,10 +36,11 @@ void testComputeOverfetchLimit()
   EXPECT(ComputeOverfetchLimit(5, 10) == 70U);
 }
 
-SearchHit makeHit(const char* url, double score)
+SearchHit makeHit(const char* url, double score, const char* description = "")
 {
   SearchHit h;
   h.Url = string(url);
+  h.Description = string(description);
   h.Score = score;
   return h;
 }
@@ -98,6 +99,23 @@ void testMergeResponsesDedup()
   EXPECT(merged.Results.size() == 3U);
   // Highest score first.
   EXPECT(merged.Results[0].Url == string("https://a.com"));
+  EXPECT(merged.Results[0].Description == string(""));
+}
+
+void testMergeResponsesPreservesDescriptions()
+{
+  vector<SearchHit> hits;
+  hits.pushBack(makeHit("https://a.com", 2.0, "Description from worker"));
+
+  vector<SearchSource> sources;
+  sources.pushBack(makeSource(true, 1, hits, 1));
+
+  vector<avengine::search::SearchError> noErrors;
+  const auto merged = MergeResponses(string("q"), 1, 10, sources, noErrors, 0);
+
+  EXPECT(merged.Results.size() == 1U);
+  EXPECT(merged.Results[0].Url == string("https://a.com"));
+  EXPECT(merged.Results[0].Description == string("Description from worker"));
 }
 
 void testMergeResponsesTransportErrors()
@@ -175,6 +193,7 @@ int main()
   testComputeOverfetchLimit();
   testMergeResponsesTotalHits();
   testMergeResponsesDedup();
+  testMergeResponsesPreservesDescriptions();
   testMergeResponsesTransportErrors();
   testMergeResponsesPagination();
   testMergeResponsesCapAtOneHundred();

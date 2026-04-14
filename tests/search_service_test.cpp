@@ -37,6 +37,7 @@ struct TestDocument
   const char* Url;
   const char* Title;
   const char* Body;
+  const char* Description = "";
 };
 
 void ingestBody(::Index& index, const char* body)
@@ -91,9 +92,10 @@ void writeShard(const char* path, std::initializer_list<TestDocument> docs)
   {
     string url(doc.Url);
     string title(doc.Title);
+    string description(doc.Description ? doc.Description : "");
     index.beginDocument({.url = url,
                          .title = title,
-                         .description = "",
+                         .description = description,
                          .input = {.domainDepth = 0u,
                                    .depth = 0u,
                                    .urlLength = static_cast<uint16_t>(url.size()),
@@ -222,6 +224,29 @@ void testSolverQueries()
 
   EXPECT(unlink(shard0.cstr()) == 0);
   EXPECT(unlink(shard1.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
+void testResultDescriptions()
+{
+  char dirTemplate[] = "/tmp/search_service_description_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shardPath = joinPath(dir, "00000.sfi");
+  writeShard(shardPath.cstr(),
+             {{"doc://description", "Description Doc", "alpha beta",
+               "This description should reach the frontend."}});
+
+  SearchService service(dir);
+  const SearchResponse response = service.Search("alpha", 10);
+
+  EXPECT(response.Errors.empty());
+  EXPECT(response.Results.size() == 1u);
+  EXPECT(response.Results[0].Url == string("doc://description"));
+  EXPECT(response.Results[0].Description == string("This description should reach the frontend."));
+
+  EXPECT(unlink(shardPath.cstr()) == 0);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -497,6 +522,7 @@ int main()
 {
   testRankingInputRoundTrip();
   testSolverQueries();
+  testResultDescriptions();
   testPaging();
   testResultCap();
   testBlankMetadataResultsAreSkipped();

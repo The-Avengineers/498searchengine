@@ -35,6 +35,7 @@ export type SearchError = {
 export type SearchResult = {
 	url: string;
 	title: string;
+	description: string;
 	score: number;
 };
 

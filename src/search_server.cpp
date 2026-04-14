@@ -266,6 +266,7 @@ void WriteSearchHit(Writer& writer, const search::SearchHit& hit)
 {
   writer.writeString(hit.Url);
   writer.writeString(hit.Title);
+  writer.writeString(hit.Description);
 
   uint64_t scoreBits = 0;
   std::memcpy(&scoreBits, &hit.Score, sizeof(hit.Score));
@@ -277,6 +278,7 @@ search::SearchHit ReadSearchHit(Reader& reader)
   search::SearchHit hit;
   hit.Url = reader.readString();
   hit.Title = reader.readString();
+  hit.Description = reader.readString();
 
   const uint64_t scoreBits = reader.readU64();
   std::memcpy(&hit.Score, &scoreBits, sizeof(hit.Score));
@@ -617,6 +619,8 @@ void AppendResultString(string& body, const search::SearchResponse& response)
     AppendJsonString(body, response.Results[i].Url);
     body += string(",\"title\":");
     AppendJsonString(body, response.Results[i].Title);
+    body += string(",\"description\":");
+    AppendJsonString(body, response.Results[i].Description);
     body += string(",\"score\":");
     AppendDouble(body, response.Results[i].Score);
     body.pushBack('}');

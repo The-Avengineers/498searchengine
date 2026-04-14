@@ -50,11 +50,17 @@ function readSearchResults(rawResults: unknown) {
 					record['title'],
 					readString(record['url'], 'Untitled result'),
 				),
+				description: readString(record['description']),
 				score: readNumber(record['score']),
 			};
 		})
 		.filter(
-			(result): result is {url: string; title: string; score: number} =>
+			(result): result is {
+				url: string;
+				title: string;
+				description: string;
+				score: number;
+			} =>
 				result !== undefined && result.url.length > 0,
 		);
 }

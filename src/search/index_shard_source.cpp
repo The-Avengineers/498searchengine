@@ -103,6 +103,13 @@ string IndexShardSource::GetDocumentTitle(uint32_t docId) const
   return documentTitles_[docId];
 }
 
+string IndexShardSource::GetDocumentDescription(uint32_t docId) const
+{
+  if (docId >= documentDescriptions_.size())
+    return string();
+  return documentDescriptions_[docId];
+}
+
 const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
 {
   if (docId >= documents_.size())
