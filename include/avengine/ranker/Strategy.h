@@ -245,14 +245,14 @@ public:
   {
     (void)entry;
     const double body = ranking_strategy_detail::HasExactPhrase(term_positions) ? 1.0 : 0.0;
-    const double title = (signals.title_term_positions != nullptr &&
-                          ranking_strategy_detail::HasExactPhrase(*signals.title_term_positions))
-                             ? 1.0
-                             : 0.0;
-    const double anchor = (signals.anchor_term_positions != nullptr &&
-                           ranking_strategy_detail::HasExactPhrase(*signals.anchor_term_positions))
-                              ? 1.0
-                              : 0.0;
+    const double title =
+        signals.title_term_positions == nullptr
+            ? 0.0
+            : (ranking_strategy_detail::HasExactPhrase(*signals.title_term_positions) ? 1.0 : 0.0);
+    const double anchor =
+        signals.anchor_term_positions == nullptr
+            ? 0.0
+            : (ranking_strategy_detail::HasExactPhrase(*signals.anchor_term_positions) ? 1.0 : 0.0);
     return body + (0.9 * title) + (0.8 * anchor);
   }
 };

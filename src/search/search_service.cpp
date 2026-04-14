@@ -30,17 +30,21 @@ bool HasSfiSuffix(const string& name)
 
 bool IsAnchorShard(const string& path)
 {
-  const char* name = path.cstr();
+  size_t nameStart = 0;
   for (size_t i = path.size(); i > 0; --i)
   {
-    if (name[i - 1] == '/')
+    if (path[i - 1] == '/')
     {
-      name = name + i;
+      nameStart = i;
       break;
     }
   }
-  return name[0] == 'a' && name[1] == 'n' && name[2] == 'c' && name[3] == 'h' &&
-         name[4] == 'o' && name[5] == 'r' && name[6] == '_';
+  if (path.size() - nameStart < 7)
+    return false;
+  return path[nameStart]     == 'a' && path[nameStart + 1] == 'n' &&
+         path[nameStart + 2] == 'c' && path[nameStart + 3] == 'h' &&
+         path[nameStart + 4] == 'o' && path[nameStart + 5] == 'r' &&
+         path[nameStart + 6] == '_';
 }
 
 string JoinPath(const string& directory, const string& filename)
@@ -255,12 +259,23 @@ unordered_map<MatchPositions> BuildAnchorPositionMap(
   for (size_t si = 0; si < anchorShards.size(); ++si)
   {
     const IndexShardSource* shard = anchorShards[si];
+    if (!shard)
+      continue;
+
+    // Positions from different anchor shards use incompatible absolute coordinate
+    // spaces, so each URL's positions must come from exactly one shard (the first
+    // that claims it). Track which URLs were claimed by the current shard so later
+    // shards can skip them without mixing coordinates.
+    unordered_map<uint8_t> claimedThisShard;
 
     for (size_t t = 0; t < queryTerms.size(); ++t)
     {
       ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
       if (!isr)
         continue;
+
+      uint32_t lastDocId = UINT32_MAX;
+      MatchPositions* cachedMp = nullptr;
 
       for (Post* p = isr->Seek(1); p; p = isr->Next())
       {
@@ -269,22 +284,36 @@ unordered_map<MatchPositions> BuildAnchorPositionMap(
           continue;
 
         const uint32_t docId = attrs.Word.documentId;
-        const string url = shard->GetDocumentURL(docId);
-        if (url.size() == 0)
-          continue;
-
-        MatchPositions* mp = anchorByUrl.get(string_slice(url.cstr()));
-        if (!mp)
+        if (docId != lastDocId)
         {
-          MatchPositions newMp;
-          for (size_t ti = 0; ti < queryTerms.size(); ++ti)
-            newMp.termPositions.pushBack(vector<size_t>());
-          anchorByUrl.insert(url, newMp);
-          mp = anchorByUrl.get(string_slice(url.cstr()));
+          lastDocId = docId;
+          cachedMp = nullptr;
+
+          const string url = shard->GetDocumentURL(docId);
+          if (url.size() == 0)
+            continue;
+
+          MatchPositions* existing = anchorByUrl.get(string_slice(url.cstr()));
+          if (existing)
+          {
+            // Only append to an entry claimed in the current shard — entries from
+            // prior shards are in a different coordinate space.
+            if (claimedThisShard.get(string_slice(url.cstr())))
+              cachedMp = existing;
+          }
+          else
+          {
+            MatchPositions fresh;
+            for (size_t ti = 0; ti < queryTerms.size(); ++ti)
+              fresh.termPositions.pushBack(vector<size_t>());
+            anchorByUrl.insert(url, fresh);
+            cachedMp = anchorByUrl.get(string_slice(url.cstr()));
+            claimedThisShard.insert(url, 1u);
+          }
         }
 
-        if (mp)
-          mp->termPositions[t].pushBack(p->GetStartLocation());
+        if (cachedMp)
+          cachedMp->termPositions[t].pushBack(p->GetStartLocation());
       }
 
       delete isr;
@@ -843,7 +872,9 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   }
 
   const unordered_map<MatchPositions> anchorByUrl =
-      BuildAnchorPositionMap(anchorShards_, queryTerms);
+      (!matchedIndices.empty() && !anchorShards_.empty())
+          ? BuildAnchorPositionMap(anchorShards_, queryTerms)
+          : unordered_map<MatchPositions>();
 
   const auto collectStartedAt = std::chrono::steady_clock::now();
   LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount, deadline,
