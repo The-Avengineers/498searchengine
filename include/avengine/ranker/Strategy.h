@@ -208,7 +208,7 @@ public:
   }
 
 private:
-  static constexpr double short_thres = 40.0;
+  static constexpr double short_thres = 10.0;
   static constexpr double long_thres = 120.0;
 };
 
@@ -420,6 +420,54 @@ public:
 
 private:
   vector<avengine::string> QueryTerms;
+};
+
+class UrlPathDepth : public Ranker::Strategy
+{
+  // Scores based on number of path segments after the domain.
+  // Top-level pages (e.g. example.com/about) score higher than deeply nested ones.
+  // 1.0 for 0-1 segments, linearly drops to 0.0 at max_depth segments.
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)term_positions;
+    (void)signals;
+    const avengine::string& url = entry.url;
+
+    // Find start of path (first '/' after scheme "://")
+    size_t path_start = avengine::string::npos;
+    const size_t scheme_sep = url.find("://");
+    if (scheme_sep != avengine::string::npos)
+      path_start = url.find("/", scheme_sep + 3);
+
+    if (path_start == avengine::string::npos)
+      return 1.0; //  root domain
+
+    // Count non-empty path segments (e.g. "nytimes.com/" = 0, "nytimes.com/newsletters" = 1)
+    size_t segments = 0;
+    size_t i = path_start;
+    while (i < url.size())
+    {
+      if (url[i] == '/')
+        ++i;
+      else
+      {
+        ++segments;
+        while (i < url.size() && url[i] != '/')
+          ++i;
+      }
+    }
+
+    if (segments == 0)
+      return 1.0;
+    if (segments >= max_depth)
+      return 0.0;
+    return static_cast<double>(max_depth - segments) / static_cast<double>(max_depth);
+  }
+
+private:
+  static constexpr size_t max_depth = 6;
 };
 
 class EarlyQueryTermMatch : public Ranker::Strategy
