@@ -1,3 +1,4 @@
+#include "avengine/indexer/indexer.h"
 #include <avengine/codec.h>
 #include <avengine/search/index_shard_source.h>
 
@@ -60,8 +61,14 @@ bool IndexShardSource::Load(const string& path)
   const uint64_t magic = headerReader.readU64();
   (void)headerReader.readU64(); // document_count
   const uint64_t uniqueWords = headerReader.readU64();
-  (void)headerReader.readU64(); // token_offset
-  (void)headerReader.readU64(); // ranking-input size
+  (void)headerReader.readU64();                       // token_offset
+  uint64_t rankingInputSize = headerReader.readU64(); // ranking-input size
+
+  if (rankingInputSize != sizeof(RankingInput))
+  {
+    Reset();
+    return false;
+  }
 
   if (magic != kIndexMagic || !ParseDictionary(uniqueWords) || !ParseDocumentMetadata())
   {
@@ -252,10 +259,9 @@ bool IndexShardSource::ParseDocumentMetadata()
     const avengine::string title = r.readString();
     const avengine::string description = r.readString();
 
-    RankingInput rankingInput = 0;
-    if (r.remaining() >= sizeof(uint64_t))
-      rankingInput = r.readU64();
-
+    RankingInput rankingInput = {};
+    if (r.remaining() >= sizeof(RankingInput))
+      r.readBytes(&rankingInput, sizeof(RankingInput));
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     const uint32_t titleLength = static_cast<uint32_t>(title.size());
     const uint32_t urlLength = static_cast<uint32_t>(url.size());

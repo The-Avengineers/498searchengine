@@ -485,8 +485,8 @@ void* RunRankPhase(void* rawArgs)
       Ranker::RankSignals signals = {};
       if (docInfo)
       {
-        entry.depth = static_cast<int>(ranking_input::Depth(docInfo->rankingInput));
-        signals.title_word_count = ranking_input::TitleWordCount(docInfo->rankingInput);
+        entry.depth = static_cast<int>(docInfo->rankingInput.depth);
+        signals.title_word_count = docInfo->rankingInput.titleWordCount;
       }
       if (matchIndex < context.titlePositions.size())
         signals.title_term_positions = &context.titlePositions[matchIndex].termPositions;

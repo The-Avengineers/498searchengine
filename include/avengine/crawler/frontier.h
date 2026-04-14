@@ -27,6 +27,7 @@ public:
 
   // seed list
   void seed(const vector<string>& seedURLs);
+  void seed(const vector<urlEntry>& seedEntries);
 
   // Requires Nothing
   // Modifyies the master list by grabbing
@@ -38,7 +39,7 @@ public:
   // Modifys frontier by adding new URL
   // Checks for duplicate URLS
   // Returns nothing
-  void add(const string& url, int depth);
+  void add(const string& url, int depth, int seedDomainDepth = 0, int seedSourceLine = 0);
 
   // Requires a URL
   // Modifys nothing

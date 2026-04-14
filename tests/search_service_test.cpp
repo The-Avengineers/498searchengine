@@ -3,6 +3,7 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
 
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -60,6 +61,29 @@ void ingestBody(::Index& index, const char* body)
   }
 }
 
+uint16_t countWords(const string& text)
+{
+  uint16_t count = 0;
+  bool inWord = false;
+  for (size_t i = 0; i < text.size(); ++i)
+  {
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    if (std::isalpha(c))
+    {
+      if (!inWord)
+      {
+        ++count;
+        inWord = true;
+      }
+    }
+    else
+    {
+      inWord = false;
+    }
+  }
+  return count;
+}
+
 void writeShard(const char* path, std::initializer_list<TestDocument> docs)
 {
   ::Index index;
@@ -70,8 +94,11 @@ void writeShard(const char* path, std::initializer_list<TestDocument> docs)
     index.beginDocument({.url = url,
                          .title = title,
                          .description = "",
-                         .input = ranking_input::Pack(0u, static_cast<uint32_t>(url.size()),
-                                                      ranking_input::CountWords(title))});
+                         .input = {.domainDepth = 0u,
+                                   .depth = 0u,
+                                   .urlLength = static_cast<uint16_t>(url.size()),
+                                   .titleWordCount = countWords(title),
+                                   .seedSource = 0u}});
     ingestBody(index, doc.Body);
     index.endDocument();
   }
@@ -120,13 +147,16 @@ void testRankingInputRoundTrip()
   const avengine::DocumentInfo* info = shard.GetDocumentInfo(0);
   EXPECT(info != nullptr);
 
-  const RankingInput expected =
-      ranking_input::Pack(0u, static_cast<uint32_t>(string("doc://static").size()),
-                          ranking_input::CountWords(string("Static Title")));
-  EXPECT(info->rankingInput == expected);
-  EXPECT(ranking_input::Depth(info->rankingInput) == 0u);
-  EXPECT(ranking_input::UrlLength(info->rankingInput) == 12u);
-  EXPECT(ranking_input::TitleWordCount(info->rankingInput) == 2u);
+  const RankingInput expected = {.domainDepth = 0u,
+                                 .depth = 0u,
+                                 .urlLength = static_cast<uint16_t>(string("doc://static").size()),
+                                 .titleWordCount = 2u,
+                                 .seedSource = 0u};
+  EXPECT(info->rankingInput.domainDepth == expected.domainDepth);
+  EXPECT(info->rankingInput.depth == expected.depth);
+  EXPECT(info->rankingInput.urlLength == expected.urlLength);
+  EXPECT(info->rankingInput.titleWordCount == expected.titleWordCount);
+  EXPECT(info->rankingInput.seedSource == expected.seedSource);
 
   EXPECT(unlink(shardPath.cstr()) == 0);
   EXPECT(rmdir(dir) == 0);
@@ -269,8 +299,11 @@ void testResultCap()
     string titleString(title);
     index.beginDocument({.url = urlString,
                          .title = titleString,
-                         .input = ranking_input::Pack(0u, static_cast<uint32_t>(urlString.size()),
-                                                      ranking_input::CountWords(titleString))});
+                         .input = {.domainDepth = 0u,
+                                   .depth = 0u,
+                                   .urlLength = static_cast<uint16_t>(urlString.size()),
+                                   .titleWordCount = countWords(titleString),
+                                   .seedSource = 0u}});
     index.ingest("alpha");
     index.endDocument();
   }

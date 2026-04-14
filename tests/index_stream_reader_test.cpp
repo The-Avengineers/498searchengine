@@ -133,10 +133,11 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   std::free(bytes);
 }
 
-TEST_CASE("IndexShardSource preserves packed ranking input")
+TEST_CASE("IndexShardSource preserves ranking input")
 {
   Index index;
-  const RankingInput expected = ranking_input::Pack(7u, 31u, 4u);
+  const RankingInput expected = {
+      .domainDepth = 3u, .depth = 7u, .urlLength = 31u, .titleWordCount = 4u, .seedSource = 9u};
   index.beginDocument({.url = "doc://static", .title = "Static Title", .input = expected});
   index.ingest("alpha");
   index.endDocument();
@@ -152,10 +153,11 @@ TEST_CASE("IndexShardSource preserves packed ranking input")
   REQUIRE(shard.IsLoaded());
   const avengine::DocumentInfo* info = shard.GetDocumentInfo(0);
   REQUIRE(info != nullptr);
-  CHECK(info->rankingInput == expected);
-  CHECK(ranking_input::Depth(info->rankingInput) == 7u);
-  CHECK(ranking_input::UrlLength(info->rankingInput) == 31u);
-  CHECK(ranking_input::TitleWordCount(info->rankingInput) == 4u);
+  CHECK(info->rankingInput.domainDepth == expected.domainDepth);
+  CHECK(info->rankingInput.depth == expected.depth);
+  CHECK(info->rankingInput.urlLength == expected.urlLength);
+  CHECK(info->rankingInput.titleWordCount == expected.titleWordCount);
+  CHECK(info->rankingInput.seedSource == expected.seedSource);
 
   CHECK(unlink(pathTemplate) == 0);
 }

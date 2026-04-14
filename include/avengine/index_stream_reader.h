@@ -1,9 +1,9 @@
 #pragma once
 
 #include "avengine/HashTable.h"
-#include "avengine/indexer/ranking_input.h"
 #include "avengine/string.h"
 #include "avengine/vector.h"
+#include <avengine/indexer/indexer.h>
 #include <cstddef>
 #include <cstdint>
 
@@ -104,7 +104,7 @@ struct DocumentInfo
   Location end = 0;
   uint32_t titleLength = 0;
   uint32_t urlLength = 0;
-  RankingInput rankingInput = 0;
+  RankingInput rankingInput;
 };
 
 class ISR
