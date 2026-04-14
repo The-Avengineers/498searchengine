@@ -28,6 +28,25 @@ bool HasSfiSuffix(const string& name)
          name[name.size() - 2] == 'f' && name[name.size() - 1] == 'i';
 }
 
+bool IsAnchorShard(const string& path)
+{
+  size_t nameStart = 0;
+  for (size_t i = path.size(); i > 0; --i)
+  {
+    if (path[i - 1] == '/')
+    {
+      nameStart = i;
+      break;
+    }
+  }
+  if (path.size() - nameStart < 7)
+    return false;
+  return path[nameStart]     == 'a' && path[nameStart + 1] == 'n' &&
+         path[nameStart + 2] == 'c' && path[nameStart + 3] == 'h' &&
+         path[nameStart + 4] == 'o' && path[nameStart + 5] == 'r' &&
+         path[nameStart + 6] == '_';
+}
+
 string JoinPath(const string& directory, const string& filename)
 {
   string path = directory;
@@ -124,6 +143,7 @@ struct ShardQueryContext
   constraint_solver::SolveResult solved;
   vector<MatchPositions> bodyPositions;
   vector<MatchPositions> titlePositions;
+  vector<MatchPositions> anchorPositions;
 };
 
 struct PooledRankedHit
@@ -231,15 +251,100 @@ void CollectQueryTerms(const constraint_solver::QueryNode* node, vector<string>&
   }
 }
 
-void CollectAllMatchPositions(ShardQueryContext& context, const vector<string>& terms)
+unordered_map<MatchPositions> BuildAnchorPositionMap(
+    const vector<IndexShardSource*>& anchorShards, const vector<string>& queryTerms)
+{
+  unordered_map<MatchPositions> anchorByUrl;
+
+  for (size_t si = 0; si < anchorShards.size(); ++si)
+  {
+    const IndexShardSource* shard = anchorShards[si];
+    if (!shard)
+      continue;
+
+    // Positions from different anchor shards use incompatible absolute coordinate
+    // spaces, so each URL's positions must come from exactly one shard (the first
+    // that claims it). Track which URLs were claimed by the current shard so later
+    // shards can skip them without mixing coordinates.
+    unordered_map<uint8_t> claimedThisShard;
+
+    for (size_t t = 0; t < queryTerms.size(); ++t)
+    {
+      ISRWord* isr = shard->OpenTermIsr(queryTerms[t]);
+      if (!isr)
+        continue;
+
+      uint32_t lastDocId = UINT32_MAX;
+      MatchPositions* cachedMp = nullptr;
+
+      for (Post* p = isr->Seek(1); p; p = isr->Next())
+      {
+        const Attributes attrs = p->GetAttributes();
+        if (attrs.kind != Attributes::Kind::WORD)
+          continue;
+
+        const uint32_t docId = attrs.Word.documentId;
+        if (docId != lastDocId)
+        {
+          lastDocId = docId;
+          cachedMp = nullptr;
+
+          const string url = shard->GetDocumentURL(docId);
+          if (url.size() == 0)
+            continue;
+
+          MatchPositions* existing = anchorByUrl.get(string_slice(url.cstr()));
+          if (existing)
+          {
+            // Only append to an entry claimed in the current shard — entries from
+            // prior shards are in a different coordinate space.
+            if (claimedThisShard.get(string_slice(url.cstr())))
+              cachedMp = existing;
+          }
+          else
+          {
+            MatchPositions fresh;
+            for (size_t ti = 0; ti < queryTerms.size(); ++ti)
+              fresh.termPositions.pushBack(vector<size_t>());
+            anchorByUrl.insert(url, fresh);
+            cachedMp = anchorByUrl.get(string_slice(url.cstr()));
+            claimedThisShard.insert(url, 1u);
+          }
+        }
+
+        if (cachedMp)
+          cachedMp->termPositions[t].pushBack(p->GetStartLocation());
+      }
+
+      delete isr;
+    }
+  }
+
+  return anchorByUrl;
+}
+
+void CollectAllMatchPositions(ShardQueryContext& context, const vector<string>& terms,
+                              const unordered_map<MatchPositions>* anchorByUrl)
 {
   InitializeMatchPositions(context.solved.Matches.size(), terms.size(), context.bodyPositions);
   InitializeMatchPositions(context.solved.Matches.size(), terms.size(), context.titlePositions);
+  InitializeMatchPositions(context.solved.Matches.size(), terms.size(), context.anchorPositions);
 
   CollectPositionsForTerms(context.querySource, context.solved.Matches, terms, string(),
                            context.bodyPositions);
   CollectPositionsForTerms(context.querySource, context.solved.Matches, terms, string("#"),
                            context.titlePositions);
+
+  if (anchorByUrl)
+  {
+    for (size_t matchIdx = 0; matchIdx < context.solved.Matches.size(); ++matchIdx)
+    {
+      const string& url = context.solved.Matches[matchIdx].Url;
+      const MatchPositions* ap = anchorByUrl->get(string_slice(url.cstr()));
+      if (ap)
+        context.anchorPositions[matchIdx] = *ap;
+    }
+  }
 }
 
 size_t DurationToMs(std::chrono::steady_clock::duration duration)
@@ -384,6 +489,7 @@ struct CollectPhaseArgs
   vector<ShardQueryContext>* contexts = nullptr;
   const vector<size_t>* matchedIndices = nullptr;
   const vector<string>* queryTerms = nullptr;
+  const unordered_map<MatchPositions>* anchorByUrl = nullptr;
   size_t begin = 0;
   size_t end = 0;
   SteadyTimePoint deadline = {};
@@ -405,7 +511,7 @@ void* RunCollectPhase(void* rawArgs)
     }
 
     ShardQueryContext& context = (*args->contexts)[(*args->matchedIndices)[i]];
-    CollectAllMatchPositions(context, *args->queryTerms);
+    CollectAllMatchPositions(context, *args->queryTerms, args->anchorByUrl);
   }
 
   return nullptr;
@@ -490,6 +596,8 @@ void* RunRankPhase(void* rawArgs)
       }
       if (matchIndex < context.titlePositions.size())
         signals.title_term_positions = &context.titlePositions[matchIndex].termPositions;
+      if (matchIndex < context.anchorPositions.size())
+        signals.anchor_term_positions = &context.anchorPositions[matchIndex].termPositions;
 
       ranker.Consider(entry, context.shard->GetDocumentTitle(match.DocId),
                       context.bodyPositions[matchIndex].termPositions, signals,
@@ -550,7 +658,8 @@ void LaunchSolvePhase(vector<ShardQueryContext>& contexts,
 }
 
 void LaunchCollectPhase(vector<ShardQueryContext>& contexts, const vector<size_t>& matchedIndices,
-                        const vector<string>& queryTerms, size_t workerCount,
+                        const vector<string>& queryTerms,
+                        const unordered_map<MatchPositions>* anchorByUrl, size_t workerCount,
                         SteadyTimePoint deadline, atomic_counter& timedOut)
 {
   const size_t phaseWorkers = ClampWorkerCount(workerCount, matchedIndices.size());
@@ -566,6 +675,7 @@ void LaunchCollectPhase(vector<ShardQueryContext>& contexts, const vector<size_t
         .contexts = &contexts,
         .matchedIndices = &matchedIndices,
         .queryTerms = &queryTerms,
+        .anchorByUrl = anchorByUrl,
         .begin = RangeBegin(workerIndex, phaseWorkers, matchedIndices.size()),
         .end = RangeEnd(workerIndex, phaseWorkers, matchedIndices.size()),
         .deadline = deadline,
@@ -578,6 +688,7 @@ void LaunchCollectPhase(vector<ShardQueryContext>& contexts, const vector<size_t
       .contexts = &contexts,
       .matchedIndices = &matchedIndices,
       .queryTerms = &queryTerms,
+      .anchorByUrl = anchorByUrl,
       .begin = 0,
       .end = RangeEnd(0, phaseWorkers, matchedIndices.size()),
       .deadline = deadline,
@@ -655,6 +766,8 @@ SearchService::~SearchService()
 {
   for (IndexShardSource* shard : shards_)
     delete shard;
+  for (IndexShardSource* shard : anchorShards_)
+    delete shard;
 }
 
 void SearchService::SetQueryExecutionTimeThresholdMs(size_t thresholdMs)
@@ -673,10 +786,15 @@ void SearchService::LoadShards()
   for (const string& path : paths)
   {
     IndexShardSource* shard = new IndexShardSource(path);
-    if (shard->IsLoaded())
-      shards_.pushBack(shard);
-    else
+    if (!shard->IsLoaded())
+    {
       delete shard;
+      continue;
+    }
+    if (IsAnchorShard(path))
+      anchorShards_.pushBack(shard);
+    else
+      shards_.pushBack(shard);
   }
 }
 
@@ -755,8 +873,14 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     response.TotalHits += contexts[i].solved.Matches.size();
   }
 
+  const unordered_map<MatchPositions> anchorByUrl =
+      (!matchedIndices.empty() && !anchorShards_.empty())
+          ? BuildAnchorPositionMap(anchorShards_, queryTerms)
+          : unordered_map<MatchPositions>();
+
   const auto collectStartedAt = std::chrono::steady_clock::now();
-  LaunchCollectPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, deadline, timedOut);
+  LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount, deadline,
+                     timedOut);
   response.CollectMs = DurationToMs(std::chrono::steady_clock::now() - collectStartedAt);
 
   if (timedOut.load())

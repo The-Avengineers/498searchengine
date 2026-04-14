@@ -63,6 +63,7 @@ private:
   string indexDirectory_;
   constraint_solver::ConstraintSolver solver_;
   vector<IndexShardSource*> shards_;
+  vector<IndexShardSource*> anchorShards_;
 };
 
 } // namespace search
