@@ -60,8 +60,10 @@ validate_integer() {
 }
 
 validate_ip() {
-  [[ -n "$1" ]]             || fatal "IP address cannot be empty."
-  [[ "$1" =~ [[:space:]] ]] && fatal "IP address cannot contain spaces."
+  [[ -n "$1" ]] || fatal "IP address cannot be empty."
+  if [[ "$1" =~ [[:space:]] ]]; then
+    fatal "IP address cannot contain spaces."
+  fi
 }
 
 # ── banner ────────────────────────────────────────────────────────────────────
