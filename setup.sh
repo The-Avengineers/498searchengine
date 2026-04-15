@@ -206,14 +206,59 @@ echo ""
 # ── step 5: nginx / SSL (coordinator only) ────────────────────────────────────
 
 USE_NGINX="n"
+CERT_PATH="/etc/letsencrypt/live/theavengine.com/fullchain.pem"
+
 if [[ "$ROLE" == "coordinator" ]]; then
-  echo -e "${BOLD}Step 5: Nginx + SSL${RESET}"
-  echo "The coordinator can run nginx to terminate HTTPS for theavengine.com."
-  echo "Prerequisites: static IP assigned to this VM, DNS A record pointing here,"
-  echo "and certbot already run (sudo certbot certonly --standalone -d theavengine.com)."
+  echo -e "${BOLD}Step 5: Nginx + SSL (coordinator only)${RESET}"
+  echo "nginx terminates HTTPS for theavengine.com and proxies to the search server."
   echo ""
-  prompt_yn USE_NGINX "Start nginx alongside the search server?" "n"
+  echo "Before saying yes, make sure:"
+  echo "  1. A static external IP is assigned to this VM"
+  echo "  2. The theavengine.com DNS A record points to that IP"
+  echo "  3. GCP firewall allows TCP 80 and 443 inbound (from 0.0.0.0/0)"
   echo ""
+  prompt_yn USE_NGINX "Set up nginx + SSL for theavengine.com?" "y"
+  echo ""
+
+  if [[ "$USE_NGINX" == "y" ]]; then
+    # ── certbot / TLS certificate ─────────────────────────────────────────────
+    if [[ -f "$CERT_PATH" ]]; then
+      info "TLS certificate already exists — skipping certbot."
+    else
+      echo -e "${BOLD}Getting a TLS certificate via certbot${RESET}"
+      echo "certbot will briefly listen on port 80 to prove domain ownership."
+      warn "If anything else is using port 80 right now, stop it first."
+      echo ""
+      prompt_yn RUN_CERTBOT "Run certbot now to get the certificate?" "y"
+      if [[ "$RUN_CERTBOT" == "y" ]]; then
+        if ! command -v certbot &>/dev/null; then
+          info "Installing certbot..."
+          sudo apt-get update -qq
+          sudo apt-get install -y certbot
+        fi
+        info "Running certbot — follow the prompts (enter your email when asked)..."
+        sudo certbot certonly --standalone \
+          -d theavengine.com -d www.theavengine.com
+        echo ""
+      else
+        warn "Skipping certbot. nginx will fail to start without a cert at:"
+        warn "  $CERT_PATH"
+        warn "Run this manually before starting, then re-run setup.sh:"
+        warn "  sudo certbot certonly --standalone -d theavengine.com -d www.theavengine.com"
+        echo ""
+      fi
+    fi
+
+    # ── auto-renewal cron (idempotent) ────────────────────────────────────────
+    RENEW_JOB="0 3 * * * certbot renew --quiet && docker compose -f ${REPO_DIR}/deploy/docker-compose.nginx.yml exec nginx nginx -s reload"
+    if sudo crontab -l 2>/dev/null | grep -qF "certbot renew"; then
+      info "Certbot auto-renewal already in root crontab — skipping."
+    else
+      info "Adding certbot auto-renewal to root crontab (runs at 3am daily)..."
+      ( sudo crontab -l 2>/dev/null; echo "$RENEW_JOB" ) | sudo crontab -
+    fi
+    echo ""
+  fi
 fi
 
 # ── write .env.search ─────────────────────────────────────────────────────────
@@ -298,10 +343,17 @@ echo -e "  Config file:  ${ENV_FILE}"
 echo ""
 echo "  Container commands:"
 echo "    docker logs -f avengine-search      # stream logs"
+if [[ "$USE_NGINX" == "y" ]]; then
+  echo "    docker logs -f avengine-nginx       # nginx logs"
+fi
 echo "    ssh -p 2222 engine@localhost        # shell into container"
 echo ""
 echo "  Test the search API:"
-echo "    curl \"http://localhost:8080/api/search?q=test\""
+if [[ "$USE_NGINX" == "y" ]]; then
+  echo "    curl \"https://theavengine.com/api/search?q=test\""
+else
+  echo "    curl \"http://localhost:8080/api/search?q=test\""
+fi
 echo ""
 
 if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
