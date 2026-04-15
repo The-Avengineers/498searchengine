@@ -67,4 +67,10 @@ if [[ "${AVENGINE_AUTO_AGGREGATE:-1}" != "0" ]]; then
   su -s /bin/bash engine -c "${BIN_ROOT}/start-aggregate-watch.sh"
 fi
 
+if [[ "${AVENGINE_AUTO_SEARCH:-0}" != "0" ]]; then
+  SEARCH_PORT="${AVENGINE_HTTP_PORT:-8080}"
+  SEARCH_INDEX="${AVENGINE_SEARCH_INDEX_DIR:-${DATA_ROOT}/corpus-index/current}"
+  su -s /bin/bash engine -c "${BIN_ROOT}/start-search-server.sh ${SEARCH_PORT} ${SEARCH_INDEX} daemon"
+fi
+
 exec /usr/sbin/sshd -D -e
