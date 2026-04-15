@@ -14,7 +14,7 @@ namespace ranking_strategy_detail
 inline bool HasExactPhrase(const vector<vector<size_t>>& term_positions)
 {
   if (term_positions.size() < 2)
-    return true;
+    return !term_positions.empty() && !term_positions[0].empty();
 
   for (const auto& positions : term_positions)
   {
@@ -60,7 +60,7 @@ inline double OrderingScore(const vector<vector<size_t>>& term_positions)
   if (query_len == 0)
     return 0.0;
   if (query_len == 1)
-    return 1.0;
+    return term_positions[0].empty() ? 0.0 : 1.0;
 
   size_t best_len = 0;
   size_t best_span = 0;
@@ -302,7 +302,7 @@ public:
 
 class UrlDepth : public Ranker::Strategy
 {
-  // piecewise linear: 1.0 for depth <= shallow_thres, linearly drops to 0.0 at deep_thres
+  // number of link clicks from seed to get to page
 public:
   double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
                const Ranker::RankSignals& signals) const
@@ -320,6 +320,29 @@ public:
 private:
   static constexpr double shallow_thres = 2.0;
   static constexpr double deep_thres = 8.0;
+};
+
+class SeedDomainDepth : public Ranker::Strategy
+{
+  // ranks pages based on how many domain switches from seed
+  // eg. wikipedia to wikipedia is better than wikipedia to reddit despite url structure
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)term_positions;
+    (void)signals;
+    const double d = static_cast<double>(entry.seedDomainDepth);
+    if (d <= shallow_thres)
+      return 1.0;
+    if (d >= deep_thres)
+      return 0.0;
+    return (deep_thres - d) / (deep_thres - shallow_thres);
+  }
+
+private:
+  static constexpr double shallow_thres = 1.0;
+  static constexpr double deep_thres = 5.0;
 };
 
 // HttpsMatch is intentionally disabled because the crawler only indexes HTTPS URLs.
@@ -478,6 +501,60 @@ private:
   static constexpr size_t max_depth = 6;
 };
 
+class TitleTermCoverage : public Ranker::Strategy
+{
+  // Scores purely on how many query terms appear in the title,
+  // plus ordering and exact-phrase bonuses 
+  // Body positions are ignored so this weight can be
+  // independently tunable from the body-based strategies.
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)entry;
+    (void)term_positions;
+    if (signals.title_term_positions == nullptr)
+      return 0.0;
+    const auto& tp = *signals.title_term_positions;
+    const double coverage = ranking_strategy_detail::CoverageScore(tp);
+    if (coverage == 0.0)
+      return 0.0;
+    const double ordering = ranking_strategy_detail::OrderingScore(tp);
+    const double exact = ranking_strategy_detail::HasExactPhrase(tp) ? 1.0 : 0.0;
+    const double early = ranking_strategy_detail::EarlyMatchScore(tp);
+    return (0.15 * coverage) + (0.15 * ordering) + (0.4 * exact) + (0.3 * early);
+  }
+};
+
+class ExactTitleMatch : public Ranker::Strategy
+{
+  // all query terms appear as a consecutive phrase in the title and the title has no extra
+  // words
+public:
+  explicit ExactTitleMatch(const vector<avengine::string>& query_terms)
+      : QueryTermCount(query_terms.size())
+  {
+  }
+
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)entry;
+    (void)term_positions;
+    if (signals.title_term_positions == nullptr || QueryTermCount == 0)
+      return 0.0;
+    const auto& tp = *signals.title_term_positions;
+    if (ranking_strategy_detail::CoverageScore(tp) != 1.0)
+      return 0.0;
+    if (!ranking_strategy_detail::HasExactPhrase(tp))
+      return 0.0;
+    return signals.title_word_count == QueryTermCount ? 1.0 : 0.0;
+  }
+
+private:
+  size_t QueryTermCount{0};
+};
+
 class EarlyQueryTermMatch : public Ranker::Strategy
 {
   // Scores how early each term appears in document on log scale
@@ -497,6 +574,23 @@ public:
             ? 0.0
             : ranking_strategy_detail::EarlyMatchScore(*signals.anchor_term_positions);
     return body_score + (0.7 * title_score) + (0.6 * anchor_score);
+  }
+};
+
+class QueryParamPenalty : public Ranker::Strategy
+{
+  // Returns 1.0 when the URL contains a "q=" query parameter
+public:
+  double Score(const urlEntry& entry, const vector<vector<size_t>>& term_positions,
+               const Ranker::RankSignals& signals) const
+  {
+    (void)term_positions;
+    (void)signals;
+    const avengine::string& url = entry.url;
+    if (url.find("?q=") != avengine::string::npos || url.find("&q=") != avengine::string::npos ||
+        url.find("&amp;q=") != avengine::string::npos)
+      return 1.0;
+    return 0.0;
   }
 };
 
