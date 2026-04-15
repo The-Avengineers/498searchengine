@@ -227,9 +227,64 @@ void avengine::runNode(uint64_t nodeId, size_t numPeers)
   peerList.peers = avengine::vector<Peer>(numPeers);
   peerList.expectedPeers = numPeers;
 
-  avengine::thread gossipThread(udpGossip, nullptr);
-  avengine::thread broadcastThread(udpBroadcast, nullptr);
+  // Static peer mode: if any PEER_N_ADDR env vars are set, connect directly
+  // instead of using UDP broadcast. Required for GCP and other cloud VPCs where
+  // broadcast packets are silently dropped.
+  bool hasStaticPeers = false;
+  for (size_t i = 0; i < numPeers; ++i)
+  {
+    if (i == localNodeId)
+      continue;
+    char envName[32];
+    snprintf(envName, sizeof(envName), "PEER_%zu_ADDR", i);
+    const char* addrStr = getenv(envName);
+    if (addrStr && addrStr[0] != '\0')
+    {
+      hasStaticPeers = true;
+      break;
+    }
+  }
+
+  // tcpServer is always needed: higher-ID nodes accept incoming connections
+  // from lower-ID nodes regardless of discovery mode.
   avengine::thread tcpServerThread(tcpServer, nullptr);
+
+  if (hasStaticPeers)
+  {
+    // Static mode: resolve each peer's IP from PEER_N_ADDR and trigger a TCP
+    // connection. Nodes with localNodeId < i initiate the connection;
+    // nodes with localNodeId > i wait for an inbound connection via tcpServer.
+    for (size_t i = 0; i < numPeers; ++i)
+    {
+      if (i == localNodeId)
+        continue;
+      char envName[32];
+      snprintf(envName, sizeof(envName), "PEER_%zu_ADDR", i);
+      const char* addrStr = getenv(envName);
+      if (!addrStr || addrStr[0] == '\0')
+      {
+        fprintf(stderr, "[node] WARNING: static mode active but PEER_%zu_ADDR not set\n", i);
+        continue;
+      }
+      sockaddr_in addr{};
+      addr.sin_family = AF_INET;
+      if (inet_pton(AF_INET, addrStr, &addr.sin_addr) != 1)
+      {
+        fprintf(stderr, "[node] invalid IP in PEER_%zu_ADDR=%s\n", i, addrStr);
+        continue;
+      }
+      addr.sin_port = htons(TCP_PORT);
+      printf("[node] static peer #%zu -> %s\n", i, addrStr);
+      peerList.updatePeer(i, addr);
+    }
+  }
+  else
+  {
+    // Broadcast mode: discover peers on the local network via UDP gossip.
+    // Works on LANs and VPNs that support broadcast; does not work on GCP VPCs.
+    avengine::thread gossipThread(udpGossip, nullptr);
+    avengine::thread broadcastThread(udpBroadcast, nullptr);
+  }
 }
 
 static void* tcpServer(void* /*arg*/)

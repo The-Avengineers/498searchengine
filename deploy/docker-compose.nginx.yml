@@ -1,0 +1,21 @@
+# Coordinator-only overlay: adds nginx for SSL termination and theavengine.com routing.
+# Run on the coordinator VM alongside docker-compose.search.yml:
+#
+#   docker compose \
+#     -f infra/deploy/docker-compose.search.yml \
+#     -f deploy/docker-compose.nginx.yml \
+#     up -d
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: avengine-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../../deploy/nginx.conf:/etc/nginx/conf.d/avengine.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - avengine

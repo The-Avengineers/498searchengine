@@ -131,12 +131,6 @@ struct MatchPositions
   vector<vector<size_t>> termPositions; // termPositions[termIdx] = locations in document
 };
 
-struct CachedDecodedTerm
-{
-  vector<Location> positions;
-  uint32_t documentFrequency = 0;
-};
-
 class QueryLocalShardSource : public constraint_solver::IsrSource
 {
 public:
@@ -144,21 +138,7 @@ public:
 
   ISRWord* OpenTermIsr(const string& term) const override
   {
-    const CachedDecodedTerm* cached = decodedTerms_.get(string_slice(term.cstr()));
-    if (!cached)
-    {
-      CachedDecodedTerm decoded;
-      if (!shard_ ||
-          !shard_->DecodeTermOccurrences(term, &decoded.positions, &decoded.documentFrequency))
-        return nullptr;
-
-      decodedTerms_.insert(term, decoded);
-      cached = decodedTerms_.get(string_slice(term.cstr()));
-      if (!cached)
-        return nullptr;
-    }
-
-    return shard_->BuildWordIsr(cached->positions, cached->documentFrequency);
+    return shard_ ? shard_->OpenTermIsr(term) : nullptr;
   }
 
   ISREndDoc* OpenEndDocIsr() const override
@@ -173,7 +153,6 @@ public:
 
 private:
   const IndexShardSource* shard_ = nullptr;
-  mutable unordered_map<CachedDecodedTerm> decodedTerms_;
 };
 
 struct ShardQueryContext

@@ -164,11 +164,35 @@ ISRWord* IndexShardSource::BuildWordIsr(const vector<Location>& positions,
 
 ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
 {
-  vector<Location> positions;
-  uint32_t documentFrequency = 0;
-  if (!DecodeTermOccurrences(term, &positions, &documentFrequency))
+  const uint8_t* postingBegin = nullptr;
+  const uint8_t* postingEnd = nullptr;
+  uint64_t documentFrequency = 0;
+  if (!FindPostingBounds(term, &postingBegin, &postingEnd, &documentFrequency))
     return nullptr;
-  return BuildWordIsr(positions, documentFrequency);
+
+  PostingBlobHeader header = {};
+  const uint8_t* fieldStreamsBegin = nullptr;
+  if (!parsePostingBlobHeader(postingBegin, postingEnd, &header, &fieldStreamsBegin))
+    return nullptr;
+
+  // Parse the skip pointer table — O(sqrt(N)) entries.
+  vector<SkipPointerEntry> skipPointers;
+  Reader r(fieldStreamsBegin, static_cast<size_t>(postingEnd - fieldStreamsBegin));
+  for (uint64_t i = 0; i < header.skipCount; ++i)
+  {
+    SkipPointerEntry entry;
+    entry.positionIndex = r.readVarU32();
+    entry.positionValue = r.readVarU32();
+    entry.byteOffset = r.readVarU32();
+    skipPointers.pushBack(entry);
+  }
+
+  // Delta stream starts immediately after the skip table.
+  const uint8_t* deltaStreamStart = r.cursor();
+
+  return new ISRWordLazy(deltaStreamStart, postingEnd, std::move(skipPointers),
+                         header.collectionFrequency, documents_,
+                         static_cast<uint32_t>(documentFrequency));
 }
 
 ISREndDoc* IndexShardSource::OpenEndDocIsr() const
