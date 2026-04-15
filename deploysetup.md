@@ -26,6 +26,14 @@ Internet  ──▶  theavengine.com  (DNS A → coordinator external IP)
 
 ---
 
+Josh 0 1
+Tony 2
+Mick 3
+Jason 4
+Mateo 5 6
+
+
+
 ## Prerequisites
 
 1. **GCP VM** — `m4-highmem-16` (or `m4-hypermem-16`), Ubuntu 22.04+, 512 GB attached data disk.
