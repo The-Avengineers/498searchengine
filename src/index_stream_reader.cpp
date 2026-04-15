@@ -174,6 +174,144 @@ unsigned ISRWord::GetDocumentCount() const
   return documentCount_;
 }
 
+ISRWordLazy::ISRWordLazy(const uint8_t* streamStart, const uint8_t* streamEnd,
+                         vector<SkipPointerEntry> skipPointers, uint64_t collectionFrequency,
+                         const vector<DocumentInfo>& documents, uint32_t documentCount)
+    : streamStart_(streamStart), streamEnd_(streamEnd), cursor_(streamStart),
+      skipPointers_(std::move(skipPointers)), collectionFrequency_(collectionFrequency)
+{
+  documents_ = &documents;
+  documentCount_ = documentCount;
+
+  if (collectionFrequency_ > 0 && cursor_ < streamEnd_)
+  {
+    Reader r(cursor_, static_cast<size_t>(streamEnd_ - cursor_));
+    const uint32_t delta = r.readVarU32();
+    cursor_ = r.cursor();
+    currentAbsPosition_ += delta;
+    positionsDecoded_ = 1;
+    exhausted_ = false;
+    // Positions are 1-based (same +1 offset as DecodeTermOccurrences).
+    const Location loc = static_cast<Location>(currentAbsPosition_) + 1u;
+    SetCurrent(loc, loc,
+               documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+                          : Attributes{});
+  }
+  else
+  {
+    exhausted_ = true;
+    ClearCurrent();
+  }
+}
+
+Post* ISRWordLazy::Next()
+{
+  if (exhausted_ || positionsDecoded_ >= collectionFrequency_)
+  {
+    exhausted_ = true;
+    ClearCurrent();
+    return nullptr;
+  }
+
+  Reader r(cursor_, static_cast<size_t>(streamEnd_ - cursor_));
+  const uint32_t delta = r.readVarU32();
+  cursor_ = r.cursor();
+  currentAbsPosition_ += delta;
+  positionsDecoded_++;
+  exhausted_ = false;
+  const Location loc = static_cast<Location>(currentAbsPosition_) + 1u;
+  return SetCurrent(loc, loc,
+                    documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+                               : Attributes{});
+}
+
+Post* ISRWordLazy::Seek(Location target)
+{
+  if (target == 0)
+    target = 1;
+
+  if (collectionFrequency_ == 0)
+  {
+    exhausted_ = true;
+    ClearCurrent();
+    return nullptr;
+  }
+
+  // Binary search skip pointers for the largest entry with positionValue <= target.
+  size_t bestSkip = SIZE_MAX;
+  {
+    size_t lo = 0;
+    size_t hi = skipPointers_.size();
+    while (lo < hi)
+    {
+      const size_t mid = lo + (hi - lo) / 2;
+      // positionValue is 0-based raw; add 1 to compare against the 1-based target.
+      if (static_cast<Location>(skipPointers_[mid].positionValue) + 1u <= target)
+      {
+        bestSkip = mid;
+        lo = mid + 1;
+      }
+      else
+      {
+        hi = mid;
+      }
+    }
+  }
+
+  if (bestSkip != SIZE_MAX)
+  {
+    // Jump to the skip point. The delta at byteOffset encodes positions[positionIndex] -
+    // positions[positionIndex-1]. Read past it and use positionValue as the absolute truth.
+    cursor_ = streamStart_ + skipPointers_[bestSkip].byteOffset;
+    Reader r(cursor_, static_cast<size_t>(streamEnd_ - cursor_));
+    r.readVarU32(); // consume and discard the skip-point delta
+    cursor_ = r.cursor();
+    currentAbsPosition_ = skipPointers_[bestSkip].positionValue;
+    positionsDecoded_ = skipPointers_[bestSkip].positionIndex + 1;
+
+    // Positions are 1-based: the stored raw value + 1 is the actual location.
+    const Location locAtSkip = static_cast<Location>(currentAbsPosition_) + 1u;
+    if (locAtSkip >= target)
+    {
+      exhausted_ = false;
+      return SetCurrent(locAtSkip, locAtSkip,
+                        documents_ ? make_word_attributes(*documents_, locAtSkip, documentCount_)
+                                   : Attributes{});
+    }
+  }
+  else
+  {
+    // No skip pointer applies — decode from the very beginning.
+    cursor_ = streamStart_;
+    currentAbsPosition_ = 0;
+    positionsDecoded_ = 0;
+  }
+
+  // Linear scan forward until we reach or pass target.
+  Reader r(cursor_, static_cast<size_t>(streamEnd_ - cursor_));
+  while (positionsDecoded_ < collectionFrequency_)
+  {
+    const uint32_t delta = r.readVarU32();
+    currentAbsPosition_ += delta;
+    positionsDecoded_++;
+
+    const Location loc = static_cast<Location>(currentAbsPosition_) + 1u;
+    if (loc >= target)
+    {
+      cursor_ = r.cursor();
+      exhausted_ = false;
+      return SetCurrent(loc, loc,
+                        documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+                                   : Attributes{});
+    }
+  }
+
+  cursor_ = r.cursor();
+  exhausted_ = true;
+  ClearCurrent();
+  return nullptr;
+}
+
 ISREndDoc::ISREndDoc(const vector<DocumentInfo>& documents)
 {
   documents_ = &documents;
