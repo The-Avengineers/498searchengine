@@ -43,10 +43,10 @@ Point the `theavengine.com` A record to the coordinator VM's **external static I
 
 ### 2. Reserve a static external IP (GCP)
 ```bash
-gcloud compute addresses create avengine-ip --region=us-central1
+gcloud compute addresses create avengine-ip --region=us-east1
 gcloud compute instances add-access-config <instance-name> \
   --access-config-name=external-nat \
-  --address=$(gcloud compute addresses describe avengine-ip --region=us-central1 --format='value(address)')
+  --address=$(gcloud compute addresses describe avengine-ip --region=us-east1 --format='value(address)')
 ```
 
 ### 3. Get TLS certificate (on coordinator VM, before starting nginx)

@@ -128,11 +128,11 @@ Workers skip this section entirely — `setup.sh` only shows these steps when yo
 ### Before running setup.sh:
 1. **Reserve a static external IP:**
    ```bash
-   gcloud compute addresses create avengine-ip --region=us-central1
+   gcloud compute addresses create avengine-ip --region=us-east1
    gcloud compute instances add-access-config <instance-name> \
      --access-config-name=external-nat \
      --address=$(gcloud compute addresses describe avengine-ip \
-                   --region=us-central1 --format='value(address)')
+                   --region=us-east1 --format='value(address)')
    ```
 2. **Point DNS:** Set the `theavengine.com` A record to that static IP.
 3. **Open ports 80 + 443** in GCP firewall (needed for certbot and HTTPS traffic).

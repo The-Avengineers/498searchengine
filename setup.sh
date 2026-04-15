@@ -238,14 +238,16 @@ else
         sudo mkfs.ext4 -F -L avengine-data "$DETECTED_DISK"
       fi
 
-      info "Mounting at ${DATA_MOUNT}..."
+      info "Mounting at ${DATA_MOUNT} (SSD options: noatime, discard)..."
       sudo mkdir -p "$DATA_MOUNT"
-      sudo mount "$DETECTED_DISK" "$DATA_MOUNT"
+      sudo mount -o noatime,discard "$DETECTED_DISK" "$DATA_MOUNT"
       sudo chown "$USER":"$USER" "$DATA_MOUNT"
 
       DISK_UUID="$(sudo blkid -s UUID -o value "$DETECTED_DISK")"
       if ! grep -qF "$DISK_UUID" /etc/fstab 2>/dev/null; then
-        echo "UUID=${DISK_UUID}  ${DATA_MOUNT}  ext4  defaults,nofail  0  2" \
+        # noatime: skip access-time writes (reduces write amplification on SSD)
+        # discard: enables TRIM so the SSD reclaims freed blocks
+        echo "UUID=${DISK_UUID}  ${DATA_MOUNT}  ext4  noatime,discard,nofail  0  2" \
           | sudo tee -a /etc/fstab > /dev/null
         info "Added to /etc/fstab (auto-mounts on reboot)."
       fi
@@ -318,9 +320,13 @@ sudo mkdir -p "$(dirname "$ENV_FILE")"
     echo "NUM_PEERS=${NUM_PEERS}"
   fi
 
+  # Reserve 2 vCPUs for the OS; use the rest for parallel shard queries.
+  # Computed from the actual hardware so this works on any machine type.
+  SHARD_WORKERS=$(( $(nproc) - 2 ))
+  [[ "$SHARD_WORKERS" -lt 1 ]] && SHARD_WORKERS=1
   echo ""
-  echo "# m4-highmem-16: use all but 2 vCPUs for parallel shard queries"
-  echo "SEARCH_SHARD_WORKERS=14"
+  echo "# Use all but 2 vCPUs for parallel shard queries (auto-detected: $(nproc) total)"
+  echo "SEARCH_SHARD_WORKERS=${SHARD_WORKERS}"
 
   if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
     echo ""
