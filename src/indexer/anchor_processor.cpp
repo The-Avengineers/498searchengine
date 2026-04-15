@@ -343,16 +343,10 @@ static bool parseDocEnd(const uint8_t* data, size_t fileSize,
       return false;
     cursor = nx;
 
-    RankingInput rankInput = {};
-    if (cursor + sizeof(RankingInput) <= pEnd)
-    {
-      memcpy(&rankInput, cursor, sizeof(RankingInput));
-      cursor += sizeof(RankingInput);
-    }
-    else
-    {
-      cursor = pEnd;
-    }
+    if (cursor + 8 > pEnd)
+      return false;
+    uint64_t rankInput = readU64Le(cursor);
+    cursor += 8;
 
     docMetas.pushBack({url, title, description, rankInput});
   }

@@ -59,4 +59,7 @@ frontier_checkpoint.bin.tmp
 profile.json.gz
 score.log
 utils/
-score.log
+
+# Local Node/TypeScript CLI install and build outputs
+search-cli/node_modules/
+search-cli/dist/
