@@ -137,9 +137,13 @@ if [[ "$ROLE" != "single" ]]; then
   echo "Enter the internal IP of each node in order (node 0 = coordinator):"
   for ((i=0; i<NUM_PEERS; i++)); do
     local_label=""
-    [[ "$i" -eq "$NODE_ID" && "$ROLE" == "coordinator" ]] && local_label=" (this machine)"
-    [[ "$i" -eq "$NODE_ID" && "$ROLE" == "worker" ]]      && local_label=" (this machine)"
-    [[ "$i" -eq 0 && "$ROLE" == "worker" ]]               && local_label=" (coordinator)"
+    if [[ "$i" -eq "$NODE_ID" && "$ROLE" == "coordinator" ]]; then
+      local_label=" (this machine)"
+    elif [[ "$i" -eq "$NODE_ID" && "$ROLE" == "worker" ]]; then
+      local_label=" (this machine)"
+    elif [[ "$i" -eq 0 && "$ROLE" == "worker" ]]; then
+      local_label=" (coordinator)"
+    fi
     prompt IP_VAL "  Node ${i} internal IP${local_label}" ""
     validate_ip "$IP_VAL"
     PEER_IPS+=("$IP_VAL")
