@@ -524,7 +524,6 @@ void* RunSolvePhase(void* rawArgs)
     if (context.solved.TimedOut)
     {
       args->timedOut->store(1);
-      return nullptr;
     }
   }
 
@@ -916,13 +915,15 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   LaunchSolvePhase(contexts, solver_, parsed.Root, shardWorkerCount, deadline, timedOut);
   response.SolveMs = DurationToMs(std::chrono::steady_clock::now() - solveStartedAt);
 
-  if (timedOut.load())
-  {
-    constraint_solver::DestroyQueryTree(parsed.Root);
-    MarkTimeout(response, thresholdMs);
-    response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
-    return response;
-  }
+  const bool solveTimedOut = timedOut.load();
+  timedOut.store(0);
+
+  // If solve timed out give rest of pipelineive a
+  // new window so they can finish processing the partial results
+  const SteadyTimePoint postSolveDeadline =
+      solveTimedOut
+          ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
+          : deadline;
 
   vector<size_t> matchedIndices;
   matchedIndices.reserve(contexts.size());
@@ -939,31 +940,23 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
           : unordered_map<MatchPositions>();
 
   const auto collectStartedAt = std::chrono::steady_clock::now();
-  LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount, deadline,
-                     timedOut);
+  LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount,
+                     postSolveDeadline, timedOut);
   response.CollectMs = DurationToMs(std::chrono::steady_clock::now() - collectStartedAt);
 
-  if (timedOut.load())
-  {
-    constraint_solver::DestroyQueryTree(parsed.Root);
-    MarkTimeout(response, thresholdMs);
-    response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
-    return response;
-  }
+  const bool collectTimedOut = timedOut.load();
+  timedOut.store(0);
+
+  const SteadyTimePoint postCollectDeadline =
+      collectTimedOut
+          ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
+          : postSolveDeadline;
 
   const auto rankStartedAt = std::chrono::steady_clock::now();
   vector<vector<PooledRankedHit>> workerOutputs;
-  LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit, deadline,
-                  timedOut, workerOutputs, weights);
+  LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit,
+                  postCollectDeadline, timedOut, workerOutputs, weights);
   response.RankMs = DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
-
-  if (timedOut.load())
-  {
-    constraint_solver::DestroyQueryTree(parsed.Root);
-    MarkTimeout(response, thresholdMs);
-    response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
-    return response;
-  }
 
   vector<PooledRankedHit> pooledHits;
   for (size_t workerIndex = 0; workerIndex < workerOutputs.size(); ++workerIndex)
@@ -1039,6 +1032,8 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
       static const size_t kNamesLen = sizeof(kNames) / sizeof(kNames[0]);
 
       fprintf(log, "query: %s\n", query.cstr());
+      fprintf(log, "timing: parse=%zums solve=%zums collect=%zums rank=%zums\n",
+              response.ParseMs, response.SolveMs, response.CollectMs, response.RankMs);
       fprintf(log, "terms:");
       for (size_t t = 0; t < queryTerms.size(); ++t)
         fprintf(log, " [%s]", queryTerms[t].cstr());
