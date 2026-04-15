@@ -204,18 +204,18 @@ EOF
 fi
 echo ""
 
-# ── 512 GB data disk setup ────────────────────────────────────────────────────
+# ── 300 GB data disk setup ────────────────────────────────────────────────────
 
 DATA_MOUNT="/mnt/data"
 if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
   info "Data disk already mounted at $DATA_MOUNT — skipping."
 else
-  # Find unmounted block devices >= 400 GB (the 512 GB data disk)
+  # Find unmounted block devices >= 400 GB (the 300 GB data disk)
   DETECTED_DISK=""
   while IFS= read -r line; do
     dev=$(awk '{print $1}' <<< "$line")
     size=$(awk '{print $2}' <<< "$line")
-    if [[ "$size" -ge 400000000000 ]]; then
+    if [[ "$size" -ge 250000000000 ]]; then
       DETECTED_DISK="/dev/${dev}"
       break
     fi
@@ -225,7 +225,7 @@ else
   if [[ -n "$DETECTED_DISK" ]]; then
     echo -e "${BOLD}Data Disk Setup${RESET}"
     echo "Detected unmounted large disk: ${DETECTED_DISK}"
-    echo "This should be the 512 GB data disk where index shards will be stored."
+    echo "This should be the 300 GB data disk where index shards will be stored."
     echo ""
     prompt_yn FORMAT_DISK "Format and mount ${DETECTED_DISK} at ${DATA_MOUNT}?" "y"
     echo ""
