@@ -1,0 +1,44 @@
+# Performance overlay for m4-highmem-16 / m4-hypermem-16 VMs
+# 16 vCPUs, large RAM, 512 GB NVMe data disk
+#
+# Always combine with docker-compose.search.yml:
+#   docker compose \
+#     -f infra/deploy/docker-compose.search.yml \
+#     -f infra/deploy/docker-compose.m4-highmem.yml \
+#     --env-file .env.search \
+#     up -d --build
+#
+# setup.sh includes this automatically when run on these machines.
+
+services:
+  avengine:
+    # ── CPU ───────────────────────────────────────────────────────────────────
+    # Reserve 2 vCPUs for the host OS; give the rest to the search server.
+    cpus: "14"
+
+    # ── open file handles ─────────────────────────────────────────────────────
+    # Each .sfi index shard needs a file descriptor. A large index can have
+    # hundreds of shards; the default 1024 limit causes EMFILE errors.
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+      # Allow mlock so the kernel can pin hot index pages in RAM.
+      memlock:
+        soft: -1
+        hard: -1
+
+    # ── in-container kernel parameters ───────────────────────────────────────
+    sysctls:
+      # Larger TCP listen backlog — the search HTTP server can get bursty traffic.
+      net.core.somaxconn: 65535
+      # Reuse TIME_WAIT sockets quickly (coordinator fans out many short-lived
+      # connections to worker nodes).
+      net.ipv4.tcp_tw_reuse: 1
+
+    # ── search server parallelism ─────────────────────────────────────────────
+    environment:
+      # Use all allocated vCPUs for parallel shard queries.
+      # Set to 14 to match the cpus limit above; 0 = auto-detect (uses host
+      # CPU count, which would be all 16 — leave at 14 to keep headroom).
+      SEARCH_SHARD_WORKERS: "14"

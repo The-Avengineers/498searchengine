@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# setup.sh — Interactive setup for the AVEngine distributed search cluster.
+# setup.sh — Sets up the AVEngine search server directly on a GCP VM.
 #
-# Run this on any GCP VM (coordinator or worker) to configure and start the
-# search server. No arguments needed — the script asks you everything.
+# No Docker required. Builds from source, installs a systemd service
+# (so it restarts automatically on failure and on reboot), and optionally
+# configures nginx + TLS for the coordinator.
 #
 # Usage:
 #   ./setup.sh
 #
+# Run as a regular user with sudo access (e.g. the default 'ubuntu' user).
 # See deploysetup.md for a full walkthrough.
 
 set -euo pipefail
@@ -31,7 +33,6 @@ ask()   { echo -e "${GREEN}?${RESET} $*"; }
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 prompt() {
-  # prompt <var_name> <question> [default]
   local var="$1" question="$2" default="${3:-}"
   local display_default=""
   [[ -n "$default" ]] && display_default=" [${default}]"
@@ -43,15 +44,14 @@ prompt() {
 }
 
 prompt_yn() {
-  # prompt_yn <var_name> <question> <default_y_or_n>
   local var="$1" question="$2" default="${3:-n}"
-  local choices="y/n"
+  local choices
   [[ "$default" == "y" ]] && choices="Y/n" || choices="y/N"
   ask "${question} (${choices}): "
   local value
   read -r value </dev/tty
   [[ -z "$value" ]] && value="$default"
-  value="${value,,}"  # lowercase
+  value="${value,,}"
   [[ "$value" == "y" || "$value" == "yes" ]] && printf -v "$var" 'y' || printf -v "$var" 'n'
 }
 
@@ -60,10 +60,8 @@ validate_integer() {
 }
 
 validate_ip() {
-  local ip="$1"
-  # Accept bare hostnames too (GCP internal hostnames), just check it's non-empty and not obviously wrong
-  [[ -n "$ip" ]] || fatal "IP address cannot be empty."
-  [[ "$ip" =~ [[:space:]] ]] && fatal "IP address cannot contain spaces."
+  [[ -n "$1" ]]             || fatal "IP address cannot be empty."
+  [[ "$1" =~ [[:space:]] ]] && fatal "IP address cannot contain spaces."
 }
 
 # ── banner ────────────────────────────────────────────────────────────────────
@@ -73,27 +71,29 @@ echo -e "${BOLD}╔════════════════════�
 echo -e "${BOLD}║       AVEngine Search Cluster Setup                  ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
 echo ""
-echo "This script sets up the AVEngine search server on this machine."
-echo "It will ask a few questions, write a config file, and start the"
-echo "container with Docker Compose."
+echo "Builds the search server from source and installs it as a systemd"
+echo "service that auto-restarts on failure and survives reboots."
 echo ""
 
-# ── repo location ─────────────────────────────────────────────────────────────
+# ── paths ─────────────────────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$SCRIPT_DIR"
-COMPOSE_SEARCH="${REPO_DIR}/infra/deploy/docker-compose.search.yml"
-COMPOSE_NGINX="${REPO_DIR}/deploy/docker-compose.nginx.yml"
-ENV_FILE="${REPO_DIR}/.env.search"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_NAME="avengine-search"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+ENV_FILE="/etc/avengine/search.env"
+NGINX_CONF_SRC="${REPO_DIR}/deploy/nginx.conf"
+NGINX_CONF_DST="/etc/nginx/conf.d/avengine.conf"
+CERT_PATH="/etc/letsencrypt/live/theavengine.com/fullchain.pem"
 
-[[ -f "$COMPOSE_SEARCH" ]] || fatal "Cannot find $COMPOSE_SEARCH. Run this script from the repo root."
+[[ -f "${REPO_DIR}/CMakeLists.txt" ]] \
+  || fatal "Cannot find CMakeLists.txt. Run this script from the repo root."
 
 # ── step 1: role ──────────────────────────────────────────────────────────────
 
 echo -e "${BOLD}Step 1: Node Role${RESET}"
-echo "  coordinator  — node 0; runs nginx + search server; queries fan out to workers"
-echo "  worker       — node 1, 2, ...; serves a local index shard; answers coordinator"
-echo "  single       — standalone; no distributed peers; good for local testing"
+echo "  coordinator  — node 0; runs nginx + search server; fans queries to workers"
+echo "  worker       — node 1, 2, ...; serves a local index shard"
+echo "  single       — standalone, no peers; good for local testing"
 echo ""
 prompt ROLE "Node role (coordinator / worker / single)" "single"
 
@@ -104,29 +104,23 @@ esac
 
 echo ""
 
-# ── step 2: cluster size + peer IPs ──────────────────────────────────────────
+# ── step 2: cluster config ────────────────────────────────────────────────────
 
 NODE_ID=0
 NUM_PEERS=1
 declare -a PEER_IPS=()
 
-if [[ "$ROLE" == "single" ]]; then
-  info "Single-node mode — no peer configuration needed."
-  NUM_PEERS=1
-  NODE_ID=0
-else
+if [[ "$ROLE" != "single" ]]; then
   echo -e "${BOLD}Step 2: Cluster Configuration${RESET}"
-  echo "You need the internal (VPC) IP addresses of every node, including this one."
+  echo "You need the internal (VPC) IP of every node."
   echo "On GCP: VM console → Network interfaces → Primary internal IP."
+  echo "Or run:  hostname -I | awk '{print \$1}'"
   echo ""
 
-  prompt NUM_PEERS_STR "Total number of nodes in the cluster (coordinator + all workers)" "2"
+  prompt NUM_PEERS_STR "Total nodes in the cluster (coordinator + all workers)" "2"
   validate_integer "$NUM_PEERS_STR"
   NUM_PEERS="$NUM_PEERS_STR"
-
-  if [[ "$NUM_PEERS" -lt 2 ]]; then
-    fatal "A distributed cluster needs at least 2 nodes. Use 'single' for a standalone setup."
-  fi
+  [[ "$NUM_PEERS" -lt 2 ]] && fatal "A distributed cluster needs at least 2 nodes. Use 'single' for standalone."
 
   if [[ "$ROLE" == "coordinator" ]]; then
     NODE_ID=0
@@ -135,94 +129,179 @@ else
     prompt NODE_ID_STR "This node's ID (coordinator=0, workers start at 1)" ""
     validate_integer "$NODE_ID_STR"
     NODE_ID="$NODE_ID_STR"
-    [[ "$NODE_ID" -eq 0 ]] && fatal "NODE_ID 0 is reserved for the coordinator. Workers start at 1."
+    [[ "$NODE_ID" -eq 0 ]]           && fatal "NODE_ID 0 is reserved for the coordinator."
     [[ "$NODE_ID" -ge "$NUM_PEERS" ]] && fatal "NODE_ID ($NODE_ID) must be less than NUM_PEERS ($NUM_PEERS)."
   fi
 
   echo ""
-  echo "Enter the internal IP of each node in order (node 0 = coordinator, then workers):"
+  echo "Enter the internal IP of each node in order (node 0 = coordinator):"
   for ((i=0; i<NUM_PEERS; i++)); do
     local_label=""
-    [[ "$i" -eq "$NODE_ID" ]] && local_label=" (this machine)"
-    [[ "$i" -eq 0 && "$ROLE" == "coordinator" ]] && local_label=" (this machine — coordinator)"
-    [[ "$i" -eq 0 && "$ROLE" != "coordinator" ]] && local_label=" (coordinator)"
+    [[ "$i" -eq "$NODE_ID" && "$ROLE" == "coordinator" ]] && local_label=" (this machine)"
+    [[ "$i" -eq "$NODE_ID" && "$ROLE" == "worker" ]]      && local_label=" (this machine)"
+    [[ "$i" -eq 0 && "$ROLE" == "worker" ]]               && local_label=" (coordinator)"
     prompt IP_VAL "  Node ${i} internal IP${local_label}" ""
     validate_ip "$IP_VAL"
     PEER_IPS+=("$IP_VAL")
   done
-
+  echo ""
+else
+  info "Single-node mode — no peer configuration needed."
   echo ""
 fi
 
 # ── step 3: index directory ───────────────────────────────────────────────────
 
 echo -e "${BOLD}Step 3: Index Shards${RESET}"
-DEFAULT_INDEX="${HOME}/avengine-index"
-echo "Where are your pre-built .sfi index shard files on this machine?"
-echo "(Copy them here with: scp /path/on/crawler/*.sfi user@this-vm:${DEFAULT_INDEX}/)"
+DEFAULT_INDEX="/mnt/data/avengine-index"
+echo "Where are your pre-built .sfi index shard files?"
+echo "(Copy them here with:  scp /path/on/crawler/*.sfi user@this-vm:${DEFAULT_INDEX}/)"
 echo ""
 prompt INDEX_DIR "Path to index shard directory" "$DEFAULT_INDEX"
-
-if [[ ! -d "$INDEX_DIR" ]]; then
-  warn "Directory '$INDEX_DIR' does not exist. Creating it now."
-  warn "Remember to copy your .sfi shards there before the search server can return results."
-  mkdir -p "$INDEX_DIR"
-fi
 echo ""
 
-# ── step 4: SSH public key ────────────────────────────────────────────────────
-
-echo -e "${BOLD}Step 4: SSH Access${RESET}"
-echo "An SSH public key lets you shell into the container (useful for debugging)."
-echo ""
-
-DETECTED_KEY=""
-for candidate in "${HOME}/.ssh/id_ed25519.pub" "${HOME}/.ssh/id_rsa.pub"; do
-  if [[ -f "$candidate" ]]; then
-    DETECTED_KEY="$(cat "$candidate")"
-    info "Detected key at $candidate"
-    break
-  fi
-done
-
-SSH_PUBKEY=""
-if [[ -n "$DETECTED_KEY" ]]; then
-  prompt_yn USE_DETECTED "Use the detected key above?" "y"
-  if [[ "$USE_DETECTED" == "y" ]]; then
-    SSH_PUBKEY="$DETECTED_KEY"
-  else
-    prompt SSH_PUBKEY "Paste your SSH public key (or leave blank to skip)" ""
-  fi
-else
-  warn "No SSH key found at ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub."
-  prompt SSH_PUBKEY "Paste your SSH public key (or leave blank to skip)" ""
-fi
-
-if [[ -z "$SSH_PUBKEY" ]]; then
-  warn "No SSH key set. You won't be able to shell into the container."
-fi
-echo ""
-
-# ── step 5: nginx / SSL (coordinator only) ────────────────────────────────────
+# ── step 4: nginx + SSL (coordinator only) ────────────────────────────────────
 
 USE_NGINX="n"
 if [[ "$ROLE" == "coordinator" ]]; then
-  echo -e "${BOLD}Step 5: Nginx + SSL${RESET}"
-  echo "The coordinator can run nginx to terminate HTTPS for theavengine.com."
-  echo "Prerequisites: static IP assigned to this VM, DNS A record pointing here,"
-  echo "and certbot already run (sudo certbot certonly --standalone -d theavengine.com)."
+  echo -e "${BOLD}Step 4: Nginx + SSL (coordinator only)${RESET}"
+  echo "nginx terminates HTTPS for theavengine.com and proxies to the search server."
   echo ""
-  prompt_yn USE_NGINX "Start nginx alongside the search server?" "n"
+  echo "Before saying yes:"
+  echo "  1. Assign a static external IP to this VM in GCP console"
+  echo "  2. Set the theavengine.com DNS A record to that IP"
+  echo "  3. Open TCP 80 and 443 inbound in your GCP firewall"
+  echo ""
+  prompt_yn USE_NGINX "Set up nginx + SSL?" "y"
   echo ""
 fi
 
-# ── write .env.search ─────────────────────────────────────────────────────────
+# ── host kernel tuning ────────────────────────────────────────────────────────
+
+SYSCTL_CONF="/etc/sysctl.d/99-avengine.conf"
+if [[ -f "$SYSCTL_CONF" ]]; then
+  info "Host sysctl settings already applied — skipping."
+else
+  info "Applying host kernel tuning for m4-highmem-16..."
+  sudo tee "$SYSCTL_CONF" > /dev/null <<'EOF'
+# AVEngine search cluster — m4-highmem-16 / m4-hypermem-16 tuning
+
+# Keep index pages in RAM; only swap under extreme memory pressure.
+vm.swappiness = 1
+
+# More file handles — needed for large numbers of .sfi index shards.
+fs.file-max = 1048576
+
+# Larger TCP listen backlog for the HTTP search server.
+net.core.somaxconn = 65535
+
+# Reuse TIME_WAIT sockets quickly (coordinator opens many short-lived
+# connections to worker nodes).
+net.ipv4.tcp_tw_reuse = 1
+EOF
+  sudo sysctl --system -q
+  info "Kernel tuning applied."
+fi
+echo ""
+
+# ── 300 GB data disk setup ────────────────────────────────────────────────────
+
+DATA_MOUNT="/mnt/data"
+if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+  info "Data disk already mounted at $DATA_MOUNT — skipping."
+else
+  # Find unmounted block devices >= 400 GB (the 300 GB data disk)
+  DETECTED_DISK=""
+  while IFS= read -r line; do
+    dev=$(awk '{print $1}' <<< "$line")
+    size=$(awk '{print $2}' <<< "$line")
+    if [[ "$size" -ge 250000000000 ]]; then
+      DETECTED_DISK="/dev/${dev}"
+      break
+    fi
+  done < <(lsblk -b -o NAME,SIZE,TYPE,MOUNTPOINT --noheadings 2>/dev/null \
+             | awk '$3=="disk" && $4==""')
+
+  if [[ -n "$DETECTED_DISK" ]]; then
+    echo -e "${BOLD}Data Disk Setup${RESET}"
+    echo "Detected unmounted large disk: ${DETECTED_DISK}"
+    echo "This should be the 300 GB data disk where index shards will be stored."
+    echo ""
+    prompt_yn FORMAT_DISK "Format and mount ${DETECTED_DISK} at ${DATA_MOUNT}?" "y"
+    echo ""
+
+    if [[ "$FORMAT_DISK" == "y" ]]; then
+      if sudo blkid "$DETECTED_DISK" &>/dev/null; then
+        warn "${DETECTED_DISK} already has a filesystem — mounting without formatting."
+      else
+        info "Formatting ${DETECTED_DISK} as ext4..."
+        sudo mkfs.ext4 -F -L avengine-data "$DETECTED_DISK"
+      fi
+
+      info "Mounting at ${DATA_MOUNT}..."
+      sudo mkdir -p "$DATA_MOUNT"
+      sudo mount "$DETECTED_DISK" "$DATA_MOUNT"
+      sudo chown "$USER":"$USER" "$DATA_MOUNT"
+
+      DISK_UUID="$(sudo blkid -s UUID -o value "$DETECTED_DISK")"
+      if ! grep -qF "$DISK_UUID" /etc/fstab 2>/dev/null; then
+        echo "UUID=${DISK_UUID}  ${DATA_MOUNT}  ext4  defaults,nofail  0  2" \
+          | sudo tee -a /etc/fstab > /dev/null
+        info "Added to /etc/fstab (auto-mounts on reboot)."
+      fi
+    fi
+  else
+    info "No unmounted large disk found — index will use local path."
+  fi
+fi
+echo ""
+
+# Create index dir if it doesn't exist
+if [[ ! -d "$INDEX_DIR" ]]; then
+  warn "Creating empty index directory at ${INDEX_DIR}"
+  warn "Copy your .sfi shards there before the search server will return results."
+  mkdir -p "$INDEX_DIR"
+fi
+
+# ── install build dependencies ────────────────────────────────────────────────
+
+info "Installing build dependencies..."
+sudo apt-get update -qq
+sudo apt-get install -y --no-install-recommends \
+  build-essential \
+  cmake \
+  libssl-dev \
+  zlib1g-dev \
+  git \
+  ca-certificates
+
+if [[ "$USE_NGINX" == "y" ]]; then
+  sudo apt-get install -y --no-install-recommends \
+    nginx \
+    certbot \
+    python3-certbot-nginx
+fi
+echo ""
+
+# ── build search_server ───────────────────────────────────────────────────────
+
+info "Building search_server (this takes a few minutes)..."
+cmake -S "${REPO_DIR}" -B "${REPO_DIR}/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF \
+  > /dev/null
+cmake --build "${REPO_DIR}/build" --target search_server -j"$(nproc)"
+info "Build complete: ${REPO_DIR}/build/search_server"
+echo ""
+
+# ── write environment config ──────────────────────────────────────────────────
 
 info "Writing ${ENV_FILE}..."
+sudo mkdir -p "$(dirname "$ENV_FILE")"
 
 {
-  echo "# Auto-generated by setup.sh — edit as needed"
-  echo "# Re-run setup.sh to regenerate."
+  echo "# AVEngine search server environment — auto-generated by setup.sh"
+  echo "# Edit as needed, then: sudo systemctl restart ${SERVICE_NAME}"
   echo ""
 
   if [[ "$ROLE" == "single" ]]; then
@@ -240,51 +319,106 @@ info "Writing ${ENV_FILE}..."
   fi
 
   echo ""
-  echo "AVENGINE_HOST_INDEX_DIR=${INDEX_DIR}"
-
-  if [[ -n "$SSH_PUBKEY" ]]; then
-    echo "AVENGINE_SSH_PUBKEY=${SSH_PUBKEY}"
-  fi
+  echo "# m4-highmem-16: use all but 2 vCPUs for parallel shard queries"
+  echo "SEARCH_SHARD_WORKERS=14"
 
   if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
     echo ""
-    echo "# Peer IP addresses (internal VPC IPs)"
+    echo "# Peer internal VPC IPs"
     for i in "${!PEER_IPS[@]}"; do
       echo "PEER_${i}_ADDR=${PEER_IPS[$i]}"
     done
   fi
-} > "$ENV_FILE"
+} | sudo tee "$ENV_FILE" > /dev/null
 
-echo "    Written to: ${ENV_FILE}"
+sudo chmod 640 "$ENV_FILE"
 echo ""
 
-# ── install docker if needed ──────────────────────────────────────────────────
+# ── install systemd service ───────────────────────────────────────────────────
 
-if ! command -v docker &>/dev/null; then
-  info "Docker not found. Installing..."
-  curl -fsSL https://get.docker.com | sudo sh
-  sudo usermod -aG docker "${USER}"
-  echo ""
-  warn "Docker was just installed. You may need to log out and back in for group"
-  warn "membership to take effect. If the next step fails with a permission error,"
-  warn "run: newgrp docker"
+info "Installing systemd service: ${SERVICE_NAME}..."
+
+sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=AVEngine Search Server
+Documentation=file://${REPO_DIR}/deploysetup.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${USER}
+Group=${USER}
+
+# Working directory must contain ranker_weights.conf
+WorkingDirectory=${REPO_DIR}
+
+EnvironmentFile=${ENV_FILE}
+ExecStart=${REPO_DIR}/build/search_server 8080 ${INDEX_DIR}
+
+# ── restartability ────────────────────────────────────────────────────────────
+# Restart automatically on crash or signal. Wait 5 s between attempts.
+# Give up after 5 failures in 2 minutes to avoid a runaway restart loop.
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# ── resource limits ───────────────────────────────────────────────────────────
+# Large file descriptor limit for hundreds of .sfi index shards.
+LimitNOFILE=1048576
+# Allow mlock so the kernel can pin hot index pages in RAM.
+LimitMEMLOCK=infinity
+
+# ── logging ───────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=avengine-search
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable "${SERVICE_NAME}"
+sudo systemctl restart "${SERVICE_NAME}"
+info "Service started and enabled (auto-starts on reboot)."
+echo ""
+
+# ── nginx + TLS (coordinator only) ────────────────────────────────────────────
+
+if [[ "$USE_NGINX" == "y" ]]; then
+
+  # -- TLS certificate ---------------------------------------------------------
+  if [[ -f "$CERT_PATH" ]]; then
+    info "TLS certificate already exists — skipping certbot."
+  else
+    echo -e "${BOLD}Getting a TLS certificate via certbot${RESET}"
+    echo "certbot will use the nginx plugin (no need to stop nginx first)."
+    echo ""
+    prompt_yn RUN_CERTBOT "Run certbot now?" "y"
+    if [[ "$RUN_CERTBOT" == "y" ]]; then
+      info "Running certbot — follow the prompts (enter your email when asked)..."
+      sudo certbot --nginx -d theavengine.com -d www.theavengine.com
+      echo ""
+    else
+      warn "Skipping certbot. nginx will fail to serve HTTPS without a cert."
+      warn "Run manually:  sudo certbot --nginx -d theavengine.com -d www.theavengine.com"
+      echo ""
+    fi
+  fi
+
+  # Auto-renewal is handled by the certbot systemd timer installed with the
+  # package (check with: systemctl status certbot.timer)
+
+  # -- nginx config ------------------------------------------------------------
+  info "Installing nginx config..."
+  sudo cp "$NGINX_CONF_SRC" "$NGINX_CONF_DST"
+  sudo nginx -t && sudo systemctl reload nginx
+  sudo systemctl enable nginx
+  info "nginx configured and running."
   echo ""
 fi
-
-# ── build + start container ───────────────────────────────────────────────────
-
-info "Building and starting the container (this may take a few minutes the first time)..."
-echo ""
-
-COMPOSE_CMD=(docker compose -f "$COMPOSE_SEARCH" --env-file "$ENV_FILE")
-if [[ "$ROLE" == "coordinator" && "$USE_NGINX" == "y" ]]; then
-  COMPOSE_CMD+=(-f "$COMPOSE_NGINX")
-fi
-COMPOSE_CMD+=(up -d --build)
-
-"${COMPOSE_CMD[@]}"
-
-echo ""
 
 # ── summary ───────────────────────────────────────────────────────────────────
 
@@ -294,14 +428,20 @@ echo -e "${BOLD}╚════════════════════�
 echo ""
 echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=${NUM_PEERS})"
 echo -e "  Index dir:    ${INDEX_DIR}"
-echo -e "  Config file:  ${ENV_FILE}"
+echo -e "  Config:       ${ENV_FILE}"
+echo -e "  Binary:       ${REPO_DIR}/build/search_server"
 echo ""
-echo "  Container commands:"
-echo "    docker logs -f avengine-search      # stream logs"
-echo "    ssh -p 2222 engine@localhost        # shell into container"
+echo "  Service commands:"
+echo "    sudo systemctl status ${SERVICE_NAME}    # check status"
+echo "    sudo systemctl restart ${SERVICE_NAME}   # restart manually"
+echo "    sudo journalctl -fu ${SERVICE_NAME}      # stream logs"
 echo ""
 echo "  Test the search API:"
-echo "    curl \"http://localhost:8080/api/search?q=test\""
+if [[ "$USE_NGINX" == "y" ]]; then
+  echo "    curl \"https://theavengine.com/api/search?q=test\""
+else
+  echo "    curl \"http://localhost:8080/api/search?q=test\""
+fi
 echo ""
 
 if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
@@ -309,14 +449,14 @@ if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
   for i in "${!PEER_IPS[@]}"; do
     echo "    Node ${i}: ${PEER_IPS[$i]}"
   done
-  echo ""
   echo "  See deploysetup.md for the gcloud firewall command."
   echo ""
 fi
 
 if [[ -z "$(ls -A "$INDEX_DIR" 2>/dev/null)" ]]; then
-  warn "Index directory is empty. Copy your .sfi shards to ${INDEX_DIR}"
-  warn "then restart the container:  docker compose -f infra/deploy/docker-compose.search.yml restart"
+  warn "Index directory is empty — the server will start but return no results."
+  warn "Copy your .sfi shards to ${INDEX_DIR} then:"
+  warn "  sudo systemctl restart ${SERVICE_NAME}"
   echo ""
 fi
 
