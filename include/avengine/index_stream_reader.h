@@ -32,6 +32,13 @@ struct PostingBlobHeader
   uint64_t skipCount = 0;
 };
 
+struct SkipPointerEntry
+{
+  uint32_t positionIndex = 0;
+  uint32_t positionValue = 0;
+  uint32_t byteOffset = 0;
+};
+
 struct WordAttributes
 {
   uint32_t documentId = 0;
@@ -146,6 +153,28 @@ protected:
   uint32_t documentCount_ = 0;
   size_t currentIndex_ = 0;
   bool exhausted_ = true;
+};
+
+// Lazy ISR: navigates a delta-compressed position stream using skip pointers.
+// Holds raw const pointers into the mmap'd index file — must not outlive IndexShardSource.
+class ISRWordLazy : public ISRWord
+{
+public:
+  ISRWordLazy(const uint8_t* streamStart, const uint8_t* streamEnd,
+              vector<SkipPointerEntry> skipPointers, uint64_t collectionFrequency,
+              const vector<DocumentInfo>& documents, uint32_t documentCount);
+
+  Post* Next() override;
+  Post* Seek(Location target) override;
+
+private:
+  const uint8_t* streamStart_ = nullptr;
+  const uint8_t* streamEnd_ = nullptr;
+  const uint8_t* cursor_ = nullptr;
+  vector<SkipPointerEntry> skipPointers_;
+  uint64_t collectionFrequency_ = 0;
+  uint64_t positionsDecoded_ = 0;
+  uint32_t currentAbsPosition_ = 0;
 };
 
 class ISREndDoc : public ISRWord

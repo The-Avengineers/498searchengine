@@ -162,6 +162,100 @@ TEST_CASE("IndexShardSource preserves ranking input")
   CHECK(unlink(pathTemplate) == 0);
 }
 
+TEST_CASE("ISRWordLazy seek and next match eager ISRWord")
+{
+  // Build a single-document index where "beta" appears 9 times.
+  // floor(sqrt(9)) = 3, so skip pointers are generated at position indices 3 and 6.
+  Index index;
+  index.beginDocument({.url = "doc://lazy", .title = "Lazy", .description = "", .input = 0});
+  for (int i = 0; i < 9; ++i)
+    index.ingest("beta");
+  index.endDocument();
+
+  char pathTemplate[] = "/tmp/isr_word_lazy_test_XXXXXX";
+  const int fd = mkstemp(pathTemplate);
+  REQUIRE(fd >= 0);
+  REQUIRE(index.serialize(fd) == false);
+  CHECK(close(fd) == 0);
+
+  avengine::search::IndexShardSource shard(pathTemplate);
+  REQUIRE(shard.IsLoaded());
+
+  // --- Sequential Next() ---
+  // ISRWordLazy starts positioned at the first occurrence after construction.
+  {
+    avengine::ISRWord* isr = shard.OpenTermIsr(avengine::string("beta"));
+    REQUIRE(isr != nullptr);
+
+    // Positions are 1-based; offsets 0..8 become locations 1..9.
+    for (avengine::Location expected = 1; expected <= 9; ++expected)
+    {
+      avengine::Post* p = isr->GetCurrentPost();
+      REQUIRE(p != nullptr);
+      CHECK(p->GetStartLocation() == expected);
+      if (expected < 9)
+        isr->Next();
+    }
+    CHECK(isr->Next() == nullptr); // exhausted
+    delete isr;
+  }
+
+  // --- Seek to each location individually ---
+  {
+    for (avengine::Location target = 1; target <= 9; ++target)
+    {
+      avengine::ISRWord* isr = shard.OpenTermIsr(avengine::string("beta"));
+      REQUIRE(isr != nullptr);
+      avengine::Post* p = isr->Seek(target);
+      REQUIRE(p != nullptr);
+      CHECK(p->GetStartLocation() == target);
+      delete isr;
+    }
+  }
+
+  // --- Seek past all positions returns nullptr ---
+  {
+    avengine::ISRWord* isr = shard.OpenTermIsr(avengine::string("beta"));
+    REQUIRE(isr != nullptr);
+    CHECK(isr->Seek(10) == nullptr);
+    delete isr;
+  }
+
+  // --- Seek backwards (target < current position) restarts correctly ---
+  {
+    avengine::ISRWord* isr = shard.OpenTermIsr(avengine::string("beta"));
+    REQUIRE(isr != nullptr);
+    // Jump forward using a skip pointer (target=7 uses the i=6 skip).
+    avengine::Post* p = isr->Seek(7);
+    REQUIRE(p != nullptr);
+    CHECK(p->GetStartLocation() == 7u);
+    // Now seek backwards to 2 (below any skip pointer boundary).
+    p = isr->Seek(2);
+    REQUIRE(p != nullptr);
+    CHECK(p->GetStartLocation() == 2u);
+    // Continue forward from there.
+    p = isr->Next();
+    REQUIRE(p != nullptr);
+    CHECK(p->GetStartLocation() == 3u);
+    delete isr;
+  }
+
+  // --- Seek to skip boundary exactly (location 4 = raw positionValue 3 + 1) ---
+  {
+    avengine::ISRWord* isr = shard.OpenTermIsr(avengine::string("beta"));
+    REQUIRE(isr != nullptr);
+    avengine::Post* p = isr->Seek(4);
+    REQUIRE(p != nullptr);
+    CHECK(p->GetStartLocation() == 4u);
+    p = isr->Next();
+    REQUIRE(p != nullptr);
+    CHECK(p->GetStartLocation() == 5u);
+    delete isr;
+  }
+
+  CHECK(unlink(pathTemplate) == 0);
+}
+
 TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")
 {
   avengine::Writer w;
