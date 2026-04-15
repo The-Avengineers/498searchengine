@@ -47,6 +47,52 @@ bool IsAnchorShard(const string& path)
          path[nameStart + 6] == '_';
 }
 
+// Returns the registered domain from a URL.
+// https://maps.google.com/path -> "google.com"
+
+string ExtractRegisteredDomain(const string& url)
+{
+  // Find start of hostname after "://" and end of hostname at '/', '?', or ':'
+  size_t host_start = 0;
+  const size_t scheme_sep = url.find("://");
+  if (scheme_sep != string::npos)
+    host_start = scheme_sep + 3;
+
+  size_t host_end = url.size();
+  for (size_t i = host_start; i < url.size(); ++i)
+  {
+    if (url[i] == '/' || url[i] == '?' || url[i] == ':')
+    {
+      host_end = i;
+      break;
+    }
+  }
+
+  size_t last_dot = string::npos;
+  for (size_t i = host_start; i < host_end; ++i)
+    if (url[i] == '.')
+      last_dot = i;
+
+  if (last_dot == string::npos)
+  {
+    string result;
+    for (size_t i = host_start; i < host_end; ++i)
+      result.pushBack(url[i]);
+    return result;
+  }
+
+  size_t second_last_dot = string::npos;
+  for (size_t i = host_start; i < last_dot; ++i)
+    if (url[i] == '.')
+      second_last_dot = i;
+
+  const size_t domain_start = second_last_dot != string::npos ? second_last_dot + 1 : host_start;
+  string result;
+  for (size_t i = domain_start; i < host_end; ++i)
+    result.pushBack(url[i]);
+  return result;
+}
+
 string JoinPath(const string& directory, const string& filename)
 {
   string path = directory;
@@ -568,11 +614,15 @@ void* RunRankPhase(void* rawArgs)
   EarlyQueryTermMatch earlyQueryStrategy;
   TermCoverage termCoverageStrategy;
   QueryOccurrence queryOccurrenceStrategy(*args->queryTerms);
+  TitleTermCoverage titleTermCoverageStrategy;
+  ExactTitleMatch exactTitleMatchStrategy(*args->queryTerms);
+  SeedDomainDepth seedDomainDepthStrategy;
   ShortTitleStrat shortTitleStrategy;
   ShortURLStrat shortUrlStrategy;
   DomainStrat domainStrategy;
   UrlDepth urlDepthStrategy;
   UrlPathDepth urlPathDepthStrategy;
+  QueryParamPenalty queryParamPenaltyStrategy;
 
   // Strategies are always registered in the ranker_weights.conf fixed order
   ranker.AddStrategy(&exactPhraseStrategy, w.exact_phrase);
@@ -585,6 +635,10 @@ void* RunRankPhase(void* rawArgs)
   ranker.AddStrategy(&domainStrategy, w.domain);
   ranker.AddStrategy(&urlDepthStrategy, w.url_depth);
   ranker.AddStrategy(&urlPathDepthStrategy, w.url_path_depth);
+  ranker.AddStrategy(&titleTermCoverageStrategy, w.title_term_coverage);
+  ranker.AddStrategy(&seedDomainDepthStrategy, w.seed_domain_depth);
+  ranker.AddStrategy(&queryParamPenaltyStrategy, w.query_param_penalty);
+  ranker.AddStrategy(&exactTitleMatchStrategy, w.exact_title_match);
 
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
@@ -614,6 +668,7 @@ void* RunRankPhase(void* rawArgs)
       if (docInfo)
       {
         entry.depth = static_cast<int>(docInfo->rankingInput.depth);
+        entry.seedDomainDepth = static_cast<int>(docInfo->rankingInput.domainDepth);
         signals.title_word_count = docInfo->rankingInput.titleWordCount;
       }
       if (matchIndex < context.titlePositions.size())
@@ -950,7 +1005,10 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
         return lhs.ranked.entry.url < rhs.ranked.entry.url;
       });
 
+  static constexpr uint8_t kMaxResultsPerDomain = 5;
+
   unordered_map<uint8_t> seenUrls;
+  unordered_map<uint8_t> domainCounts;
   const size_t pageStart = ComputeWindowStart(response.Page, response.Limit);
   const size_t pageEnd = pageStart > static_cast<size_t>(-1) - response.Limit
                              ? static_cast<size_t>(-1)
@@ -964,7 +1022,14 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     if (seen && *seen != 0)
       continue;
 
+    const string domain = ExtractRegisteredDomain(url);
+    const uint8_t* dc = domainCounts.get(string_slice(domain.cstr()));
+    const uint8_t count = dc ? *dc : 0;
+    if (count >= kMaxResultsPerDomain)
+      continue;
+
     seenUrls.insert(url, 1u);
+    domainCounts.insert(domain, count + 1);
     if (uniqueIndex >= pageStart && uniqueIndex < pageEnd)
     {
       SearchHit hit;
@@ -987,16 +1052,21 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     if (log != nullptr)
     {
       static const char* kNames[] = {
-          "exact_phrase",     "correct_ordering", "early_query_term", "term_coverage",
-          "query_occurrence", "short_title",      "short_url",        "domain",
-          "url_depth",        "url_path_depth",
+          "exact_phrase",       "correct_ordering", "early_query_term",   "term_coverage",
+          "query_occurrence",   "short_title",      "short_url",          "domain",
+          "url_depth",          "url_path_depth",   "title_term_coverage", "seed_domain_depth",
+          "query_param_penalty",  "exact_title_match",
       };
       static const size_t kNamesLen = sizeof(kNames) / sizeof(kNames[0]);
 
       fprintf(log, "query: %s\n", query.cstr());
+      fprintf(log, "terms:");
+      for (size_t t = 0; t < queryTerms.size(); ++t)
+        fprintf(log, " [%s]", queryTerms[t].cstr());
+      fprintf(log, "\n");
       unordered_map<uint8_t> logSeen;
       size_t rank = 0;
-      for (size_t i = 0; i < pooledHits.size() && rank < response.Limit; ++i)
+      for (size_t i = 0; i < pooledHits.size() && rank < kMaxVisibleSearchResults; ++i)
       {
         const string& url = pooledHits[i].ranked.entry.url;
         const uint8_t* seen = logSeen.get(string_slice(url.cstr()));
@@ -1004,6 +1074,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
           continue;
         logSeen.insert(url, 1u);
         fprintf(log, "  #%zu total=%.4f %s\n", rank + 1, pooledHits[i].ranked.score, url.cstr());
+        fprintf(log, "        title: %s\n", pooledHits[i].ranked.title.cstr());
         const vector<double>& ss = pooledHits[i].ranked.strategy_scores;
         for (size_t s = 0; s < ss.size() && s < kNamesLen; ++s)
           fprintf(log, "        %-22s %.4f\n", kNames[s], ss[s]);
