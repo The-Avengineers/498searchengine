@@ -218,7 +218,6 @@ SolveResult ConstraintSolver::SolveParsedUntil(const QueryNode* root, const IsrS
   {
     if ((matchCount++ & 63) == 0 && timedOut())
     {
-      result.Matches.clear();
       result.TimedOut = true;
       return result;
     }
