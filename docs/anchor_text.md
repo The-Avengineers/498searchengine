@@ -40,7 +40,7 @@ Run after a crawl completes, from the index directory:
 **What it does:**
 
 1. Memory-maps `ac_log.tsv` and builds a `url → [anchor words]` map using zero-copy `string_slice` views into the mapped buffer.
-2. Walks every `NNNNN.sfi` shard, extracts each document's URL from the `DOCUMENT_END` posting, looks it up in the map, tokenizes the anchor words with `PhraseKind::BODY` (same pipeline as body text — lowercase alpha runs, no field prefix), and emits them into a new `Index`.
+2. Walks every non-anchor `.sfi` shard, extracts each document's URL from the `DOCUMENT_END` posting, looks it up in the map, tokenizes the anchor words with `PhraseKind::BODY` (same pipeline as body text — lowercase alpha runs, no field prefix), and emits them into a new `Index`.
 3. Flushes to a new `anchor_NNNNN.sfi` file whenever the index offset exceeds `OFFSET_THRESHOLD` (32 MiB), then continues into a fresh shard.
 
 **Output:** one or more `anchor_NNNNN.sfi` files in the same directory as the main shards.
@@ -55,7 +55,7 @@ Anchor terms are stored with no field prefix (identical to body terms). The quer
 
 ### Loading
 
-`LoadShards()` detects `anchor_` filename prefix via `IsAnchorShard()` and routes files into a separate `anchorShards_` list. Anchor shards are **not** fed into the constraint solver, so they never produce independent top-level matches or duplicate results.
+`LoadShards()` detects `anchor_NNNNN.sfi` and prefixed runtime names like `A_anchor_NNNNN.sfi` via `IsAnchorShard()` and routes them into a separate `anchorShards_` list. Anchor shards are **not** fed into the constraint solver, so they never produce independent top-level matches or duplicate results.
 
 ### Per-query anchor map
 

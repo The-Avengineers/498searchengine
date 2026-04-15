@@ -39,12 +39,45 @@ bool IsAnchorShard(const string& path)
       break;
     }
   }
-  if (path.size() - nameStart < 7)
+  const char marker[] = "anchor_";
+  const size_t markerLen = 7;
+  const size_t nameLen = path.size() - nameStart;
+  if (nameLen < markerLen)
     return false;
-  return path[nameStart]     == 'a' && path[nameStart + 1] == 'n' &&
-         path[nameStart + 2] == 'c' && path[nameStart + 3] == 'h' &&
-         path[nameStart + 4] == 'o' && path[nameStart + 5] == 'r' &&
-         path[nameStart + 6] == '_';
+
+  bool startsWithAnchor = true;
+  for (size_t i = 0; i < markerLen; ++i)
+  {
+    if (path[nameStart + i] != marker[i])
+    {
+      startsWithAnchor = false;
+      break;
+    }
+  }
+  if (startsWithAnchor)
+    return true;
+
+  // Aggregated runtime shards can be prefixed by machine, e.g.
+  // A_anchor_00511.sfi. Keep those out of the primary constraint solver too.
+  for (size_t i = nameStart; i + markerLen < path.size(); ++i)
+  {
+    if (path[i] != '_')
+      continue;
+
+    bool hasAnchorMarker = true;
+    for (size_t j = 0; j < markerLen; ++j)
+    {
+      if (path[i + 1 + j] != marker[j])
+      {
+        hasAnchorMarker = false;
+        break;
+      }
+    }
+    if (hasAnchorMarker)
+      return true;
+  }
+
+  return false;
 }
 
 // Returns the registered domain from a URL.
