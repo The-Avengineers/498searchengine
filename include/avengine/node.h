@@ -44,4 +44,16 @@ void runNode(uint64_t nodeId, size_t numPeers);
 // send timeout, or partial write). Matches the existing error convention.
 bool sendMessage(size_t ID, MessageType messageType, avengine::vector<uint8_t>& message);
 
+// Snapshot of one peer's connectivity state.
+struct PeerStatus
+{
+  size_t Id;
+  char Ip[16]; // dotted-decimal IPv4, up to 15 chars + null; empty string if unknown
+  bool Connected;
+};
+
+// Returns a snapshot of every peer's current connection state.
+// Safe to call from any thread; takes an internal shared lock.
+avengine::vector<PeerStatus> GetPeerStatuses();
+
 } // namespace avengine

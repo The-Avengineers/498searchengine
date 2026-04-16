@@ -735,6 +735,27 @@ void HandleClient(int clientFd, SearchServerState& state)
     return;
   }
 
+  if (StartsWith(target, "/api/peers"))
+  {
+    vector<PeerStatus> peers = GetPeerStatuses();
+    string body("{\"peers\":[");
+    for (size_t i = 0; i < peers.size(); ++i)
+    {
+      if (i != 0)
+        body.pushBack(',');
+      body += string("{\"id\":");
+      search::AppendUnsigned(body, peers[i].Id);
+      body += string(",\"ip\":");
+      AppendJsonString(body, string(peers[i].Ip));
+      body += string(",\"connected\":");
+      body += peers[i].Connected ? string("true") : string("false");
+      body.pushBack('}');
+    }
+    body += string("]}");
+    SendJsonResponse(clientFd, 200, "OK", body);
+    return;
+  }
+
   if (!StartsWith(target, "/api/search"))
   {
     const string staticPath = ResolveStaticPath(target);

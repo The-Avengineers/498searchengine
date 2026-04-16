@@ -616,6 +616,23 @@ static bool sendBytes(int fd, avengine::vector<uint8_t>& buf)
 // Returns true on error, false on success.
 // Sends exactly `buf.size()` bytes over `fd`, retrying transparently on
 // signal interruption (EINTR).  Returns true on error, false on success.
+avengine::vector<avengine::PeerStatus> avengine::GetPeerStatuses()
+{
+  avengine::vector<PeerStatus> result;
+  avengine::SharedLockGuard<avengine::SharedMutex> guard(peerList.mu);
+  for (size_t i = 0; i < peerList.peers.size(); ++i)
+  {
+    PeerStatus status;
+    status.Id = i;
+    status.Connected = peerList.peers[i].tcpFd >= 0;
+    status.Ip[0] = '\0';
+    if (peerList.peers[i].addr.sin_addr.s_addr != 0)
+      inet_ntop(AF_INET, &peerList.peers[i].addr.sin_addr, status.Ip, sizeof(status.Ip));
+    result.pushBack(status);
+  }
+  return result;
+}
+
 bool avengine::sendMessage(size_t ID, avengine::MessageType messageType,
                            avengine::vector<uint8_t>& message)
 {
