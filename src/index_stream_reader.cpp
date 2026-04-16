@@ -8,28 +8,28 @@ namespace avengine
 namespace
 {
 
-static bool find_document_for_location(const vector<DocumentInfo>& documents, Location location,
+static bool find_document_for_location(const DocumentInfo* docs, size_t docCount, Location location,
                                        DocumentInfo* out, size_t* outIndex = nullptr)
 {
-  if (location == 0 || documents.empty())
+  if (location == 0 || docCount == 0)
     return false;
 
   size_t left = 0;
-  size_t right = documents.size();
+  size_t right = docCount;
 
   while (left < right)
   {
     const size_t mid = left + ((right - left) / 2);
-    if (documents[mid].end < location)
+    if (docs[mid].end < location)
       left = mid + 1;
     else
       right = mid;
   }
 
-  if (left >= documents.size())
+  if (left >= docCount)
     return false;
 
-  const DocumentInfo& doc = documents[left];
+  const DocumentInfo& doc = docs[left];
   if (location < doc.start || location > doc.end)
     return false;
 
@@ -40,7 +40,7 @@ static bool find_document_for_location(const vector<DocumentInfo>& documents, Lo
   return true;
 }
 
-static Attributes make_word_attributes(const vector<DocumentInfo>& documents, Location location,
+static Attributes make_word_attributes(const DocumentInfo* docs, size_t docCount, Location location,
                                        uint32_t documentCount)
 {
   Attributes attributes = {};
@@ -48,7 +48,7 @@ static Attributes make_word_attributes(const vector<DocumentInfo>& documents, Lo
   attributes.Word.documentFrequency = documentCount;
 
   DocumentInfo doc = {};
-  if (find_document_for_location(documents, location, &doc))
+  if (find_document_for_location(docs, docCount, location, &doc))
     attributes.Word.documentId = doc.documentId;
 
   return attributes;
@@ -100,10 +100,10 @@ Post* ISR::SetCurrent(Location start, Location end, const Attributes& attributes
   return &currentPost_;
 }
 
-ISRWord::ISRWord(const vector<Location>& occurrences, const vector<DocumentInfo>& documents,
+ISRWord::ISRWord(const vector<Location>& occurrences, const DocumentInfo* docs, size_t docsSize,
                  uint32_t documentCount)
-    : occurrences_(occurrences), documents_(&documents), documentCount_(documentCount),
-      currentIndex_(0), exhausted_(occurrences.empty())
+    : occurrences_(occurrences), documents_(docs), documentsSize_(docsSize),
+      documentCount_(documentCount), currentIndex_(0), exhausted_(occurrences.empty())
 {
   if (!exhausted_)
     SetCurrentFromIndex(0);
@@ -125,7 +125,7 @@ Post* ISRWord::SetCurrentFromIndex(size_t index)
   exhausted_ = false;
   const Location location = occurrences_[index];
   return SetCurrent(location, location,
-                    documents_ ? make_word_attributes(*documents_, location, documentCount_)
+                    documents_ ? make_word_attributes(documents_, documentsSize_, location, documentCount_)
                                : Attributes{});
 }
 
@@ -134,7 +134,7 @@ bool ISRWord::ResolveCurrentDocument(DocumentInfo* out) const
   if (!hasCurrentPost_ || !documents_)
     return false;
 
-  return find_document_for_location(*documents_, currentPost_.GetStartLocation(), out);
+  return find_document_for_location(documents_, documentsSize_, currentPost_.GetStartLocation(), out);
 }
 
 Post* ISRWord::Next()
@@ -176,11 +176,12 @@ unsigned ISRWord::GetDocumentCount() const
 
 ISRWordLazy::ISRWordLazy(const uint8_t* streamStart, const uint8_t* streamEnd,
                          vector<SkipPointerEntry> skipPointers, uint64_t collectionFrequency,
-                         const vector<DocumentInfo>& documents, uint32_t documentCount)
+                         const DocumentInfo* docs, size_t docsSize, uint32_t documentCount)
     : streamStart_(streamStart), streamEnd_(streamEnd), cursor_(streamStart),
       skipPointers_(std::move(skipPointers)), collectionFrequency_(collectionFrequency)
 {
-  documents_ = &documents;
+  documents_ = docs;
+  documentsSize_ = docsSize;
   documentCount_ = documentCount;
 
   if (collectionFrequency_ > 0 && cursor_ < streamEnd_)
@@ -194,7 +195,7 @@ ISRWordLazy::ISRWordLazy(const uint8_t* streamStart, const uint8_t* streamEnd,
     // Positions are 1-based (same +1 offset as DecodeTermOccurrences).
     const Location loc = static_cast<Location>(currentAbsPosition_) + 1u;
     SetCurrent(loc, loc,
-               documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+               documents_ ? make_word_attributes(documents_, documentsSize_, loc, documentCount_)
                           : Attributes{});
   }
   else
@@ -221,7 +222,7 @@ Post* ISRWordLazy::Next()
   exhausted_ = false;
   const Location loc = static_cast<Location>(currentAbsPosition_) + 1u;
   return SetCurrent(loc, loc,
-                    documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+                    documents_ ? make_word_attributes(documents_, documentsSize_, loc, documentCount_)
                                : Attributes{});
 }
 
@@ -275,7 +276,7 @@ Post* ISRWordLazy::Seek(Location target)
     {
       exhausted_ = false;
       return SetCurrent(locAtSkip, locAtSkip,
-                        documents_ ? make_word_attributes(*documents_, locAtSkip, documentCount_)
+                        documents_ ? make_word_attributes(documents_, documentsSize_, locAtSkip, documentCount_)
                                    : Attributes{});
     }
   }
@@ -301,7 +302,7 @@ Post* ISRWordLazy::Seek(Location target)
       cursor_ = r.cursor();
       exhausted_ = false;
       return SetCurrent(loc, loc,
-                        documents_ ? make_word_attributes(*documents_, loc, documentCount_)
+                        documents_ ? make_word_attributes(documents_, documentsSize_, loc, documentCount_)
                                    : Attributes{});
     }
   }
@@ -312,13 +313,14 @@ Post* ISRWordLazy::Seek(Location target)
   return nullptr;
 }
 
-ISREndDoc::ISREndDoc(const vector<DocumentInfo>& documents)
+ISREndDoc::ISREndDoc(const DocumentInfo* docs, size_t count)
 {
-  documents_ = &documents;
-  documentCount_ = static_cast<uint32_t>(documents.size());
+  documents_ = docs;
+  documentsSize_ = count;
+  documentCount_ = static_cast<uint32_t>(count);
 
-  for (const DocumentInfo& document : documents)
-    occurrences_.pushBack(document.end);
+  for (size_t i = 0; i < count; ++i)
+    occurrences_.pushBack(docs[i].end);
 
   currentIndex_ = 0;
   exhausted_ = occurrences_.empty();
@@ -808,7 +810,7 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
   for (Location location : found->value)
   {
     DocumentInfo document = {};
-    if (find_document_for_location(documents_, location, &document))
+    if (find_document_for_location(documents_.begin(), documents_.size(), location, &document))
     {
       if (document.documentId != lastDocumentId)
       {
@@ -821,7 +823,7 @@ ISRWord* Dictionary::OpenIsr(const char* token) const
   if (documentCount == 0 && !found->value.empty())
     documentCount = 1;
 
-  return new ISRWord(found->value, documents_, documentCount);
+  return new ISRWord(found->value, documents_.begin(), documents_.size(), documentCount);
 }
 
 ISREndDoc* Dictionary::OpenEndDocIsr() const
@@ -829,7 +831,7 @@ ISREndDoc* Dictionary::OpenEndDocIsr() const
   if (documents_.empty())
     return nullptr;
 
-  return new ISREndDoc(documents_);
+  return new ISREndDoc(documents_.begin(), documents_.size());
 }
 
 size_t Dictionary::GetNumberOfWords() const

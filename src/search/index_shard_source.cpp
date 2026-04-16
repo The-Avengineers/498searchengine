@@ -20,8 +20,12 @@ namespace
 
 constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
 constexpr uint64_t kShardLoadCacheMagic = 0x4156534649434143ULL; // "AVSFICAC"
-constexpr uint64_t kShardLoadCacheVersion = 1;
+// Version 2: body stores raw binary struct arrays instead of field-by-field uint64.
+// Version 1 caches are silently invalidated and rebuilt.
+constexpr uint64_t kShardLoadCacheVersion = 2;
 constexpr uint64_t kRankingInputLayoutVersion = 1;
+// Header is 18 × uint64 = 144 bytes.
+constexpr size_t kCacheHeaderBytes = 18 * sizeof(uint64_t);
 
 class CacheReader
 {
@@ -89,22 +93,6 @@ uint64_t StatMtimeNsec(const struct stat& st)
 bool RangeInFile(uint64_t offset, uint64_t len, uint64_t fileSize)
 {
   return offset <= fileSize && len <= fileSize - offset;
-}
-
-bool ToU32(uint64_t value, uint32_t* out)
-{
-  if (!out || value > UINT32_MAX)
-    return false;
-  *out = static_cast<uint32_t>(value);
-  return true;
-}
-
-bool ToU16(uint64_t value, uint16_t* out)
-{
-  if (!out || value > UINT16_MAX)
-    return false;
-  *out = static_cast<uint16_t>(value);
-  return true;
 }
 
 bool ToSize(uint64_t value, size_t* out)
@@ -235,33 +223,33 @@ string IndexShardSource::GetPath() const
 
 string IndexShardSource::GetDocumentURL(uint32_t docId) const
 {
-  if (docId >= docUrls_.size())
+  if (docId >= documentSize_)
     return string();
-  const DocSlice& s = docUrls_[docId];
+  const DocSlice& s = docUrlsData_[docId];
   return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 string IndexShardSource::GetDocumentTitle(uint32_t docId) const
 {
-  if (docId >= docTitles_.size())
+  if (docId >= documentSize_)
     return string();
-  const DocSlice& s = docTitles_[docId];
+  const DocSlice& s = docTitlesData_[docId];
   return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 string IndexShardSource::GetDocumentDescription(uint32_t docId) const
 {
-  if (docId >= docDescriptions_.size())
+  if (docId >= documentSize_)
     return string();
-  const DocSlice& s = docDescriptions_[docId];
+  const DocSlice& s = docDescriptionsData_[docId];
   return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
 {
-  if (docId >= documents_.size())
+  if (docId >= documentSize_)
     return nullptr;
-  return &documents_[docId];
+  return &documentsData_[docId];
 }
 
 bool IndexShardSource::DecodeTermOccurrences(const string& term, vector<Location>* positions,
@@ -306,7 +294,7 @@ bool IndexShardSource::DecodeTermOccurrences(const string& term, vector<Location
 ISRWord* IndexShardSource::BuildWordIsr(const vector<Location>& positions,
                                         uint32_t documentFrequency) const
 {
-  return new ISRWord(positions, documents_, documentFrequency);
+  return new ISRWord(positions, documentsData_, documentSize_, documentFrequency);
 }
 
 ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
@@ -338,20 +326,20 @@ ISRWord* IndexShardSource::OpenTermIsr(const string& term) const
   const uint8_t* deltaStreamStart = r.cursor();
 
   return new ISRWordLazy(deltaStreamStart, postingEnd, std::move(skipPointers),
-                         header.collectionFrequency, documents_,
+                         header.collectionFrequency, documentsData_, documentSize_,
                          static_cast<uint32_t>(documentFrequency));
 }
 
 ISREndDoc* IndexShardSource::OpenEndDocIsr() const
 {
-  if (documents_.empty())
+  if (documentSize_ == 0)
     return nullptr;
-  return new ISREndDoc(documents_);
+  return new ISREndDoc(documentsData_, documentSize_);
 }
 
 bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
 {
-  termIndex_.clear();
+  termIndexStorage_.clear();
   if (uniqueWords == 0)
     return false;
 
@@ -393,7 +381,7 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
     return a.postingOffset < b.postingOffset;
   });
 
-  termIndex_.reserve(raw.size());
+  termIndexStorage_.reserve(raw.size());
   for (size_t i = 0; i < raw.size(); ++i)
   {
     const size_t start = postingsStart_ + static_cast<size_t>(raw[i].postingOffset);
@@ -402,16 +390,18 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
         : postingsStart_ + postingsBytes;
     if (start > end || end > fileSize_)
       return false;
-    termIndex_.pushBack({raw[i].termOffset, raw[i].termLen, start, end});
+    termIndexStorage_.pushBack({raw[i].termOffset, raw[i].termLen, start, end});
   }
 
   // Sort by term string for binary search at query time.
-  termIndex_.sort([this](const TermIndex& a, const TermIndex& b) {
+  termIndexStorage_.sort([this](const TermIndex& a, const TermIndex& b) {
     const string_slice sa(reinterpret_cast<char*>(data_ + a.termOffset), a.termLen);
     const string_slice sb(reinterpret_cast<char*>(data_ + b.termOffset), b.termLen);
     return sa < sb;
   });
 
+  termIndexData_ = termIndexStorage_.begin();
+  termIndexSize_ = termIndexStorage_.size();
   return true;
 }
 
@@ -463,55 +453,62 @@ bool IndexShardSource::ParseDocumentMetadata()
     if (r.remaining() >= sizeof(RankingInput))
       r.readBytes(&rankingInput, sizeof(RankingInput));
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
-    documents_.pushBack(
+    documentsStorage_.pushBack(
         {static_cast<uint32_t>(docId), start, end,
          static_cast<uint32_t>(titleLen), static_cast<uint32_t>(urlLen), rankingInput});
-    docUrls_.pushBack({urlOff, static_cast<uint32_t>(urlLen)});
-    docTitles_.pushBack({titleOff, static_cast<uint32_t>(titleLen)});
-    docDescriptions_.pushBack({descOff, static_cast<uint32_t>(descLen)});
+    docUrlsStorage_.pushBack({urlOff, static_cast<uint32_t>(urlLen)});
+    docTitlesStorage_.pushBack({titleOff, static_cast<uint32_t>(titleLen)});
+    docDescriptionsStorage_.pushBack({descOff, static_cast<uint32_t>(descLen)});
     start = end + 1;
   }
 
-  return !documents_.empty();
+  if (documentsStorage_.empty())
+    return false;
+
+  documentsData_ = documentsStorage_.begin();
+  docUrlsData_ = docUrlsStorage_.begin();
+  docTitlesData_ = docTitlesStorage_.begin();
+  docDescriptionsData_ = docDescriptionsStorage_.begin();
+  documentSize_ = documentsStorage_.size();
+  return true;
 }
 
 bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
 {
+  // Layout validation — these fire at compile time if struct sizes change.
+  static_assert(sizeof(TermIndex) == 24,
+                "TermIndex binary layout changed — bump kShardLoadCacheVersion");
+  static_assert(sizeof(DocumentInfo) == 48,
+                "DocumentInfo binary layout changed — bump kShardLoadCacheVersion");
+  static_assert(sizeof(DocSlice) == 8,
+                "DocSlice binary layout changed — bump kShardLoadCacheVersion");
+
   const string cachePath = CachePathForShard(path_);
   const int fd = open(cachePath.cstr(), O_RDONLY);
   if (fd < 0)
     return false;
 
   struct stat st = {};
-  if (fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(13u * sizeof(uint64_t)))
+  if (fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(kCacheHeaderBytes))
   {
     close(fd);
     return false;
   }
 
-  uint8_t* mapped =
-      static_cast<uint8_t*>(mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE,
-                                 fd, 0));
+  const size_t mappedSize = static_cast<size_t>(st.st_size);
+  uint8_t* mapped = static_cast<uint8_t*>(
+      mmap(nullptr, mappedSize, PROT_READ, MAP_PRIVATE, fd, 0));
   close(fd);
   if (mapped == MAP_FAILED)
     return false;
 
-  CacheReader r(mapped, static_cast<size_t>(st.st_size));
-  uint64_t magic = 0;
-  uint64_t version = 0;
-  uint64_t fileSize = 0;
-  uint64_t mtimeSec = 0;
-  uint64_t mtimeNsec = 0;
-  uint64_t sourceMagic = 0;
-  uint64_t documentCount = 0;
-  uint64_t uniqueWords = 0;
-  uint64_t tokenOffset = 0;
-  uint64_t rankingInputSize = 0;
-  uint64_t locationSize = 0;
-  uint64_t rankingInputLayout = 0;
-  uint64_t cachedPostingsStart = 0;
-  uint64_t termCount = 0;
-  uint64_t cachedDocumentCount = 0;
+  // Parse header — 18 uint64 fields.
+  CacheReader r(mapped, mappedSize);
+  uint64_t magic = 0, version = 0, fileSize = 0, mtimeSec = 0, mtimeNsec = 0;
+  uint64_t sourceMagic = 0, documentCount = 0, uniqueWords = 0, tokenOffset = 0;
+  uint64_t rankingInputSize = 0, locationSize = 0, rankingInputLayout = 0;
+  uint64_t cachedPostingsStart = 0, termCount = 0, cachedDocumentCount = 0;
+  uint64_t cachedSizeofTermIndex = 0, cachedSizeofDocumentInfo = 0, cachedSizeofDocSlice = 0;
 
   bool ok = r.readU64(&magic) && r.readU64(&version) && r.readU64(&fileSize) &&
             r.readU64(&mtimeSec) && r.readU64(&mtimeNsec) && r.readU64(&sourceMagic) &&
@@ -519,7 +516,9 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
             r.readU64(&tokenOffset) && r.readU64(&rankingInputSize) &&
             r.readU64(&locationSize) && r.readU64(&rankingInputLayout) &&
             r.readU64(&cachedPostingsStart) && r.readU64(&termCount) &&
-            r.readU64(&cachedDocumentCount);
+            r.readU64(&cachedDocumentCount) &&
+            r.readU64(&cachedSizeofTermIndex) && r.readU64(&cachedSizeofDocumentInfo) &&
+            r.readU64(&cachedSizeofDocSlice);
 
   ok = ok && magic == kShardLoadCacheMagic && version == kShardLoadCacheVersion &&
        fileSize == fingerprint.fileSize && mtimeSec == fingerprint.mtimeSec &&
@@ -529,144 +528,95 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
        locationSize == sizeof(Location) && rankingInputLayout == kRankingInputLayoutVersion &&
        termCount == fingerprint.uniqueWords && cachedDocumentCount == fingerprint.documentCount &&
        cachedPostingsStart <= fingerprint.fileSize && termCount <= SIZE_MAX &&
-       cachedDocumentCount <= SIZE_MAX;
+       cachedDocumentCount <= SIZE_MAX &&
+       cachedSizeofTermIndex == sizeof(TermIndex) &&
+       cachedSizeofDocumentInfo == sizeof(DocumentInfo) &&
+       cachedSizeofDocSlice == sizeof(DocSlice);
 
-  vector<TermIndex> cachedTerms;
-  vector<DocumentInfo> cachedDocuments;
-  vector<DocSlice> cachedUrls;
-  vector<DocSlice> cachedTitles;
-  vector<DocSlice> cachedDescriptions;
-
-  if (ok)
-    cachedTerms.reserve(static_cast<size_t>(termCount));
-
-  for (uint64_t i = 0; ok && i < termCount; ++i)
+  if (!ok)
   {
-    uint64_t termOffset = 0;
-    uint64_t termLen = 0;
-    uint64_t startOffset = 0;
-    uint64_t endOffset = 0;
-    uint32_t termOffset32 = 0;
-    uint32_t termLen32 = 0;
-    size_t startSize = 0;
-    size_t endSize = 0;
-
-    ok = r.readU64(&termOffset) && r.readU64(&termLen) && r.readU64(&startOffset) &&
-         r.readU64(&endOffset) && ToU32(termOffset, &termOffset32) &&
-         ToU32(termLen, &termLen32) && ToSize(startOffset, &startSize) &&
-         ToSize(endOffset, &endSize) && RangeInFile(termOffset, termLen, fingerprint.fileSize) &&
-         startOffset <= endOffset && endOffset <= fingerprint.fileSize;
-
-    if (ok)
-      cachedTerms.pushBack({termOffset32, termLen32, startSize, endSize});
+    munmap(mapped, mappedSize);
+    return false;
   }
 
-  if (ok)
+  const size_t nTerms = static_cast<size_t>(termCount);
+  const size_t nDocs = static_cast<size_t>(cachedDocumentCount);
+
+  // Compute flat array offsets in the cache file.
+  const size_t termArrayOffset = kCacheHeaderBytes;
+  const size_t docsArrayOffset = termArrayOffset + nTerms * sizeof(TermIndex);
+  const size_t urlsArrayOffset = docsArrayOffset + nDocs * sizeof(DocumentInfo);
+  const size_t titlesArrayOffset = urlsArrayOffset + nDocs * sizeof(DocSlice);
+  const size_t descsArrayOffset = titlesArrayOffset + nDocs * sizeof(DocSlice);
+  const size_t totalRequired = descsArrayOffset + nDocs * sizeof(DocSlice);
+
+  if (mappedSize < totalRequired)
   {
-    cachedDocuments.reserve(static_cast<size_t>(cachedDocumentCount));
-    cachedUrls.reserve(static_cast<size_t>(cachedDocumentCount));
-    cachedTitles.reserve(static_cast<size_t>(cachedDocumentCount));
-    cachedDescriptions.reserve(static_cast<size_t>(cachedDocumentCount));
+    munmap(mapped, mappedSize);
+    return false;
   }
 
-  for (uint64_t i = 0; ok && i < cachedDocumentCount; ++i)
+  // Validate all TermIndex entries reference valid regions in the source file.
+  const auto* terms = reinterpret_cast<const TermIndex*>(mapped + termArrayOffset);
+  for (size_t i = 0; i < nTerms; ++i)
   {
-    uint64_t documentId = 0;
-    uint64_t start = 0;
-    uint64_t end = 0;
-    uint64_t titleLength = 0;
-    uint64_t urlLength = 0;
-    uint64_t domainDepth = 0;
-    uint64_t depth = 0;
-    uint64_t rankingUrlLength = 0;
-    uint64_t titleWordCount = 0;
-    uint64_t seedSource = 0;
-    uint64_t urlOff = 0;
-    uint64_t urlLen = 0;
-    uint64_t titleOff = 0;
-    uint64_t titleLen = 0;
-    uint64_t descOff = 0;
-    uint64_t descLen = 0;
-
-    ok = r.readU64(&documentId) && r.readU64(&start) && r.readU64(&end) &&
-         r.readU64(&titleLength) && r.readU64(&urlLength) && r.readU64(&domainDepth) &&
-         r.readU64(&depth) && r.readU64(&rankingUrlLength) && r.readU64(&titleWordCount) &&
-         r.readU64(&seedSource) && r.readU64(&urlOff) && r.readU64(&urlLen) &&
-         r.readU64(&titleOff) && r.readU64(&titleLen) && r.readU64(&descOff) &&
-         r.readU64(&descLen);
-
-    uint32_t documentId32 = 0;
-    uint32_t titleLength32 = 0;
-    uint32_t urlLength32 = 0;
-    uint32_t domainDepth32 = 0;
-    uint32_t depth32 = 0;
-    uint16_t rankingUrlLength16 = 0;
-    uint16_t titleWordCount16 = 0;
-    uint16_t seedSource16 = 0;
-    uint32_t urlOff32 = 0;
-    uint32_t urlLen32 = 0;
-    uint32_t titleOff32 = 0;
-    uint32_t titleLen32 = 0;
-    uint32_t descOff32 = 0;
-    uint32_t descLen32 = 0;
-    size_t startSize = 0;
-    size_t endSize = 0;
-
-    ok = ok && ToU32(documentId, &documentId32) && ToSize(start, &startSize) &&
-         ToSize(end, &endSize) && ToU32(titleLength, &titleLength32) &&
-         ToU32(urlLength, &urlLength32) && ToU32(domainDepth, &domainDepth32) &&
-         ToU32(depth, &depth32) && ToU16(rankingUrlLength, &rankingUrlLength16) &&
-         ToU16(titleWordCount, &titleWordCount16) && ToU16(seedSource, &seedSource16) &&
-         ToU32(urlOff, &urlOff32) && ToU32(urlLen, &urlLen32) &&
-         ToU32(titleOff, &titleOff32) && ToU32(titleLen, &titleLen32) &&
-         ToU32(descOff, &descOff32) && ToU32(descLen, &descLen32) &&
-         RangeInFile(urlOff, urlLen, fingerprint.fileSize) &&
-         RangeInFile(titleOff, titleLen, fingerprint.fileSize) &&
-         RangeInFile(descOff, descLen, fingerprint.fileSize);
-
-    if (ok)
+    if (!RangeInFile(terms[i].termOffset, terms[i].termLen, fingerprint.fileSize) ||
+        terms[i].startOffset > terms[i].endOffset ||
+        terms[i].endOffset > fingerprint.fileSize)
     {
-      const RankingInput rankingInput = {.domainDepth = domainDepth32,
-                                         .depth = depth32,
-                                         .urlLength = rankingUrlLength16,
-                                         .titleWordCount = titleWordCount16,
-                                         .seedSource = seedSource16};
-      cachedDocuments.pushBack(
-          {documentId32, startSize, endSize, titleLength32, urlLength32, rankingInput});
-      cachedUrls.pushBack({urlOff32, urlLen32});
-      cachedTitles.pushBack({titleOff32, titleLen32});
-      cachedDescriptions.pushBack({descOff32, descLen32});
+      munmap(mapped, mappedSize);
+      return false;
     }
   }
 
-  ok = ok && r.empty();
-  munmap(mapped, static_cast<size_t>(st.st_size));
-
-  if (!ok)
-    return false;
+  // Validate all DocSlice entries reference valid regions in the source file.
+  const auto* urls = reinterpret_cast<const DocSlice*>(mapped + urlsArrayOffset);
+  const auto* titles = reinterpret_cast<const DocSlice*>(mapped + titlesArrayOffset);
+  const auto* descs = reinterpret_cast<const DocSlice*>(mapped + descsArrayOffset);
+  for (size_t i = 0; i < nDocs; ++i)
+  {
+    if (!RangeInFile(urls[i].offset, urls[i].len, fingerprint.fileSize) ||
+        !RangeInFile(titles[i].offset, titles[i].len, fingerprint.fileSize) ||
+        !RangeInFile(descs[i].offset, descs[i].len, fingerprint.fileSize))
+    {
+      munmap(mapped, mappedSize);
+      return false;
+    }
+  }
 
   size_t postingsStart = 0;
   if (!ToSize(cachedPostingsStart, &postingsStart))
+  {
+    munmap(mapped, mappedSize);
     return false;
+  }
+
+  // Cache pages are accessed randomly at query time (only the terms and docs
+  // actually touched by a query are ever faulted in).
+  madvise(mapped, mappedSize, MADV_RANDOM);
+
+  // Keep the mmap alive — all data pointers point directly into it.
+  cacheMapData_ = mapped;
+  cacheMapSize_ = mappedSize;
 
   postingsStart_ = postingsStart;
-  termIndex_.swap(cachedTerms);
-  documents_.swap(cachedDocuments);
-  docUrls_.swap(cachedUrls);
-  docTitles_.swap(cachedTitles);
-  docDescriptions_.swap(cachedDescriptions);
+  termIndexData_ = terms;
+  termIndexSize_ = nTerms;
+  documentsData_ = reinterpret_cast<const DocumentInfo*>(mapped + docsArrayOffset);
+  docUrlsData_ = urls;
+  docTitlesData_ = titles;
+  docDescriptionsData_ = descs;
+  documentSize_ = nDocs;
   return true;
 }
 
 bool IndexShardSource::WriteDerivedCache(const SourceFingerprint& fingerprint) const
 {
-  if (termIndex_.size() != fingerprint.uniqueWords || documents_.size() != docUrls_.size() ||
-      documents_.size() != docTitles_.size() || documents_.size() != docDescriptions_.size())
-  {
+  if (termIndexSize_ != fingerprint.uniqueWords || documentSize_ != fingerprint.documentCount)
     return false;
-  }
 
   Writer w;
+  // 18-field header
   w.writeU64(kShardLoadCacheMagic);
   w.writeU64(kShardLoadCacheVersion);
   w.writeU64(fingerprint.fileSize);
@@ -679,43 +629,19 @@ bool IndexShardSource::WriteDerivedCache(const SourceFingerprint& fingerprint) c
   w.writeU64(fingerprint.rankingInputSize);
   w.writeU64(sizeof(Location));
   w.writeU64(kRankingInputLayoutVersion);
-  w.writeU64(postingsStart_);
-  w.writeU64(termIndex_.size());
-  w.writeU64(documents_.size());
+  w.writeU64(static_cast<uint64_t>(postingsStart_));
+  w.writeU64(static_cast<uint64_t>(termIndexSize_));
+  w.writeU64(static_cast<uint64_t>(documentSize_));
+  w.writeU64(sizeof(TermIndex));
+  w.writeU64(sizeof(DocumentInfo));
+  w.writeU64(sizeof(DocSlice));
 
-  for (size_t i = 0; i < termIndex_.size(); ++i)
-  {
-    const TermIndex& entry = termIndex_[i];
-    w.writeU64(entry.termOffset);
-    w.writeU64(entry.termLen);
-    w.writeU64(entry.startOffset);
-    w.writeU64(entry.endOffset);
-  }
-
-  for (size_t i = 0; i < documents_.size(); ++i)
-  {
-    const DocumentInfo& doc = documents_[i];
-    const DocSlice& url = docUrls_[i];
-    const DocSlice& title = docTitles_[i];
-    const DocSlice& description = docDescriptions_[i];
-
-    w.writeU64(doc.documentId);
-    w.writeU64(doc.start);
-    w.writeU64(doc.end);
-    w.writeU64(doc.titleLength);
-    w.writeU64(doc.urlLength);
-    w.writeU64(doc.rankingInput.domainDepth);
-    w.writeU64(doc.rankingInput.depth);
-    w.writeU64(doc.rankingInput.urlLength);
-    w.writeU64(doc.rankingInput.titleWordCount);
-    w.writeU64(doc.rankingInput.seedSource);
-    w.writeU64(url.offset);
-    w.writeU64(url.len);
-    w.writeU64(title.offset);
-    w.writeU64(title.len);
-    w.writeU64(description.offset);
-    w.writeU64(description.len);
-  }
+  // Raw binary arrays — no per-field serialization.
+  w.writeBytes(termIndexData_, termIndexSize_ * sizeof(TermIndex));
+  w.writeBytes(documentsData_, documentSize_ * sizeof(DocumentInfo));
+  w.writeBytes(docUrlsData_, documentSize_ * sizeof(DocSlice));
+  w.writeBytes(docTitlesData_, documentSize_ * sizeof(DocSlice));
+  w.writeBytes(docDescriptionsData_, documentSize_ * sizeof(DocSlice));
 
   const string cachePath = CachePathForShard(path_);
   const string tmpPath = TempCachePath(cachePath);
@@ -741,11 +667,11 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
   const string_slice query(term.cstr()); // null-terminated constructor
-  size_t lo = 0, hi = termIndex_.size();
+  size_t lo = 0, hi = termIndexSize_;
   while (lo < hi)
   {
     const size_t mid = lo + (hi - lo) / 2;
-    const TermIndex& t = termIndex_[mid];
+    const TermIndex& t = termIndexData_[mid];
     const string_slice midTerm(reinterpret_cast<char*>(data_ + t.termOffset), t.termLen);
     if (midTerm < query)
       lo = mid + 1;
@@ -767,16 +693,35 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
 
 void IndexShardSource::Reset()
 {
-  const size_t mappedSize = fileSize_;
-  termIndex_.clear();
-  documents_.clear();
-  docUrls_.clear();
-  docTitles_.clear();
-  docDescriptions_.clear();
+  // Release the persistent .loadcache mmap (cache hit path).
+  if (cacheMapData_)
+  {
+    munmap(cacheMapData_, cacheMapSize_);
+    cacheMapData_ = nullptr;
+    cacheMapSize_ = 0;
+  }
+
+  // Clear heap storage (cache miss path).
+  termIndexStorage_.clear();
+  documentsStorage_.clear();
+  docUrlsStorage_.clear();
+  docTitlesStorage_.clear();
+  docDescriptionsStorage_.clear();
+
+  // Null out the active view pointers.
+  termIndexData_ = nullptr;
+  termIndexSize_ = 0;
+  documentsData_ = nullptr;
+  docUrlsData_ = nullptr;
+  docTitlesData_ = nullptr;
+  docDescriptionsData_ = nullptr;
+  documentSize_ = 0;
+
   cacheStatus_ = ShardLoadCacheStatus::NotLoaded;
   postingsStart_ = 0;
-  fileSize_ = 0;
 
+  const size_t mappedSize = fileSize_;
+  fileSize_ = 0;
   if (data_)
   {
     munmap(data_, mappedSize);

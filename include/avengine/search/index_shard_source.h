@@ -83,11 +83,28 @@ private:
   uint8_t* data_ = nullptr;
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
-  vector<TermIndex> termIndex_;
-  vector<DocumentInfo> documents_;
-  vector<DocSlice> docUrls_;
-  vector<DocSlice> docTitles_;
-  vector<DocSlice> docDescriptions_;
+
+  // Persistent mmap of the .loadcache file (cache hit path). Null on cache miss.
+  uint8_t* cacheMapData_ = nullptr;
+  size_t cacheMapSize_ = 0;
+
+  // Active read views — point into cacheMapData_ on cache hit, or into the
+  // *Storage_ vectors below on cache miss. Always valid after a successful Load().
+  const TermIndex* termIndexData_ = nullptr;
+  size_t termIndexSize_ = 0;
+  const DocumentInfo* documentsData_ = nullptr;
+  const DocSlice* docUrlsData_ = nullptr;
+  const DocSlice* docTitlesData_ = nullptr;
+  const DocSlice* docDescriptionsData_ = nullptr;
+  size_t documentSize_ = 0;
+
+  // Heap storage used only on the cache miss path (empty on cache hit).
+  vector<TermIndex> termIndexStorage_;
+  vector<DocumentInfo> documentsStorage_;
+  vector<DocSlice> docUrlsStorage_;
+  vector<DocSlice> docTitlesStorage_;
+  vector<DocSlice> docDescriptionsStorage_;
+
   ShardLoadCacheStatus cacheStatus_ = ShardLoadCacheStatus::NotLoaded;
 
   // Per-query cache: populated lazily by OpenTermIsr, cleared via ClearTermCache()
