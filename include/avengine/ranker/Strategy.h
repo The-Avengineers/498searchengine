@@ -1,4 +1,5 @@
 #include "ranker.h"
+#include <avengine/ranker/ranking_detail.h>
 #include <avengine/avengine_lib/string.h>
 #include <avengine/avengine_lib/vector.h>
 #include <avengine/crawler/crawler_structs.h>
@@ -7,155 +8,6 @@
 #include <cstddef>
 
 using namespace avengine;
-
-namespace ranking_strategy_detail
-{
-
-inline bool HasExactPhrase(const vector<vector<size_t>>& term_positions)
-{
-  if (term_positions.size() < 2)
-    return !term_positions.empty() && !term_positions[0].empty();
-
-  for (const auto& positions : term_positions)
-  {
-    if (positions.empty())
-      return false;
-  }
-
-  vector<size_t> indices(term_positions.size(), 0);
-  while (indices[0] < term_positions[0].size())
-  {
-    const size_t base = term_positions[0][indices[0]];
-    bool is_phrase = true;
-
-    for (size_t term_idx = 1; term_idx < term_positions.size(); ++term_idx)
-    {
-      const size_t target = base + term_idx;
-      while (indices[term_idx] < term_positions[term_idx].size() &&
-             term_positions[term_idx][indices[term_idx]] < target)
-      {
-        ++indices[term_idx];
-      }
-
-      if (indices[term_idx] >= term_positions[term_idx].size() ||
-          term_positions[term_idx][indices[term_idx]] != target)
-      {
-        is_phrase = false;
-        break;
-      }
-    }
-
-    if (is_phrase)
-      return true;
-
-    ++indices[0];
-  }
-
-  return false;
-}
-
-inline double OrderingScore(const vector<vector<size_t>>& term_positions)
-{
-  const size_t query_len = term_positions.size();
-  if (query_len == 0)
-    return 0.0;
-  if (query_len == 1)
-    return term_positions[0].empty() ? 0.0 : 1.0;
-
-  size_t best_len = 0;
-  size_t best_span = 0;
-
-  for (size_t start_term = 0; start_term < query_len; ++start_term)
-  {
-    const vector<size_t>& starts = term_positions[start_term];
-    if (starts.empty())
-      continue;
-
-    for (size_t si = 0; si < starts.size(); ++si)
-    {
-      size_t start_pos = starts[si];
-      size_t prev_pos = start_pos;
-      size_t end_pos = start_pos;
-      size_t len = 1;
-
-      for (size_t term_idx = start_term + 1; term_idx < query_len; ++term_idx)
-      {
-        const vector<size_t>& positions = term_positions[term_idx];
-        if (positions.empty())
-          break;
-
-        bool found = false;
-        for (size_t pi = 0; pi < positions.size(); ++pi)
-        {
-          if (positions[pi] > prev_pos)
-          {
-            prev_pos = positions[pi];
-            end_pos = prev_pos;
-            ++len;
-            found = true;
-            break;
-          }
-        }
-
-        if (!found)
-          break;
-      }
-
-      const size_t span = end_pos - start_pos;
-      if (len > best_len || (len == best_len && span < best_span))
-      {
-        best_len = len;
-        best_span = span;
-      }
-    }
-  }
-
-  if (best_len < 2)
-    return 0.0;
-
-  const double length_ratio = static_cast<double>(best_len) / static_cast<double>(query_len);
-  const size_t min_span = best_len - 1;
-  const size_t slack = best_span > min_span ? (best_span - min_span) : 0;
-  const double proximity = 1.0 / (1.0 + static_cast<double>(slack));
-  return length_ratio * proximity;
-}
-
-inline double CoverageScore(const vector<vector<size_t>>& term_positions)
-{
-  const size_t query_len = term_positions.size();
-  if (query_len == 0)
-    return 0.0;
-
-  size_t present = 0;
-  for (const auto& positions : term_positions)
-  {
-    if (!positions.empty())
-      ++present;
-  }
-
-  return static_cast<double>(present) / static_cast<double>(query_len);
-}
-
-inline double EarlyMatchScore(const vector<vector<size_t>>& term_positions)
-{
-  if (term_positions.empty())
-    return 0.0;
-
-  double score = 0.0;
-  size_t valid_terms = 0;
-  for (const auto& positions : term_positions)
-  {
-    if (!positions.empty())
-    {
-      score += 1.0 / log2(2.0 + positions[0]);
-      ++valid_terms;
-    }
-  }
-
-  return valid_terms == 0 ? 0.0 : (score / valid_terms);
-}
-
-} // namespace ranking_strategy_detail
 
 class DomainStrat : public Ranker::Strategy
 {
@@ -244,16 +96,11 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    const double body = ranking_strategy_detail::HasExactPhrase(term_positions) ? 1.0 : 0.0;
-    const double title =
-        signals.title_term_positions == nullptr
-            ? 0.0
-            : (ranking_strategy_detail::HasExactPhrase(*signals.title_term_positions) ? 1.0 : 0.0);
-    const double anchor =
-        signals.anchor_term_positions == nullptr
-            ? 0.0
-            : (ranking_strategy_detail::HasExactPhrase(*signals.anchor_term_positions) ? 1.0 : 0.0);
-    return body + (0.9 * title) + (0.8 * anchor);
+    (void)term_positions;
+    const double body   = signals.cache.body_exact_phrase   ? 1.0 : 0.0;
+    const double title  = signals.cache.title_exact_phrase  ? 1.0 : 0.0;
+    const double anchor = signals.cache.anchor_exact_phrase ? 1.0 : 0.0;
+    return (0.3 * body) + (0.3 * title) + (0.4 * anchor);
   }
 };
 
@@ -266,16 +113,10 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    const double body = ranking_strategy_detail::OrderingScore(term_positions);
-    const double title =
-        signals.title_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::OrderingScore(*signals.title_term_positions);
-    const double anchor =
-        signals.anchor_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::OrderingScore(*signals.anchor_term_positions);
-    return body + (0.8 * title) + (0.7 * anchor);
+    (void)term_positions;
+    return (0.3 * signals.cache.body_ordering)
+         + (0.3 * signals.cache.title_ordering)
+         + (0.4 * signals.cache.anchor_ordering);
   }
 };
 
@@ -504,7 +345,7 @@ private:
 class TitleTermCoverage : public Ranker::Strategy
 {
   // Scores purely on how many query terms appear in the title,
-  // plus ordering and exact-phrase bonuses 
+  // plus ordering and exact-phrase bonuses
   // Body positions are ignored so this weight can be
   // independently tunable from the body-based strategies.
 public:
@@ -513,16 +354,12 @@ public:
   {
     (void)entry;
     (void)term_positions;
-    if (signals.title_term_positions == nullptr)
+    if (signals.cache.title_coverage == 0.0)
       return 0.0;
-    const auto& tp = *signals.title_term_positions;
-    const double coverage = ranking_strategy_detail::CoverageScore(tp);
-    if (coverage == 0.0)
-      return 0.0;
-    const double ordering = ranking_strategy_detail::OrderingScore(tp);
-    const double exact = ranking_strategy_detail::HasExactPhrase(tp) ? 1.0 : 0.0;
-    const double early = ranking_strategy_detail::EarlyMatchScore(tp);
-    return (0.15 * coverage) + (0.15 * ordering) + (0.4 * exact) + (0.3 * early);
+    return (0.15 * signals.cache.title_coverage)
+         + (0.15 * signals.cache.title_ordering)
+         + (0.40 * (signals.cache.title_exact_phrase ? 1.0 : 0.0))
+         + (0.30 * signals.cache.title_early);
   }
 };
 
@@ -541,12 +378,7 @@ public:
   {
     (void)entry;
     (void)term_positions;
-    if (signals.title_term_positions == nullptr || QueryTermCount == 0)
-      return 0.0;
-    const auto& tp = *signals.title_term_positions;
-    if (ranking_strategy_detail::CoverageScore(tp) != 1.0)
-      return 0.0;
-    if (!ranking_strategy_detail::HasExactPhrase(tp))
+    if (QueryTermCount == 0 || signals.cache.title_coverage != 1.0 || !signals.cache.title_exact_phrase)
       return 0.0;
     return signals.title_word_count == QueryTermCount ? 1.0 : 0.0;
   }
@@ -564,16 +396,10 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    const double body_score = ranking_strategy_detail::EarlyMatchScore(term_positions);
-    const double title_score =
-        signals.title_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::EarlyMatchScore(*signals.title_term_positions);
-    const double anchor_score =
-        signals.anchor_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::EarlyMatchScore(*signals.anchor_term_positions);
-    return body_score + (0.7 * title_score) + (0.6 * anchor_score);
+    (void)term_positions;
+    return (0.3 * signals.cache.body_early)
+         + (0.3 * signals.cache.title_early)
+         + (0.4 * signals.cache.anchor_early);
   }
 };
 
@@ -603,15 +429,9 @@ public:
                const Ranker::RankSignals& signals) const
   {
     (void)entry;
-    const double body = ranking_strategy_detail::CoverageScore(term_positions);
-    const double title =
-        signals.title_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::CoverageScore(*signals.title_term_positions);
-    const double anchor =
-        signals.anchor_term_positions == nullptr
-            ? 0.0
-            : ranking_strategy_detail::CoverageScore(*signals.anchor_term_positions);
-    return body + (0.6 * title) + (0.5 * anchor);
+    (void)term_positions;
+    return (0.3 * signals.cache.body_coverage)
+         + (0.3 * signals.cache.title_coverage)
+         + (0.4 * signals.cache.anchor_coverage);
   }
 };

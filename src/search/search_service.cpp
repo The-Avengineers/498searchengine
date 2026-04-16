@@ -773,11 +773,24 @@ void* RunRankPhase(void* rawArgs)
   ranker.AddStrategy(&queryParamPenaltyStrategy, w.query_param_penalty);
   ranker.AddStrategy(&exactTitleMatchStrategy, w.exact_title_match);
 
+  auto flushPartialResults = [&]()
+  {
+    const vector<Ranker::RankedResult> topResults = ranker.TopResults();
+    args->output->clear();
+    for (size_t ri = 0; ri < topResults.size(); ++ri)
+    {
+      args->output->pushBack({topResults[ri], topResults[ri].shardOrdinal,
+                              FindDescriptionForRankedHit(*args->contexts, *args->matchedIndices,
+                                                          topResults[ri])});
+    }
+  };
+
   for (size_t i = args->begin; i < args->end && !args->timedOut->load(); ++i)
   {
     if ((i & 63) == 0 && QueryExceededDeadline(args->deadline))
     {
       args->timedOut->store(1);
+      flushPartialResults();
       return nullptr;
     }
 
@@ -787,6 +800,7 @@ void* RunRankPhase(void* rawArgs)
       if ((matchIndex & 63) == 0 && QueryExceededDeadline(args->deadline))
       {
         args->timedOut->store(1);
+        flushPartialResults();
         return nullptr;
       }
 
@@ -1287,8 +1301,10 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     if (uniqueIndex >= kMaxVisibleSearchResults)
       break;
   }
-  if (response.TotalHits > kMaxVisibleSearchResults)
+  if (uniqueIndex > kMaxVisibleSearchResults)
     response.TotalHits = kMaxVisibleSearchResults;
+  else
+    response.TotalHits = uniqueIndex;
 
   {
     // Rewrite score.log from scratch on each query
