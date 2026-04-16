@@ -30,6 +30,7 @@ class ConstraintSolver
 {
 public:
   static constexpr size_t kDefaultExecutionTimeThresholdMs = 2000;
+  static constexpr size_t kMaxReturnedMatches = 10000;
 
   void SetExecutionTimeThresholdMs(size_t thresholdMs);
   size_t GetExecutionTimeThresholdMs() const;

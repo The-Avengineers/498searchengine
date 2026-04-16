@@ -227,6 +227,8 @@ SolveResult ConstraintSolver::SolveParsedUntil(const QueryNode* root, const IsrS
     {
       result.Matches.pushBack({docId, source.GetDocumentURL(docId)});
       lastDocId = docId;
+      if (result.Matches.size() >= ConstraintSolver::kMaxReturnedMatches)
+        return result;
     }
 
     if (!state.DocumentEnd->Seek(match->GetEndLocation()))
