@@ -5,13 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Avengineers Search</title>
     <link rel="icon" type="image/png" href="./media/a-old.png" />
+    <link rel="preload" as="image" href="./media/logo-optimized.png" fetchpriority="high" />
     <link rel="stylesheet" href="./styles/main.css" />
     <script defer src="./scripts/search_form_guard.js"></script>
   </head>
   <body class="landing-page">
     <main class="landing">
       <div class="logo-stack" aria-label="Avengine logo">
-        <img class="logo-image" src="./media/logo.png" alt="Avengine logo" />
+        <img
+          class="logo-image"
+          src="./media/logo-optimized.png"
+          alt="Avengine logo"
+          width="1200"
+          height="332"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+        />
       </div>
 
       <form class="search-form" action="./results.html" method="get" novalidate>

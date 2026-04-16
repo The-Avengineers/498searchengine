@@ -1,5 +1,5 @@
 AVENGINE_SRC := .
-BUILD_DIR := build
+eBUILD_DIR := build
 TEST_BUILD_DIR := build-test
 
 .PHONY: test test-verbose configure configure-test build clean
