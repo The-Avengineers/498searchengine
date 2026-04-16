@@ -9,6 +9,7 @@
 
 #include <avengine/avengine_lib/atomic.h>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <dirent.h>
 #include <unistd.h>
@@ -507,6 +508,71 @@ size_t ResolveShardWorkerCount(size_t shardCount)
   return autoCount > shardCount ? shardCount : autoCount;
 }
 
+bool ResolveConfiguredDurationMs(const char* envName, size_t multiplier, size_t* outMs)
+{
+  const char* configured = std::getenv(envName);
+  if (!configured || *configured == '\0' || !outMs)
+    return false;
+
+  const size_t parsed = ParsePositiveSizeT(configured);
+  *outMs = parsed * multiplier;
+  return true;
+}
+
+bool ResolveShardLoadTimeoutMs(size_t* outMs)
+{
+  if (ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_MS", 1u, outMs))
+    return true;
+  return ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_SEC", 1000u, outMs);
+}
+
+struct LoadProgressState
+{
+  size_t totalPaths = 0;
+  bool enforceDeadline = false;
+  SteadyTimePoint deadline = {};
+  atomic_counter processedPaths;
+  atomic_counter loadedPrimaryShards;
+  atomic_counter loadedAnchorShards;
+  atomic_counter failedShardLoads;
+  atomic_counter timedOut;
+  atomic_counter loadingComplete;
+};
+
+void LogLoadProgress(const LoadProgressState& progress, size_t completed)
+{
+  const size_t percent = progress.totalPaths == 0 ? 100u : (completed * 100u) / progress.totalPaths;
+  std::fprintf(stderr,
+               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d%s\n",
+               completed, progress.totalPaths, percent, progress.loadedPrimaryShards.get_val(),
+               progress.loadedAnchorShards.get_val(), progress.failedShardLoads.get_val(),
+               progress.timedOut.load() ? " cutoff-reached" : "");
+}
+
+void* RunLoadProgressReporter(void* rawArgs)
+{
+  LoadProgressState* progress = static_cast<LoadProgressState*>(rawArgs);
+  if (!progress)
+    return nullptr;
+
+  size_t lastLogged = static_cast<size_t>(-1);
+  while (!progress->loadingComplete.load())
+  {
+    const size_t completed = static_cast<size_t>(progress->processedPaths.get_val());
+    if (completed != lastLogged)
+    {
+      LogLoadProgress(*progress, completed);
+      lastLogged = completed;
+    }
+    usleep(1000 * 1000);
+  }
+
+  const size_t completed = static_cast<size_t>(progress->processedPaths.get_val());
+  if (completed != lastLogged || progress->timedOut.load())
+    LogLoadProgress(*progress, completed);
+  return nullptr;
+}
+
 size_t ClampWorkerCount(size_t desired, size_t itemCount)
 {
   if (itemCount == 0)
@@ -617,6 +683,7 @@ struct LoadShardArgs
   size_t end = 0;
   vector<IndexShardSource*> shards;
   vector<IndexShardSource*> anchorShards;
+  LoadProgressState* progress = nullptr;
 };
 
 void* RunLoadShardRange(void* rawArgs)
@@ -627,18 +694,39 @@ void* RunLoadShardRange(void* rawArgs)
 
   for (size_t i = args->begin; i < args->end; ++i)
   {
+    if (args->progress && args->progress->timedOut.load())
+      return nullptr;
+
+    if (args->progress && args->progress->enforceDeadline &&
+        std::chrono::steady_clock::now() >= args->progress->deadline)
+    {
+      args->progress->timedOut.store(1);
+      return nullptr;
+    }
+
     const string& path = (*args->paths)[i];
     IndexShardSource* shard = new IndexShardSource(path);
     if (!shard->IsLoaded())
     {
       delete shard;
-      continue;
+      if (args->progress)
+        args->progress->failedShardLoads.fetch_add(1);
+    }
+    else if (IsAnchorShard(path))
+    {
+      args->anchorShards.pushBack(shard);
+      if (args->progress)
+        args->progress->loadedAnchorShards.fetch_add(1);
+    }
+    else
+    {
+      args->shards.pushBack(shard);
+      if (args->progress)
+        args->progress->loadedPrimaryShards.fetch_add(1);
     }
 
-    if (IsAnchorShard(path))
-      args->anchorShards.pushBack(shard);
-    else
-      args->shards.pushBack(shard);
+    if (args->progress)
+      args->progress->processedPaths.fetch_add(1);
   }
 
   return nullptr;
@@ -908,21 +996,99 @@ size_t SearchService::GetQueryExecutionTimeThresholdMs() const
   return solver_.GetExecutionTimeThresholdMs();
 }
 
-void SearchService::LoadShards()
+vector<string> SearchService::DiscoverShardPaths() const
 {
-  const vector<string> paths = DiscoverShardPaths(indexDirectory_);
+  return search::DiscoverShardPaths(indexDirectory_);
+}
+
+bool SearchService::IsAnchorShardPath(const string& path)
+{
+  return IsAnchorShard(path);
+}
+
+void SearchService::ResetLoadedShards()
+{
+  for (IndexShardSource* shard : shards_)
+    delete shard;
+  for (IndexShardSource* shard : anchorShards_)
+    delete shard;
+  shards_.clear();
+  anchorShards_.clear();
+}
+
+void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard)
+{
+  if (!shard)
+    return;
+
+  if (isAnchorShard)
+    anchorShards_.pushBack(shard);
+  else
+    shards_.pushBack(shard);
+}
+
+size_t SearchService::PrimaryShardCount() const
+{
+  return shards_.size();
+}
+
+size_t SearchService::AnchorShardCount() const
+{
+  return anchorShards_.size();
+}
+
+LoadShardsResult SearchService::LoadShards()
+{
+  const auto startedAt = std::chrono::steady_clock::now();
+  ResetLoadedShards();
+
+  LoadShardsResult result = {};
+  const vector<string> paths = ::avengine::search::DiscoverShardPaths(indexDirectory_);
+  result.TotalShardPaths = paths.size();
   const size_t loadWorkers = ResolveShardWorkerCount(paths.size());
   if (loadWorkers == 0)
-    return;
+  {
+    result.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+    return result;
+  }
+
+  size_t loadTimeoutMs = 0;
+  const bool enforceDeadline = ResolveShardLoadTimeoutMs(&loadTimeoutMs);
+  if (paths.size() != 0)
+  {
+    if (enforceDeadline)
+    {
+      std::fprintf(stderr,
+                   "[search] loading %zu shard path(s) from %s using %zu worker(s) with cutoff %zu ms\n",
+                   paths.size(), indexDirectory_.cstr(), loadWorkers, loadTimeoutMs);
+    }
+    else
+    {
+      std::fprintf(stderr, "[search] loading %zu shard path(s) from %s using %zu worker(s)\n",
+                   paths.size(), indexDirectory_.cstr(), loadWorkers);
+    }
+  }
+
+  LoadProgressState progress = {
+      .totalPaths = paths.size(),
+      .enforceDeadline = enforceDeadline,
+      .deadline = enforceDeadline
+                      ? startedAt + std::chrono::milliseconds(loadTimeoutMs)
+                      : SteadyTimePoint(),
+  };
 
   LoadShardArgs* args = new LoadShardArgs[loadWorkers];
   thread* workers = loadWorkers > 1 ? new thread[loadWorkers - 1] : nullptr;
+  thread progressReporter;
+  const bool reporterStarted =
+      paths.size() != 0 && progressReporter.start(RunLoadProgressReporter, &progress);
 
   for (size_t workerIndex = 1; workerIndex < loadWorkers; ++workerIndex)
   {
     args[workerIndex].paths = &paths;
     args[workerIndex].begin = RangeBegin(workerIndex, loadWorkers, paths.size());
     args[workerIndex].end = RangeEnd(workerIndex, loadWorkers, paths.size());
+    args[workerIndex].progress = &progress;
     if (!workers[workerIndex - 1].start(RunLoadShardRange, &args[workerIndex]))
       RunLoadShardRange(&args[workerIndex]);
   }
@@ -930,6 +1096,7 @@ void SearchService::LoadShards()
   args[0].paths = &paths;
   args[0].begin = 0;
   args[0].end = RangeEnd(0, loadWorkers, paths.size());
+  args[0].progress = &progress;
   RunLoadShardRange(&args[0]);
 
   for (size_t i = 0; i + 1 < loadWorkers; ++i)
@@ -937,6 +1104,10 @@ void SearchService::LoadShards()
     if (workers[i].joinable())
       workers[i].join();
   }
+
+  progress.loadingComplete.store(1);
+  if (reporterStarted && progressReporter.joinable())
+    progressReporter.join();
 
   for (size_t workerIndex = 0; workerIndex < loadWorkers; ++workerIndex)
   {
@@ -948,6 +1119,14 @@ void SearchService::LoadShards()
 
   delete[] workers;
   delete[] args;
+
+  result.LoadedPrimaryShards = static_cast<size_t>(progress.loadedPrimaryShards.get_val());
+  result.LoadedAnchorShards = static_cast<size_t>(progress.loadedAnchorShards.get_val());
+  result.FailedShardLoads = static_cast<size_t>(progress.failedShardLoads.get_val());
+  result.TimedOut = progress.timedOut.load();
+  result.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+
+  return result;
 }
 
 SearchResponse SearchService::Search(const string& query, size_t limit) const

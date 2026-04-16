@@ -42,6 +42,16 @@ struct SearchResponse
   vector<SearchHit> Results;
 };
 
+struct LoadShardsResult
+{
+  size_t TotalShardPaths = 0;
+  size_t LoadedPrimaryShards = 0;
+  size_t LoadedAnchorShards = 0;
+  size_t FailedShardLoads = 0;
+  size_t TookMs = 0;
+  bool TimedOut = false;
+};
+
 class IndexShardSource;
 
 class SearchService
@@ -55,7 +65,13 @@ public:
 
   void SetQueryExecutionTimeThresholdMs(size_t thresholdMs);
   size_t GetQueryExecutionTimeThresholdMs() const;
-  void LoadShards();
+  LoadShardsResult LoadShards();
+  vector<string> DiscoverShardPaths() const;
+  static bool IsAnchorShardPath(const string& path);
+  void ResetLoadedShards();
+  void AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard);
+  size_t PrimaryShardCount() const;
+  size_t AnchorShardCount() const;
   SearchResponse Search(const string& query, size_t limit = 10) const;
   SearchResponse SearchPage(const string& query, size_t page = 1, size_t limit = 10) const;
 
