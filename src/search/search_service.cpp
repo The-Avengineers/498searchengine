@@ -996,18 +996,54 @@ size_t SearchService::GetQueryExecutionTimeThresholdMs() const
   return solver_.GetExecutionTimeThresholdMs();
 }
 
-LoadShardsResult SearchService::LoadShards()
+vector<string> SearchService::DiscoverShardPaths() const
 {
-  const auto startedAt = std::chrono::steady_clock::now();
+  return search::DiscoverShardPaths(indexDirectory_);
+}
+
+bool SearchService::IsAnchorShardPath(const string& path)
+{
+  return IsAnchorShard(path);
+}
+
+void SearchService::ResetLoadedShards()
+{
   for (IndexShardSource* shard : shards_)
     delete shard;
   for (IndexShardSource* shard : anchorShards_)
     delete shard;
   shards_.clear();
   anchorShards_.clear();
+}
+
+void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard)
+{
+  if (!shard)
+    return;
+
+  if (isAnchorShard)
+    anchorShards_.pushBack(shard);
+  else
+    shards_.pushBack(shard);
+}
+
+size_t SearchService::PrimaryShardCount() const
+{
+  return shards_.size();
+}
+
+size_t SearchService::AnchorShardCount() const
+{
+  return anchorShards_.size();
+}
+
+LoadShardsResult SearchService::LoadShards()
+{
+  const auto startedAt = std::chrono::steady_clock::now();
+  ResetLoadedShards();
 
   LoadShardsResult result = {};
-  const vector<string> paths = DiscoverShardPaths(indexDirectory_);
+  const vector<string> paths = ::avengine::search::DiscoverShardPaths(indexDirectory_);
   result.TotalShardPaths = paths.size();
   const size_t loadWorkers = ResolveShardWorkerCount(paths.size());
   if (loadWorkers == 0)

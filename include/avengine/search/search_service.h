@@ -66,6 +66,12 @@ public:
   void SetQueryExecutionTimeThresholdMs(size_t thresholdMs);
   size_t GetQueryExecutionTimeThresholdMs() const;
   LoadShardsResult LoadShards();
+  vector<string> DiscoverShardPaths() const;
+  static bool IsAnchorShardPath(const string& path);
+  void ResetLoadedShards();
+  void AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard);
+  size_t PrimaryShardCount() const;
+  size_t AnchorShardCount() const;
   SearchResponse Search(const string& query, size_t limit = 10) const;
   SearchResponse SearchPage(const string& query, size_t page = 1, size_t limit = 10) const;
 

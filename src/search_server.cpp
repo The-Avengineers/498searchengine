@@ -8,6 +8,7 @@
 #include <avengine/node.h>
 #include <avengine/search/coordinator_merge.h>
 #include <avengine/search/search_common.h>
+#include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
 
 #include <arpa/inet.h>
@@ -28,6 +29,8 @@ namespace avengine
 {
 namespace
 {
+
+using SteadyTimePoint = std::chrono::steady_clock::time_point;
 
 enum class ServerRole
 {
@@ -82,6 +85,153 @@ search::SearchResponse MakeLoadingResponse(const string& query, size_t page, siz
 void LogClusterAvailabilityIssues(const string& query, size_t totalSourceCount,
                                   const vector<search::SearchSource>& sources,
                                   const vector<search::SearchError>& transportErrors);
+
+size_t OnlineCpuCount()
+{
+  const long cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
+  return cpuCount > 0 ? static_cast<size_t>(cpuCount) : 1u;
+}
+
+size_t ParsePositiveSizeT(const char* text)
+{
+  if (!text || *text == '\0')
+    return 0;
+
+  char* end = nullptr;
+  const unsigned long long value = std::strtoull(text, &end, 10);
+  if (!end || *end != '\0')
+    return 0;
+  return static_cast<size_t>(value);
+}
+
+size_t ResolveShardWorkerCount(size_t shardCount)
+{
+  if (shardCount <= 1)
+    return shardCount == 0 ? 1u : shardCount;
+
+  const char* configured = std::getenv("SEARCH_SHARD_WORKERS");
+  const size_t requested = ParsePositiveSizeT(configured);
+  if (requested > 0)
+    return requested > shardCount ? shardCount : requested;
+
+  size_t autoCount = OnlineCpuCount();
+  if (autoCount > 8u)
+    autoCount = 8u;
+  if (autoCount == 0)
+    autoCount = 1u;
+  return autoCount > shardCount ? shardCount : autoCount;
+}
+
+bool ResolveConfiguredDurationMs(const char* envName, size_t multiplier, size_t* outMs)
+{
+  const char* configured = std::getenv(envName);
+  if (!configured || *configured == '\0' || !outMs)
+    return false;
+
+  const size_t parsed = ParsePositiveSizeT(configured);
+  *outMs = parsed * multiplier;
+  return true;
+}
+
+bool ResolveShardLoadTimeoutMs(size_t* outMs)
+{
+  if (ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_MS", 1u, outMs))
+    return true;
+  return ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_SEC", 1000u, outMs);
+}
+
+struct BackgroundShardLoadContext
+{
+  SearchServerState* state = nullptr;
+  string indexDirectory;
+  vector<string> paths;
+  size_t workerCount = 0;
+  bool enforceCutoff = false;
+  size_t cutoffMs = 0;
+  SteadyTimePoint startedAt = {};
+  SteadyTimePoint deadline = {};
+  atomic_counter nextPathIndex;
+  atomic_counter processedPaths;
+  atomic_counter loadedPrimaryShards;
+  atomic_counter loadedAnchorShards;
+  atomic_counter failedShardLoads;
+  atomic_counter finishedWorkers;
+  atomic_counter cutoffReached;
+  atomic_counter readyPublished;
+};
+
+void PrintLoaderProgress(const BackgroundShardLoadContext& ctx)
+{
+  const size_t completed = static_cast<size_t>(ctx.processedPaths.get_val());
+  const size_t percent = ctx.paths.empty() ? 100u : (completed * 100u) / ctx.paths.size();
+  std::fprintf(stderr,
+               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d%s\n",
+               completed, ctx.paths.size(), percent, ctx.loadedPrimaryShards.get_val(),
+               ctx.loadedAnchorShards.get_val(), ctx.failedShardLoads.get_val(),
+               ctx.cutoffReached.load() ? " cutoff-reached" : "");
+}
+
+void PublishReady(BackgroundShardLoadContext& ctx, bool cutoffReached)
+{
+  if (ctx.readyPublished.fetch_add(1) != 0)
+    return;
+
+  ctx.state->ServiceReady.store(1);
+  const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                std::chrono::steady_clock::now() - ctx.startedAt)
+                                                .count());
+  std::cout << "search_server ready using index dir " << ctx.indexDirectory.cstr()
+            << " (primary=" << ctx.loadedPrimaryShards.get_val()
+            << ", anchor=" << ctx.loadedAnchorShards.get_val()
+            << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
+            << ", loaded_paths=" << ctx.processedPaths.get_val() << ", took_ms=" << tookMs;
+  if (cutoffReached)
+    std::cout << ", load_cutoff_reached=true, background_load_continues=true";
+  std::cout << ")\n";
+}
+
+void* RunIncrementalShardLoadWorker(void* rawArgs)
+{
+  BackgroundShardLoadContext* ctx = static_cast<BackgroundShardLoadContext*>(rawArgs);
+  if (!ctx || !ctx->state)
+    return nullptr;
+
+  for (;;)
+  {
+    if (ctx->cutoffReached.load())
+      break;
+
+    const size_t pathIndex = static_cast<size_t>(ctx->nextPathIndex.fetch_add(1));
+    if (pathIndex >= ctx->paths.size())
+      break;
+
+    const string& path = ctx->paths[pathIndex];
+    search::IndexShardSource* shard = new search::IndexShardSource(path);
+    if (!shard->IsLoaded())
+    {
+      delete shard;
+      ctx->failedShardLoads.fetch_add(1);
+    }
+    else
+    {
+      const bool isAnchor = search::SearchService::IsAnchorShardPath(path);
+      {
+        avengine::lock_guard<SharedMutex> guard(ctx->state->ServiceMutex);
+        ctx->state->Service.AppendLoadedShard(shard, isAnchor);
+      }
+
+      if (isAnchor)
+        ctx->loadedAnchorShards.fetch_add(1);
+      else
+        ctx->loadedPrimaryShards.fetch_add(1);
+    }
+
+    ctx->processedPaths.fetch_add(1);
+  }
+
+  ctx->finishedWorkers.fetch_add(1);
+  return nullptr;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // HTTP helpers
@@ -868,20 +1018,100 @@ static void* serviceLoaderThread(void* arg)
 {
   ServiceLoaderArgs* args = static_cast<ServiceLoaderArgs*>(arg);
   std::cout << "search_server loading index dir " << args->indexDirectory.cstr() << "\n";
-  search::LoadShardsResult loadResult;
+  BackgroundShardLoadContext ctx = {};
+  ctx.state = args->state;
+  ctx.indexDirectory = args->indexDirectory;
+  ctx.startedAt = std::chrono::steady_clock::now();
+
   {
     avengine::lock_guard<SharedMutex> guard(args->state->ServiceMutex);
-    loadResult = args->state->Service.LoadShards();
+    args->state->Service.ResetLoadedShards();
   }
-  args->state->ServiceReady.store(1);
-  std::cout << "search_server ready using index dir " << args->indexDirectory.cstr()
-            << " (primary=" << loadResult.LoadedPrimaryShards
-            << ", anchor=" << loadResult.LoadedAnchorShards
-            << ", failed=" << loadResult.FailedShardLoads << ", total="
-            << loadResult.TotalShardPaths << ", took_ms=" << loadResult.TookMs;
-  if (loadResult.TimedOut)
-    std::cout << ", load_cutoff_reached=true";
-  std::cout << ")\n";
+
+  ctx.paths = args->state->Service.DiscoverShardPaths();
+  ctx.workerCount = ResolveShardWorkerCount(ctx.paths.size());
+  if (ResolveShardLoadTimeoutMs(&ctx.cutoffMs))
+  {
+    ctx.enforceCutoff = true;
+    ctx.deadline = ctx.startedAt + std::chrono::milliseconds(ctx.cutoffMs);
+  }
+
+  if (ctx.paths.empty() || ctx.workerCount == 0)
+  {
+    PublishReady(ctx, false);
+    delete args;
+    return nullptr;
+  }
+
+  if (ctx.enforceCutoff)
+  {
+    std::fprintf(stderr,
+                 "[search] loading %zu shard path(s) from %s using %zu worker(s) with cutoff %zu ms\n",
+                 ctx.paths.size(), ctx.indexDirectory.cstr(), ctx.workerCount, ctx.cutoffMs);
+  }
+  else
+  {
+    std::fprintf(stderr, "[search] loading %zu shard path(s) from %s using %zu worker(s)\n",
+                 ctx.paths.size(), ctx.indexDirectory.cstr(), ctx.workerCount);
+  }
+
+  thread* workers = new thread[ctx.workerCount];
+  for (size_t workerIndex = 0; workerIndex < ctx.workerCount; ++workerIndex)
+  {
+    if (!workers[workerIndex].start(RunIncrementalShardLoadWorker, &ctx))
+      RunIncrementalShardLoadWorker(&ctx);
+  }
+
+  size_t lastLogged = static_cast<size_t>(-1);
+  while (static_cast<size_t>(ctx.finishedWorkers.get_val()) < ctx.workerCount)
+  {
+    const size_t completed = static_cast<size_t>(ctx.processedPaths.get_val());
+    if (completed != lastLogged)
+    {
+      PrintLoaderProgress(ctx);
+      lastLogged = completed;
+    }
+
+    if (ctx.enforceCutoff && !ctx.cutoffReached.load() &&
+        std::chrono::steady_clock::now() >= ctx.deadline)
+    {
+      ctx.cutoffReached.store(1);
+    }
+
+    if (ctx.cutoffReached.load() && !ctx.readyPublished.load())
+      PublishReady(ctx, true);
+
+    usleep(1000 * 100);
+  }
+
+  for (size_t workerIndex = 0; workerIndex < ctx.workerCount; ++workerIndex)
+  {
+    if (workers[workerIndex].joinable())
+      workers[workerIndex].join();
+  }
+  delete[] workers;
+
+  const size_t completed = static_cast<size_t>(ctx.processedPaths.get_val());
+  if (completed != lastLogged || ctx.cutoffReached.load())
+    PrintLoaderProgress(ctx);
+
+  if (!ctx.readyPublished.load())
+  {
+    PublishReady(ctx, false);
+  }
+  else
+  {
+    const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                  std::chrono::steady_clock::now() - ctx.startedAt)
+                                                  .count());
+    std::cout << "search_server finished background shard load using index dir "
+              << ctx.indexDirectory.cstr() << " (primary=" << ctx.loadedPrimaryShards.get_val()
+              << ", anchor=" << ctx.loadedAnchorShards.get_val()
+              << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
+              << ", loaded_paths=" << ctx.processedPaths.get_val() << ", took_ms=" << tookMs
+              << ")\n";
+  }
+
   delete args;
   return nullptr;
 }
