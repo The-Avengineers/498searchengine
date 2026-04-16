@@ -22,6 +22,7 @@ void fail(const char* expr, int line)
 using avengine::string;
 using avengine::vector;
 using avengine::search::ComputeOverfetchLimit;
+using avengine::search::IsAvailabilityError;
 using avengine::search::MergeResponses;
 using avengine::search::SearchHit;
 using avengine::search::SearchResponse;
@@ -121,14 +122,90 @@ void testMergeResponsesPreservesDescriptions()
 void testMergeResponsesTransportErrors()
 {
   vector<avengine::search::SearchError> transportErrors;
-  avengine::search::AppendTransportError(transportErrors, 1, "timed out");
+  avengine::search::AppendTransportError(transportErrors, 1, "timed out waiting for search reply");
 
   vector<SearchSource> sources;
   sources.pushBack(makeSource(false, 0, vector<SearchHit>{}, 0));
 
   const auto merged = MergeResponses(string("q"), 1, 10, sources, transportErrors, 0);
+  EXPECT(merged.Errors.size() == 0U);
+}
+
+void testAvailabilityErrorClassifier()
+{
+  avengine::search::SearchError loading;
+  loading.Message = string("search index loading");
+  EXPECT(IsAvailabilityError(loading));
+
+  avengine::search::SearchError timeout;
+  timeout.Message = string("query timed out after exceeding 2000 ms threshold");
+  EXPECT(IsAvailabilityError(timeout));
+
+  avengine::search::SearchError parse;
+  parse.Message = string("unterminated phrase");
+  EXPECT(!IsAvailabilityError(parse));
+}
+
+void testMergeResponsesSuppressesWorkerLoadingWhenClusterIsDegraded()
+{
+  vector<SearchHit> hits;
+  hits.pushBack(makeHit("https://a.com", 2.0));
+
+  SearchSource local = makeSource(false, 0, hits, 1);
+  SearchSource worker = makeSource(true, 1, vector<SearchHit>{}, 0);
+  worker.Response.Errors.pushBack({0, string("search index loading")});
+
+  vector<SearchSource> sources;
+  sources.pushBack(local);
+  sources.pushBack(worker);
+
+  vector<avengine::search::SearchError> noErrors;
+  const auto merged = MergeResponses(string("q"), 1, 10, sources, noErrors, 0);
+  EXPECT(merged.Errors.size() == 0U);
+  EXPECT(merged.Results.size() == 1U);
+  EXPECT(merged.Results[0].Url == string("https://a.com"));
+}
+
+void testMergeResponsesCollapsesFullClusterAvailabilityFailure()
+{
+  vector<avengine::search::SearchError> transportErrors;
+  avengine::search::AppendTransportError(transportErrors, 1, "failed to send search request");
+  avengine::search::AppendTransportError(transportErrors, 2, "timed out waiting for search reply");
+
+  SearchSource local;
+  local.IsPeer = false;
+  local.PeerIndex = 0;
+  local.Response.Errors.pushBack({0, string("query timed out after exceeding 2000 ms threshold")});
+
+  SearchSource worker;
+  worker.IsPeer = true;
+  worker.PeerIndex = 3;
+  worker.Response.Errors.pushBack({0, string("search index loading")});
+
+  vector<SearchSource> sources;
+  sources.pushBack(local);
+  sources.pushBack(worker);
+
+  const auto merged = MergeResponses(string("q"), 1, 10, sources, transportErrors, 0);
   EXPECT(merged.Errors.size() == 1U);
-  EXPECT(merged.Errors[0].Message == string("timed out"));
+  EXPECT(merged.Errors[0].Message == string("search cluster unavailable"));
+}
+
+void testMergeResponsesKeepsNonAvailabilityErrorsVisible()
+{
+  SearchSource local = makeSource(false, 0, vector<SearchHit>{}, 0);
+  local.Response.Errors.pushBack({0, string("unterminated phrase")});
+
+  vector<avengine::search::SearchError> transportErrors;
+  avengine::search::AppendTransportError(transportErrors, 1, "failed to send search request");
+
+  vector<SearchSource> sources;
+  sources.pushBack(local);
+
+  const auto merged = MergeResponses(string("q"), 1, 10, sources, transportErrors, 0);
+  EXPECT(merged.Errors.size() == 2U);
+  EXPECT(merged.Errors[0].Message == string("unterminated phrase"));
+  EXPECT(merged.Errors[1].Message == string("search cluster unavailable"));
 }
 
 void testMergeResponsesPagination()
@@ -194,7 +271,11 @@ int main()
   testMergeResponsesTotalHits();
   testMergeResponsesDedup();
   testMergeResponsesPreservesDescriptions();
+  testAvailabilityErrorClassifier();
   testMergeResponsesTransportErrors();
+  testMergeResponsesSuppressesWorkerLoadingWhenClusterIsDegraded();
+  testMergeResponsesCollapsesFullClusterAvailabilityFailure();
+  testMergeResponsesKeepsNonAvailabilityErrorsVisible();
   testMergeResponsesPagination();
   testMergeResponsesCapAtOneHundred();
   return 0;
