@@ -32,7 +32,7 @@ Options
   --limit    Result page size
   --verbose  Run query mode in verbose mode
   --once     For stats: fetch once then exit (no live refresh)
-  --port     Local port for the browser tunnel (default 8080, used with open)
+  --port     Legacy open option; ignored when opening the configured AVENGINE site
 
 Remote access
   Set AVENGINE_SSH_HOST to connect to a deploy container via SSH.
@@ -51,7 +51,7 @@ Examples
   $ avengine profile
   $ avengine open
   $ avengine open --port 9090
-  $ AVENGINE_SSH_HOST=myserver avengine open
+  $ AVENGINE_SERVER_URL=https://theavengine.com avengine open
   $ AVENGINE_SSH_HOST=myserver avengine stats
   $ AVENGINE_SSH_HOST=myserver avengine query "apple"
 `;
@@ -112,10 +112,6 @@ async function main() {
 			};
 		}
 
-		// Also update serverUrl to point at the SSH host if not explicitly set
-		if (!process.env['AVENGINE_SERVER_URL'] && !cli.flags.server) {
-			config.serverUrl = `http://${cli.flags.host}:8080`;
-		}
 	}
 
 	const invocation = parseCliInvocation(cli.input, {
@@ -164,7 +160,7 @@ async function main() {
 		return;
 	}
 
-	// Open browser — start server + SSH tunnel + open browser tab
+	// Open browser against configured AVENGINE server
 	if (invocation.action.kind === 'open') {
 		clearInteractiveScreen();
 		render(

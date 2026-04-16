@@ -13,9 +13,6 @@ type Props = {
 
 function phaseLabel(phase: OpenPhase): string {
 	switch (phase.kind) {
-		case 'starting-server': return 'Starting search server...';
-		case 'opening-tunnel': return 'Opening SSH tunnel...';
-		case 'waiting-for-server': return `Waiting for server at ${phase.url}...`;
 		case 'active': return `Browser opened at ${phase.url}`;
 		case 'error': return phase.message;
 	}
@@ -70,9 +67,13 @@ function Uptime({startedAt}: {readonly startedAt: Date}) {
 	return <Text dimColor>uptime: {formatted}</Text>;
 }
 
-export default function BrowseView({config, localPort, onExit}: Readonly<Props>) {
+export default function BrowseView({config, localPort: _localPort, onExit}: Readonly<Props>) {
 	const {exit} = useApp();
-	const [phase, setPhase] = useState<OpenPhase>({kind: 'starting-server'});
+	const [phase, setPhase] = useState<OpenPhase>({
+		kind: 'active',
+		url: config.serverUrl,
+		startedAt: new Date(),
+	});
 	const sessionRef = useRef<OpenSession | null>(null);
 
 	const handleExit = React.useCallback(() => {
@@ -93,7 +94,7 @@ export default function BrowseView({config, localPort, onExit}: Readonly<Props>)
 	useEffect(() => {
 		let mounted = true;
 
-		launchBrowser(config, localPort, nextPhase => {
+		launchBrowser(config, _localPort, nextPhase => {
 			if (mounted) setPhase(nextPhase);
 		}).then(session => {
 			if (mounted) {
@@ -110,25 +111,16 @@ export default function BrowseView({config, localPort, onExit}: Readonly<Props>)
 			mounted = false;
 			sessionRef.current?.cleanup();
 		};
-	}, [config, localPort, handleExit]);
-
-	const isSpinning =
-		phase.kind === 'starting-server' ||
-		phase.kind === 'opening-tunnel' ||
-		phase.kind === 'waiting-for-server';
-
-	const remoteLabel = config.ssh
-		? ` via SSH tunnel to ${config.ssh.host}:${config.ssh.port}`
-		: '';
+	}, [config, _localPort, handleExit]);
 
 	return (
 		<Box flexDirection="column">
 			<Text bold color="cyanBright">
-				AVENGINE BROWSER{remoteLabel ? ` [${config.ssh?.host}]` : ''}
+				AVENGINE BROWSER
 			</Text>
 
 			<Box marginTop={1}>
-				<Spinner active={isSpinning} />
+				<Spinner active={false} />
 				<Text color={phaseColor(phase)}>{phaseLabel(phase)}</Text>
 			</Box>
 
@@ -138,14 +130,6 @@ export default function BrowseView({config, localPort, onExit}: Readonly<Props>)
 						<Text>{'url:    '}</Text>
 						<Text bold color="cyan">{phase.url}</Text>
 					</Box>
-					{remoteLabel && (
-						<Box>
-							<Text>{'tunnel: '}</Text>
-							<Text dimColor>
-								localhost:{localPort} → {config.ssh?.host}:{REMOTE_SERVER_PORT}
-							</Text>
-						</Box>
-					)}
 					<Box marginTop={1}>
 						<Uptime startedAt={phase.startedAt} />
 					</Box>
@@ -160,11 +144,9 @@ export default function BrowseView({config, localPort, onExit}: Readonly<Props>)
 
 			{phase.kind === 'active' && (
 				<Text dimColor>
-					Tunnel active. Press q or Ctrl+C to close tunnel and exit.
+					Browser launched against the configured AVENGINE server. Press q or Ctrl+C to exit.
 				</Text>
 			)}
 		</Box>
 	);
 }
-
-const REMOTE_SERVER_PORT = 8080;

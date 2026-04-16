@@ -37,7 +37,7 @@ avengine crawler index
 
 The CLI reads these environment variables:
 
-- `AVENGINE_SERVER_URL` default `http://127.0.0.1:8080`
+- `AVENGINE_SERVER_URL` default `https://theavengine.com`
 - `AVENGINE_RUNTIME_BIN_ROOT` default `/avengine/bin`
 - `AVENGINE_DATA_ROOT` default `/data`
 - `AVENGINE_CONFIG_ROOT` default `/config`
@@ -45,6 +45,7 @@ The CLI reads these environment variables:
 ## Notes
 
 - `avengine` without a subcommand launches the interactive TUI.
+- Search queries go to the configured AVENGINE server; the CLI does not start a local search server.
 - Query results use terminal hyperlinks when the terminal supports them.
 - Crawler commands target the runtime-box helpers documented in `docs/crawler_usage.md`.
 - Offline game is intentionally left as “coming soon”.

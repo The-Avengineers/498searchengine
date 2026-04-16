@@ -60,14 +60,10 @@ export function resolveCliConfig(
 	runtimeHints?: Partial<RuntimeHints>,
 ): CliConfig {
 	const ssh = resolveSshConfig(environment);
-
-	// Auto-derive serverUrl from SSH host when not explicitly set
 	const explicitServerUrl = environment['AVENGINE_SERVER_URL'];
 	const serverUrl = explicitServerUrl
 		? normalizeUrl(explicitServerUrl)
-		: ssh
-		? `http://${ssh.host}:8080`
-		: 'http://127.0.0.1:8080';
+		: 'https://theavengine.com';
 
 	return {
 		serverUrl,
