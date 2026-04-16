@@ -180,14 +180,14 @@ void PublishReady(BackgroundShardLoadContext& ctx, bool cutoffReached)
   const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                 std::chrono::steady_clock::now() - ctx.startedAt)
                                                 .count());
-  std::cout << "search_server ready using index dir " << ctx.indexDirectory.cstr()
+  std::cerr << "search_server ready using index dir " << ctx.indexDirectory.cstr()
             << " (primary=" << ctx.loadedPrimaryShards.get_val()
             << ", anchor=" << ctx.loadedAnchorShards.get_val()
             << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
             << ", loaded_paths=" << ctx.processedPaths.get_val() << ", took_ms=" << tookMs;
   if (cutoffReached)
-    std::cout << ", load_cutoff_reached=true, background_load_continues=true";
-  std::cout << ")\n";
+    std::cerr << ", load_cutoff_reached=true, background_load_continues=true";
+  std::cerr << ")\n";
 }
 
 void* RunIncrementalShardLoadWorker(void* rawArgs)
@@ -1017,7 +1017,7 @@ struct ServiceLoaderArgs
 static void* serviceLoaderThread(void* arg)
 {
   ServiceLoaderArgs* args = static_cast<ServiceLoaderArgs*>(arg);
-  std::cout << "search_server loading index dir " << args->indexDirectory.cstr() << "\n";
+  std::cerr << "search_server loading index dir " << args->indexDirectory.cstr() << "\n";
   BackgroundShardLoadContext ctx = {};
   ctx.state = args->state;
   ctx.indexDirectory = args->indexDirectory;
@@ -1104,7 +1104,7 @@ static void* serviceLoaderThread(void* arg)
     const size_t tookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                   std::chrono::steady_clock::now() - ctx.startedAt)
                                                   .count());
-    std::cout << "search_server finished background shard load using index dir "
+    std::cerr << "search_server finished background shard load using index dir "
               << ctx.indexDirectory.cstr() << " (primary=" << ctx.loadedPrimaryShards.get_val()
               << ", anchor=" << ctx.loadedAnchorShards.get_val()
               << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
@@ -1223,7 +1223,7 @@ int main(int argc, char** argv)
   {
     if (!StartServiceLoader(state, indexDirectory))
       return 1;
-    std::cout << "search_server running in worker mode; index loading in background from "
+    std::cerr << "search_server running in worker mode; index loading in background from "
               << indexDirectory.cstr() << "\n";
     for (;;)
       pause();
@@ -1249,7 +1249,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::cout << "search_server listening on port " << port << " while loading index dir "
+  std::cerr << "search_server listening on port " << port << " while loading index dir "
             << indexDirectory.cstr() << "\n";
 
   if (!StartServiceLoader(state, indexDirectory))
