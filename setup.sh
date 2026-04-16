@@ -382,6 +382,9 @@ Description=AVEngine Search Server
 Documentation=file://${REPO_DIR}/deploysetup.md
 After=network-online.target
 Wants=network-online.target
+# Give up after 5 failures in 2 minutes to avoid a runaway restart loop.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -396,11 +399,8 @@ ExecStart=${REPO_DIR}/build/search_server 8080 ${INDEX_DIR}
 
 # ── restartability ────────────────────────────────────────────────────────────
 # Restart automatically on crash or signal. Wait 5 s between attempts.
-# Give up after 5 failures in 2 minutes to avoid a runaway restart loop.
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=120
-StartLimitBurst=5
 
 # ── resource limits ───────────────────────────────────────────────────────────
 # Large file descriptor limit for hundreds of .sfi index shards.
