@@ -19,6 +19,7 @@
 #include <avengine/unordered_map.h>
 
 #include <algorithm>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <dirent.h>
@@ -343,10 +344,11 @@ static bool parseDocEnd(const uint8_t* data, size_t fileSize,
       return false;
     cursor = nx;
 
-    if (cursor + 8 > pEnd)
+    if (cursor + sizeof(RankingInput) > pEnd)
       return false;
-    uint64_t rankInput = readU64Le(cursor);
-    cursor += 8;
+    RankingInput rankInput = {};
+    std::memcpy(&rankInput, cursor, sizeof(rankInput));
+    cursor += sizeof(rankInput);
 
     docMetas.pushBack({url, title, description, rankInput});
   }

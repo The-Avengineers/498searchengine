@@ -114,42 +114,32 @@ declare -a PEER_IPS=()
 
 if [[ "$ROLE" != "single" ]]; then
   echo -e "${BOLD}Step 2: Cluster Configuration${RESET}"
-  echo "You need the internal (VPC) IP of every node."
-  echo "On GCP: VM console → Network interfaces → Primary internal IP."
-  echo "Or run:  hostname -I | awk '{print \$1}'"
-  echo ""
 
-  prompt NUM_PEERS_STR "Total nodes in the cluster (coordinator + all workers)" "2"
-  validate_integer "$NUM_PEERS_STR"
-  NUM_PEERS="$NUM_PEERS_STR"
-  [[ "$NUM_PEERS" -lt 2 ]] && fatal "A distributed cluster needs at least 2 nodes. Use 'single' for standalone."
+  # ── hardcoded cluster (5 nodes) ───────────────────────────────────────────
+  NUM_PEERS=5
+  PEER_IPS=(
+    "34.24.66.46"    # node 0 — Josh (coordinator)
+    "34.139.184.22"  # node 1 — Tony
+    "35.185.106.57"  # node 2 — Mick
+    "34.74.173.254"  # node 3 — Jason
+    "35.196.97.246"  # node 4 — Mateo
+  )
 
   if [[ "$ROLE" == "coordinator" ]]; then
     NODE_ID=0
     info "Coordinator is always node 0."
   else
-    prompt NODE_ID_STR "This node's ID (coordinator=0, workers start at 1)" ""
+    echo "Cluster peers (hardcoded):"
+    for i in "${!PEER_IPS[@]}"; do
+      echo "    node ${i} → ${PEER_IPS[$i]}"
+    done
+    echo ""
+    prompt NODE_ID_STR "This node's ID (1–4)" ""
     validate_integer "$NODE_ID_STR"
     NODE_ID="$NODE_ID_STR"
     [[ "$NODE_ID" -eq 0 ]]           && fatal "NODE_ID 0 is reserved for the coordinator."
     [[ "$NODE_ID" -ge "$NUM_PEERS" ]] && fatal "NODE_ID ($NODE_ID) must be less than NUM_PEERS ($NUM_PEERS)."
   fi
-
-  echo ""
-  echo "Enter the internal IP of each node in order (node 0 = coordinator):"
-  for ((i=0; i<NUM_PEERS; i++)); do
-    local_label=""
-    if [[ "$i" -eq "$NODE_ID" && "$ROLE" == "coordinator" ]]; then
-      local_label=" (this machine)"
-    elif [[ "$i" -eq "$NODE_ID" && "$ROLE" == "worker" ]]; then
-      local_label=" (this machine)"
-    elif [[ "$i" -eq 0 && "$ROLE" == "worker" ]]; then
-      local_label=" (coordinator)"
-    fi
-    prompt IP_VAL "  Node ${i} internal IP${local_label}" ""
-    validate_ip "$IP_VAL"
-    PEER_IPS+=("$IP_VAL")
-  done
   echo ""
 else
   info "Single-node mode — no peer configuration needed."
