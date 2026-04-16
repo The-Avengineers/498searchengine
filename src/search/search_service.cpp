@@ -825,6 +825,9 @@ void* RunRankPhase(void* rawArgs)
     }
 
     ShardQueryContext& context = (*args->contexts)[(*args->matchedIndices)[i]];
+    if (context.bodyPositions.size() != context.solved.Matches.size())
+      continue;
+
     for (size_t matchIndex = 0; matchIndex < context.solved.Matches.size(); ++matchIndex)
     {
       if ((matchIndex & 63) == 0 && QueryExceededDeadline(args->deadline))
