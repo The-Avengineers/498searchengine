@@ -57,6 +57,10 @@ bool IndexShardSource::Load(const string& path)
 
   fileSize_ = static_cast<size_t>(st.st_size);
 
+  // Tell the kernel not to prefetch sequential pages — index access patterns
+  // are random (only query terms are touched), so read-ahead wastes RAM.
+  madvise(data_, fileSize_, MADV_RANDOM);
+
   Reader headerReader(data_, fileSize_);
   const uint64_t magic = headerReader.readU64();
   (void)headerReader.readU64(); // document_count

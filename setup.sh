@@ -382,6 +382,21 @@ StartLimitBurst=5
 # Large file descriptor limit for hundreds of .sfi index shards.
 LimitNOFILE=1048576
 
+# ── memory cap ────────────────────────────────────────────────────────────────
+# The index is mmap'd from SSD — these limits tell the kernel to evict index
+# pages back to disk when RAM gets tight, rather than OOM-killing everything.
+#
+# MemoryHigh: soft limit — kernel starts reclaiming pages aggressively here.
+# MemoryMax:  hard limit — kernel will OOM-kill only this process (not the
+#             whole machine) if reclaim isn't enough. Systemd restarts it.
+#
+# Adjust these two values based on how much RAM your VM actually has.
+# Leave ~1 GB headroom for the OS. Example for an 8 GB VM: High=6G, Max=7G.
+MemoryHigh=70%
+MemoryMax=85%
+# Do not use swap — re-reading from the SSD index is faster than swap I/O.
+MemorySwapMax=0
+
 # ── logging ───────────────────────────────────────────────────────────────────
 StandardOutput=journal
 StandardError=journal
