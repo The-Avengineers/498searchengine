@@ -1,4 +1,5 @@
 #include <avengine/ranker/ranker.h>
+#include <avengine/ranker/ranking_detail.h>
 
 namespace avengine
 {
@@ -52,6 +53,16 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   if (retained && *retained != 0)
     return;
 
+  // Quality pre-filter: skip documents that have no query terms in their title
+  // and no exact phrase match in the body
+  {
+    using namespace ranking_strategy_detail;
+    const bool title_covered = signals.title_term_positions != nullptr &&
+                               CoverageScore(*signals.title_term_positions) > 0.0;
+    if (!title_covered && !HasExactPhrase(term_positions))
+      return;
+  }
+
   // When full, skip scoring entirely if this candidate can't beat the weakest result.
   vector<double> per_strategy;
   const double new_score = ScoreDetailed(entry, term_positions, signals, per_strategy);
@@ -101,6 +112,40 @@ double Ranker::ScoreDetailed(const urlEntry& url_entry,
                              const vector<vector<size_t>>& term_positions,
                              const RankSignals& signals, vector<double>& out_scores) const
 {
+  // Precompute all detail-function results once so strategies can read from
+  // signals.cache instead of recomputing the same values independently.
+  RankSignals cached = signals;
+  using namespace ranking_strategy_detail;
+
+  cached.cache.body_coverage     = CoverageScore(term_positions);
+  cached.cache.body_ordering     = OrderingScore(term_positions);
+  cached.cache.body_early        = EarlyMatchScore(term_positions);
+  cached.cache.body_exact_phrase = HasExactPhrase(term_positions);
+
+  if (signals.title_term_positions != nullptr)
+  {
+    const auto& tp = *signals.title_term_positions;
+    cached.cache.title_coverage = CoverageScore(tp);
+    if (cached.cache.title_coverage > 0.0)
+    {
+      cached.cache.title_ordering     = OrderingScore(tp);
+      cached.cache.title_early        = EarlyMatchScore(tp);
+      cached.cache.title_exact_phrase = HasExactPhrase(tp);
+    }
+  }
+
+  if (signals.anchor_term_positions != nullptr)
+  {
+    const auto& ap = *signals.anchor_term_positions;
+    cached.cache.anchor_coverage = CoverageScore(ap);
+    if (cached.cache.anchor_coverage > 0.0)
+    {
+      cached.cache.anchor_ordering     = OrderingScore(ap);
+      cached.cache.anchor_early        = EarlyMatchScore(ap);
+      cached.cache.anchor_exact_phrase = HasExactPhrase(ap);
+    }
+  }
+
   double combined = 0.0;
   out_scores.clear();
 
@@ -112,7 +157,7 @@ double Ranker::ScoreDetailed(const urlEntry& url_entry,
       out_scores.pushBack(0.0);
       continue;
     }
-    const double s = weighted.weight * weighted.strategy->Score(url_entry, term_positions, signals);
+    const double s = weighted.weight * weighted.strategy->Score(url_entry, term_positions, cached);
     out_scores.pushBack(s);
     combined += s;
   }

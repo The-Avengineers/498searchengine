@@ -31,6 +31,26 @@ public:
     size_t title_word_count{0};
     const vector<vector<size_t>>* title_term_positions{nullptr};
     const vector<vector<size_t>>* anchor_term_positions{nullptr};
+
+    // Precomputed by Ranker::ScoreDetailed before strategies run.
+    // populated once per document to avoid redundant calls across strats
+    struct Cache
+    {
+      double body_coverage{0.0};
+      double body_ordering{0.0};
+      double body_early{0.0};
+      bool   body_exact_phrase{false};
+
+      double title_coverage{0.0};
+      double title_ordering{0.0};
+      double title_early{0.0};
+      bool   title_exact_phrase{false};
+
+      double anchor_coverage{0.0};
+      double anchor_ordering{0.0};
+      double anchor_early{0.0};
+      bool   anchor_exact_phrase{false};
+    } cache;
   };
 
   /**
