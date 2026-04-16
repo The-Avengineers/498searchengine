@@ -849,9 +849,11 @@ void LaunchRankPhase(vector<ShardQueryContext>& contexts, const vector<size_t>& 
 
 } // namespace
 
-SearchService::SearchService(const string& indexDirectory) : indexDirectory_(indexDirectory)
+SearchService::SearchService(const string& indexDirectory, bool loadShards)
+    : indexDirectory_(indexDirectory)
 {
-  LoadShards();
+  if (loadShards)
+    LoadShards();
 }
 
 SearchService::~SearchService()

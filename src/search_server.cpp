@@ -1,3 +1,4 @@
+#include <avengine/avengine_lib/atomic.h>
 #include <avengine/avengine_lib/condition_variable.h>
 #include <avengine/avengine_lib/lock_guard.h>
 #include <avengine/avengine_lib/mutex.h>
@@ -51,9 +52,10 @@ struct RequestMailbox
 
 struct SearchServerState
 {
-  explicit SearchServerState(const string& indexDirectory) : Service(indexDirectory) {}
+  explicit SearchServerState(const string& indexDirectory) : Service(indexDirectory, false) {}
 
   search::SearchService Service;
+  atomic_counter ServiceReady;
   // Shared (readers-writer) lock: SearchPage/GetQueryExecutionTimeThresholdMs hold a
   // shared lock; SetQueryExecutionTimeThresholdMs holds the exclusive lock.
   SharedMutex ServiceMutex;
@@ -65,6 +67,16 @@ struct SearchServerState
 };
 
 static SearchServerState* gState = nullptr;
+
+search::SearchResponse MakeLoadingResponse(const string& query, size_t page, size_t limit)
+{
+  search::SearchResponse response;
+  response.Query = query;
+  response.Page = page == 0 ? 1 : page;
+  response.Limit = limit == 0 ? search::kDefaultSearchLimit : limit;
+  response.Errors.pushBack({0, string("search index loading")});
+  return response;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // HTTP helpers
@@ -440,6 +452,11 @@ void HandleSearchQuery(size_t peerIndex, const vector<uint8_t>& payload)
   }
 
   search::SearchResponse response;
+  if (!gState->ServiceReady.load())
+  {
+    response = MakeLoadingResponse(query, 1, limit);
+  }
+  else
   {
     SharedLockGuard<SharedMutex> guard(gState->ServiceMutex);
     response = gState->Service.SearchPage(query, 1, limit);
@@ -476,6 +493,15 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
 
   const size_t normalizedPage = page == 0 ? 1 : page;
   const size_t normalizedLimit = limit == 0 ? 10 : limit;
+
+  if (!state.ServiceReady.load())
+  {
+    search::SearchResponse response = MakeLoadingResponse(query, normalizedPage, normalizedLimit);
+    response.TookMs = static_cast<size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now() - startedAt)
+                                              .count());
+    return response;
+  }
 
   constraint_solver::ConstraintSolver validator;
   const auto parsed = validator.ParseQuery(query);
@@ -764,6 +790,15 @@ void HandleClient(int clientFd, SearchServerState& state)
     }
   }
 
+  if (!state.ServiceReady.load())
+  {
+    search::SearchResponse loading = MakeLoadingResponse(query, page, limit);
+    string body;
+    AppendResultString(body, loading);
+    SendJsonResponse(clientFd, 503, "Service Unavailable", body);
+    return;
+  }
+
   search::SearchResponse response;
   if (state.Role == ServerRole::Coordinator)
   {
@@ -793,6 +828,40 @@ static void* clientThread(void* arg)
   close(args->fd);
   delete args;
   return nullptr;
+}
+
+struct ServiceLoaderArgs
+{
+  SearchServerState* state;
+  string indexDirectory;
+};
+
+static void* serviceLoaderThread(void* arg)
+{
+  ServiceLoaderArgs* args = static_cast<ServiceLoaderArgs*>(arg);
+  std::cout << "search_server loading index dir " << args->indexDirectory.cstr() << "\n";
+  {
+    avengine::lock_guard<SharedMutex> guard(args->state->ServiceMutex);
+    args->state->Service.LoadShards();
+  }
+  args->state->ServiceReady.store(1);
+  std::cout << "search_server ready using index dir " << args->indexDirectory.cstr() << "\n";
+  delete args;
+  return nullptr;
+}
+
+bool StartServiceLoader(SearchServerState& state, const string& indexDirectory)
+{
+  ServiceLoaderArgs* args = new ServiceLoaderArgs{&state, indexDirectory};
+  pthread_t thread;
+  if (pthread_create(&thread, nullptr, serviceLoaderThread, args) != 0)
+  {
+    delete args;
+    std::cerr << "search_server failed to start index loader thread\n";
+    return false;
+  }
+  pthread_detach(thread);
+  return true;
 }
 
 } // namespace
@@ -835,8 +904,10 @@ int main(int argc, char** argv)
 
   if (role == ServerRole::Worker)
   {
-    std::cout << "search_server running in worker mode using index dir " << indexDirectory.cstr()
-              << "\n";
+    if (!StartServiceLoader(state, indexDirectory))
+      return 1;
+    std::cout << "search_server running in worker mode; index loading in background from "
+              << indexDirectory.cstr() << "\n";
     for (;;)
       pause();
   }
@@ -861,8 +932,14 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::cout << "search_server listening on port " << port << " using index dir "
+  std::cout << "search_server listening on port " << port << " while loading index dir "
             << indexDirectory.cstr() << "\n";
+
+  if (!StartServiceLoader(state, indexDirectory))
+  {
+    close(serverFd);
+    return 1;
+  }
 
   for (;;)
   {

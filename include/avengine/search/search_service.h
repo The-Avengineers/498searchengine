@@ -47,7 +47,7 @@ class IndexShardSource;
 class SearchService
 {
 public:
-  explicit SearchService(const string& indexDirectory = string("."));
+  explicit SearchService(const string& indexDirectory = string("."), bool loadShards = true);
   ~SearchService();
 
   SearchService(const SearchService&) = delete;
@@ -55,12 +55,11 @@ public:
 
   void SetQueryExecutionTimeThresholdMs(size_t thresholdMs);
   size_t GetQueryExecutionTimeThresholdMs() const;
+  void LoadShards();
   SearchResponse Search(const string& query, size_t limit = 10) const;
   SearchResponse SearchPage(const string& query, size_t page = 1, size_t limit = 10) const;
 
 private:
-  void LoadShards();
-
   string indexDirectory_;
   constraint_solver::ConstraintSolver solver_;
   vector<IndexShardSource*> shards_;
