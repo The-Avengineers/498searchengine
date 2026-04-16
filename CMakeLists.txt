@@ -18,6 +18,20 @@ if(ENABLE_PROFILING AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   message(STATUS "CPU profiling ON: ${PROFILING_FLAGS}")
 endif()
 
+option(ENABLE_NATIVE_OPTIMIZATIONS "Build release binaries with -march=native" ON)
+set(NATIVE_OPTIMIZATION_FLAGS)
+if(ENABLE_NATIVE_OPTIMIZATIONS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(NATIVE_OPTIMIZATION_FLAGS
+      "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-march=native>")
+  message(STATUS "Native CPU optimizations ON: ${NATIVE_OPTIMIZATION_FLAGS}")
+endif()
+
+function(enable_native_optimizations target_name)
+  if(NATIVE_OPTIMIZATION_FLAGS)
+    target_compile_options(${target_name} PRIVATE ${NATIVE_OPTIMIZATION_FLAGS})
+  endif()
+endfunction()
+
 # Needed for clang-tidy / tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -118,6 +132,20 @@ add_executable(tune src/gradient_descent/tune.cpp)
 target_link_libraries(tune PRIVATE avengine)
 target_include_directories(tune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+foreach(avengine_target
+        avengine
+        index_builder
+        index_reader
+        anchor_processor
+        probing_benchmark
+        crawler_index_profile
+        crawler_main
+        search_server
+        search_benchmark
+        tune)
+  enable_native_optimizations(${avengine_target})
+endforeach()
+
 # Optional warnings
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
@@ -163,6 +191,8 @@ if(BUILD_TESTING)
     if(doctest_FOUND)
       target_link_libraries(${test_name} PRIVATE doctest::doctest)
     endif()
+
+    enable_native_optimizations(${test_name})
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
       target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wpedantic)
