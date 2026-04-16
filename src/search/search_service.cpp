@@ -535,6 +535,9 @@ struct LoadProgressState
   atomic_counter loadedPrimaryShards;
   atomic_counter loadedAnchorShards;
   atomic_counter failedShardLoads;
+  atomic_counter cacheHits;
+  atomic_counter cacheRebuilds;
+  atomic_counter cacheWriteFailures;
   atomic_counter timedOut;
   atomic_counter loadingComplete;
 };
@@ -543,10 +546,35 @@ void LogLoadProgress(const LoadProgressState& progress, size_t completed)
 {
   const size_t percent = progress.totalPaths == 0 ? 100u : (completed * 100u) / progress.totalPaths;
   std::fprintf(stderr,
-               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d%s\n",
+               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d "
+               "cache_hit=%d cache_rebuilt=%d cache_write_failed=%d%s\n",
                completed, progress.totalPaths, percent, progress.loadedPrimaryShards.get_val(),
                progress.loadedAnchorShards.get_val(), progress.failedShardLoads.get_val(),
+               progress.cacheHits.get_val(), progress.cacheRebuilds.get_val(),
+               progress.cacheWriteFailures.get_val(),
                progress.timedOut.load() ? " cutoff-reached" : "");
+}
+
+void RecordShardCacheStatus(LoadProgressState* progress, const IndexShardSource& shard)
+{
+  if (!progress)
+    return;
+
+  switch (shard.GetCacheStatus())
+  {
+  case ShardLoadCacheStatus::Hit:
+    progress->cacheHits.fetch_add(1);
+    break;
+  case ShardLoadCacheStatus::Rebuilt:
+    progress->cacheRebuilds.fetch_add(1);
+    break;
+  case ShardLoadCacheStatus::RebuiltWithoutWrite:
+    progress->cacheRebuilds.fetch_add(1);
+    progress->cacheWriteFailures.fetch_add(1);
+    break;
+  case ShardLoadCacheStatus::NotLoaded:
+    break;
+  }
 }
 
 void* RunLoadProgressReporter(void* rawArgs)
@@ -714,12 +742,14 @@ void* RunLoadShardRange(void* rawArgs)
     }
     else if (IsAnchorShard(path))
     {
+      RecordShardCacheStatus(args->progress, *shard);
       args->anchorShards.pushBack(shard);
       if (args->progress)
         args->progress->loadedAnchorShards.fetch_add(1);
     }
     else
     {
+      RecordShardCacheStatus(args->progress, *shard);
       args->shards.pushBack(shard);
       if (args->progress)
         args->progress->loadedPrimaryShards.fetch_add(1);
