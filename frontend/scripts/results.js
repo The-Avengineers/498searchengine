@@ -13,6 +13,10 @@
   // core defaults + dom hooks for the results page
   const DEFAULT_PAGE_SIZE = 10;
   const MAX_PAGE_SIZE = 10;
+  const RESULTS_PAGE_FILENAME = "results.html";
+  const CACHE_KEY_PREFIX = "avcache:";
+  const CACHE_INDEX_KEY = `${CACHE_KEY_PREFIX}__lru__`;
+  const MAX_CACHED_QUERIES = 10;
   // Fetch this many results from the API in one shot, then paginate client-side.
   const PREFETCH_LIMIT = 100;
   const listEl = document.getElementById("results-list");
@@ -27,40 +31,136 @@
     return;
   }
 
-  // read query state from the url
-  const params = new URLSearchParams(window.location.search);
-  const query = (params.get("q") || "").trim();
-  const pageSize = clampLimit(parseInteger(params.get("limit")));
-  const requestedPage = clampPage(parseInteger(params.get("page")));
+  const initialState = readUrlState();
+  let activeQuery = initialState.query;
+  let activePage = initialState.page;
+  let activeLimit = initialState.limit;
+  let requestToken = 0;
 
   // keep the search input in sync with what we are showing
-  queryInputEl.value = query;
+  queryInputEl.value = activeQuery;
 
-  // no query means no fetch, just show a helpful nudge
-  if (query.length === 0) {
-    setCount("Enter a query to search.");
-    hideElapsedTime();
-    showFeedback("Enter a query in the search box above.", true);
-    hidePagination();
-    return;
-  }
-
-  // show immediate status so the page feels responsive
-  setCount(`Searching for "${query}"...`);
-  clearList();
-  hideElapsedTime();
-  hideFeedback();
-  hidePagination();
+  bindSearchForm();
+  bindPaginationNav();
+  bindPopState();
 
   // fire the request (or serve from cache) and render
-  void loadSearchResults(query, requestedPage, pageSize);
+  void runSearch(activeQuery, activePage, activeLimit, false);
 
-  async function loadSearchResults(currentQuery, currentPage, limitValue) {
-    const cacheKey = "avcache:" + currentQuery;
+  function bindSearchForm() {
+    const formEl = queryInputEl.form;
+    if (!formEl || typeof formEl.addEventListener !== "function") {
+      return;
+    }
+
+    formEl.addEventListener("submit", (event) => {
+      const nextQuery = queryInputEl.value.trim();
+      if (nextQuery.length === 0) {
+        if (event && typeof event.preventDefault === "function") {
+          event.preventDefault();
+        }
+        if (typeof queryInputEl.focus === "function") {
+          queryInputEl.focus();
+        }
+        return;
+      }
+
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+      void runSearch(nextQuery, 1, activeLimit, true);
+    });
+  }
+
+  function bindPaginationNav() {
+    if (!paginationEl || typeof paginationEl.addEventListener !== "function") {
+      return;
+    }
+
+    paginationEl.addEventListener("click", (event) => {
+      if (!event) {
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (typeof event.button === "number" && event.button !== 0) {
+        return;
+      }
+
+      const link = findAncestorAnchor(event.target, paginationEl);
+      if (!link || typeof link.href !== "string" || link.href.length === 0) {
+        return;
+      }
+
+      const targetState = parseResultsPageUrl(link.href);
+      if (!targetState || targetState.query.length === 0) {
+        return;
+      }
+
+      if (typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+      void runSearch(targetState.query, targetState.page, targetState.limit, true);
+    });
+  }
+
+  function bindPopState() {
+    if (typeof window !== "object" || !window || typeof window.addEventListener !== "function") {
+      return;
+    }
+
+    window.addEventListener("popstate", () => {
+      const poppedState = readUrlState();
+      void runSearch(poppedState.query, poppedState.page, poppedState.limit, false);
+    });
+  }
+
+  async function runSearch(queryText, pageNumber, limitValue, pushHistory) {
+    const normalizedQuery = typeof queryText === "string" ? queryText.trim() : "";
+    const normalizedPage = clampPage(pageNumber);
+    const normalizedLimit = clampLimit(limitValue);
+
+    activeQuery = normalizedQuery;
+    activePage = normalizedPage;
+    activeLimit = normalizedLimit;
+    queryInputEl.value = normalizedQuery;
+
+    if (pushHistory) {
+      pushResultsState(normalizedQuery, normalizedPage, normalizedLimit);
+    }
+
+    const currentToken = ++requestToken;
+
+    // no query means no fetch, just show a helpful nudge
+    if (normalizedQuery.length === 0) {
+      setCount("Enter a query to search.");
+      clearList();
+      hideElapsedTime();
+      showFeedback("Enter a query in the search box above.", true);
+      hidePagination();
+      return;
+    }
+
+    // show immediate status so the page feels responsive
+    setCount(`Searching for "${normalizedQuery}"...`);
+    clearList();
+    hideElapsedTime();
+    hideFeedback();
+    hidePagination();
+
+    await loadSearchResults(normalizedQuery, normalizedPage, normalizedLimit, currentToken);
+  }
+
+  async function loadSearchResults(currentQuery, currentPage, limitValue, requestId) {
+    const cacheKey = buildCacheKey(currentQuery);
     const cached = readCache(cacheKey);
 
     if (cached) {
       // serve from sessionStorage — no network round-trip
+      if (requestId !== requestToken) {
+        return;
+      }
       renderFromCache(cached, currentQuery, currentPage, limitValue);
       return;
     }
@@ -70,11 +170,17 @@
     const requestUrl = buildApiUrl(currentQuery, 1, PREFETCH_LIMIT);
     try {
       const payload = await fetchSearch(requestUrl);
+      if (requestId !== requestToken) {
+        return;
+      }
       setElapsedTime(elapsedSince(startedAtMs));
       const results = normalizeResults(payload && payload.results);
       writeCache(cacheKey, results);
       renderFromCache(results, currentQuery, currentPage, limitValue);
     } catch (error) {
+      if (requestId !== requestToken) {
+        return;
+      }
       setElapsedTime(elapsedSince(startedAtMs));
       setCount("Search failed.");
       showFeedback(readErrorMessage(error), false);
@@ -82,12 +188,85 @@
     }
   }
 
+  function readUrlState() {
+    const searchText =
+      typeof window === "object" && window && window.location && typeof window.location.search === "string"
+        ? window.location.search
+        : "";
+
+    const params = new URLSearchParams(searchText);
+    return {
+      query: (params.get("q") || "").trim(),
+      page: clampPage(parseInteger(params.get("page"))),
+      limit: clampLimit(parseInteger(params.get("limit"))),
+    };
+  }
+
+  function pushResultsState(queryText, pageNumber, limitValue) {
+    if (typeof window !== "object" || !window || !window.history) {
+      return;
+    }
+    if (typeof window.history.pushState !== "function") {
+      return;
+    }
+
+    const nextUrl = buildResultsPageUrl(queryText, pageNumber, limitValue);
+    try {
+      window.history.pushState(null, "", nextUrl);
+    } catch (error) {
+      // ignore history writes in restricted environments
+    }
+  }
+
+  function parseResultsPageUrl(url) {
+    if (typeof url !== "string" || url.length === 0 || typeof URL !== "function") {
+      return null;
+    }
+
+    const baseHref =
+      typeof window === "object" && window && window.location && typeof window.location.href === "string"
+        ? window.location.href
+        : `http://localhost/${RESULTS_PAGE_FILENAME}`;
+
+    try {
+      const parsed = new URL(url, baseHref);
+      const path = parsed.pathname || "";
+      if (!path.endsWith(`/${RESULTS_PAGE_FILENAME}`) && !path.endsWith(RESULTS_PAGE_FILENAME)) {
+        return null;
+      }
+
+      return {
+        query: (parsed.searchParams.get("q") || "").trim(),
+        page: clampPage(parseInteger(parsed.searchParams.get("page"))),
+        limit: clampLimit(parseInteger(parsed.searchParams.get("limit"))),
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function findAncestorAnchor(startNode, boundaryNode) {
+    let node = startNode;
+    while (node && node !== boundaryNode) {
+      if (typeof node.tagName === "string" && node.tagName.toUpperCase() === "A") {
+        return node;
+      }
+      node = node.parentNode || null;
+    }
+    return null;
+  }
+
   function readCache(key) {
     try {
       const raw = sessionStorage.getItem(key);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : null;
+      if (!Array.isArray(parsed)) {
+        return null;
+      }
+
+      touchCacheEntry(key);
+      return parsed;
     } catch (e) {
       return null;
     }
@@ -95,9 +274,81 @@
 
   function writeCache(key, results) {
     try {
+      const nextEntries = trimCacheEntries(appendCacheEntry(key));
+      writeCacheIndex(nextEntries);
       sessionStorage.setItem(key, JSON.stringify(results));
+      touchCacheEntry(key);
     } catch (e) {
       // storage quota exceeded — just skip caching
+    }
+  }
+
+  function buildCacheKey(queryText) {
+    return `${CACHE_KEY_PREFIX}${queryText}`;
+  }
+
+  function touchCacheEntry(key) {
+    const nextEntries = trimCacheEntries(appendCacheEntry(key));
+    writeCacheIndex(nextEntries);
+  }
+
+  function appendCacheEntry(key) {
+    const entries = readCacheIndex().filter((entry) => entry !== key);
+    entries.push(key);
+    return entries;
+  }
+
+  function trimCacheEntries(entries) {
+    const trimmed = entries.slice();
+    while (trimmed.length > MAX_CACHED_QUERIES) {
+      const staleKey = trimmed.shift();
+      if (typeof staleKey === "string" && staleKey.length > 0) {
+        try {
+          sessionStorage.removeItem(staleKey);
+        } catch (error) {
+          // ignore storage remove failures
+        }
+      }
+    }
+    return trimmed;
+  }
+
+  function readCacheIndex() {
+    try {
+      const raw = sessionStorage.getItem(CACHE_INDEX_KEY);
+      if (!raw) {
+        return [];
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      const seen = new Set();
+      const normalized = [];
+      for (const entry of parsed) {
+        if (
+          typeof entry === "string" &&
+          entry.startsWith(CACHE_KEY_PREFIX) &&
+          entry !== CACHE_INDEX_KEY &&
+          !seen.has(entry)
+        ) {
+          seen.add(entry);
+          normalized.push(entry);
+        }
+      }
+      return normalized;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeCacheIndex(entries) {
+    try {
+      sessionStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(entries));
+    } catch (error) {
+      // ignore storage write failures
     }
   }
 
@@ -175,13 +426,6 @@
       snippet.className = "result-snippet";
       snippet.textContent = result.snippet;
       item.appendChild(snippet);
-    }
-
-    if (result.score !== null) {
-      const meta = document.createElement("p");
-      meta.className = "result-meta";
-      meta.textContent = `Score: ${result.score}`;
-      item.appendChild(meta);
     }
 
     return item;
