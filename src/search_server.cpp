@@ -208,9 +208,6 @@ void* RunIncrementalShardLoadWorker(void* rawArgs)
 
   for (;;)
   {
-    if (ctx->cutoffReached.load())
-      break;
-
     const size_t pathIndex = static_cast<size_t>(ctx->nextPathIndex.fetch_add(1));
     if (pathIndex >= ctx->paths.size())
       break;
