@@ -428,13 +428,6 @@
       item.appendChild(snippet);
     }
 
-    if (result.score !== null) {
-      const meta = document.createElement("p");
-      meta.className = "result-meta";
-      meta.textContent = `Score: ${result.score}`;
-      item.appendChild(meta);
-    }
-
     return item;
   }
 
