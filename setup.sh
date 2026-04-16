@@ -192,8 +192,10 @@ else
   sudo tee "$SYSCTL_CONF" > /dev/null <<'EOF'
 # AVEngine search cluster — m4-highmem-16 / m4-hypermem-16 tuning
 
-# Keep index pages in RAM; only swap under extreme memory pressure.
-vm.swappiness = 1
+# Allow the kernel to reclaim file-backed index pages when RAM is low.
+# The index is mmap'd lazily so pages fault in on demand and can be
+# evicted and re-read from SSD as needed. Default (60) is fine here.
+vm.swappiness = 60
 
 # More file handles — needed for large numbers of .sfi index shards.
 fs.file-max = 1048576
@@ -379,8 +381,6 @@ StartLimitBurst=5
 # ── resource limits ───────────────────────────────────────────────────────────
 # Large file descriptor limit for hundreds of .sfi index shards.
 LimitNOFILE=1048576
-# Allow mlock so the kernel can pin hot index pages in RAM.
-LimitMEMLOCK=infinity
 
 # ── logging ───────────────────────────────────────────────────────────────────
 StandardOutput=journal
