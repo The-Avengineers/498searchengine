@@ -18,6 +18,7 @@ Common environment variables:
 - `NUM_PEERS` - total number of peers in the cluster
 - `INDEX_DIR` - directory containing this node's local `.sfi` files
 - `SEARCH_SHARD_WORKERS` - local shard-search worker count (`0`/unset = auto, `1` = force single-threaded)
+- `SEARCH_LOAD_TIMEOUT_SEC` - optional shard-load cutoff in seconds; if reached, the server marks itself ready with the shards loaded so far
 
 If `SEARCH_ROLE` is not set, the binary defaults to `coordinator`.
 
@@ -177,3 +178,5 @@ curl -s 'http://127.0.0.1:8080/api/search?q='
 - The coordinator returns partial results when a worker times out or is unreachable.
 - Transport degradation is logged on the server, not surfaced to end users when at least one source
   answered successfully.
+- Shard loading now logs progress as it advances through the discovered `.sfi` files and logs
+  whether a configured load cutoff was reached.

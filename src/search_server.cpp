@@ -868,12 +868,20 @@ static void* serviceLoaderThread(void* arg)
 {
   ServiceLoaderArgs* args = static_cast<ServiceLoaderArgs*>(arg);
   std::cout << "search_server loading index dir " << args->indexDirectory.cstr() << "\n";
+  search::LoadShardsResult loadResult;
   {
     avengine::lock_guard<SharedMutex> guard(args->state->ServiceMutex);
-    args->state->Service.LoadShards();
+    loadResult = args->state->Service.LoadShards();
   }
   args->state->ServiceReady.store(1);
-  std::cout << "search_server ready using index dir " << args->indexDirectory.cstr() << "\n";
+  std::cout << "search_server ready using index dir " << args->indexDirectory.cstr()
+            << " (primary=" << loadResult.LoadedPrimaryShards
+            << ", anchor=" << loadResult.LoadedAnchorShards
+            << ", failed=" << loadResult.FailedShardLoads << ", total="
+            << loadResult.TotalShardPaths << ", took_ms=" << loadResult.TookMs;
+  if (loadResult.TimedOut)
+    std::cout << ", load_cutoff_reached=true";
+  std::cout << ")\n";
   delete args;
   return nullptr;
 }

@@ -178,9 +178,19 @@ echo ""
 
 # ── step 4: nginx + SSL (coordinator only) ────────────────────────────────────
 
+echo -e "${BOLD}Step 4: Shard Load Cutoff${RESET}"
+echo "Optional: stop shard loading after a fixed number of seconds and serve"
+echo "whatever shards finished loading. Leave blank for no cutoff."
+echo ""
+prompt SHARD_LOAD_TIMEOUT_SEC "Shard load cutoff in seconds" ""
+if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
+  validate_integer "$SHARD_LOAD_TIMEOUT_SEC"
+fi
+echo ""
+
 USE_NGINX="n"
 if [[ "$ROLE" == "coordinator" ]]; then
-  echo -e "${BOLD}Step 4: Nginx + SSL (coordinator only)${RESET}"
+  echo -e "${BOLD}Step 5: Nginx + SSL (coordinator only)${RESET}"
   echo "nginx terminates HTTPS for theavengine.com and proxies to the search server."
   echo ""
   echo "Before saying yes:"
@@ -345,6 +355,12 @@ sudo mkdir -p "$(dirname "$ENV_FILE")"
   echo ""
   echo "# Use all but 2 vCPUs for parallel shard queries (auto-detected: $(nproc) total)"
   echo "SEARCH_SHARD_WORKERS=${SHARD_WORKERS}"
+  if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
+    echo ""
+    echo "# Optional shard-load cutoff. When reached, the server serves the shards"
+    echo "# that finished loading so far instead of waiting for the full corpus."
+    echo "SEARCH_LOAD_TIMEOUT_SEC=${SHARD_LOAD_TIMEOUT_SEC}"
+  fi
 
 } | sudo tee "$ENV_FILE" > /dev/null
 
@@ -481,6 +497,9 @@ echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=$
 echo -e "  Index dir:    ${INDEX_DIR}"
 echo -e "  Config:       ${ENV_FILE}"
 echo -e "  Binary:       ${REPO_DIR}/build/search_server"
+if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
+  echo -e "  Load cutoff:  ${SHARD_LOAD_TIMEOUT_SEC}s"
+fi
 echo ""
 echo "  Service commands:"
 echo "    sudo systemctl status ${SERVICE_NAME}    # check status"

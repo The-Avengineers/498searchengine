@@ -516,6 +516,36 @@ void testDuplicateUrlsAcrossShards()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testShardLoadCutoffCanReturnPartialIndex()
+{
+  char dirTemplate[] = "/tmp/search_service_load_cutoff_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string shard0 = joinPath(dir, "00000.sfi");
+  const string shard1 = joinPath(dir, "00001.sfi");
+  writeShard(shard0.cstr(), {{"doc://cutoff-a", "Cutoff A", "alpha"}});
+  writeShard(shard1.cstr(), {{"doc://cutoff-b", "Cutoff B", "beta"}});
+
+  EXPECT(setenv("SEARCH_LOAD_TIMEOUT_SEC", "0", 1) == 0);
+  SearchService service(dir, false);
+  const avengine::search::LoadShardsResult load = service.LoadShards();
+  EXPECT(load.TotalShardPaths == 2u);
+  EXPECT(load.TimedOut);
+  EXPECT(load.LoadedPrimaryShards == 0u);
+  EXPECT(load.LoadedAnchorShards == 0u);
+
+  const SearchResponse response = service.Search("alpha", 10);
+  EXPECT(response.Errors.empty());
+  EXPECT(response.TotalHits == 0u);
+  EXPECT(response.Results.empty());
+
+  EXPECT(unsetenv("SEARCH_LOAD_TIMEOUT_SEC") == 0);
+  EXPECT(unlink(shard0.cstr()) == 0);
+  EXPECT(unlink(shard1.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 } // namespace
 
 int main()
@@ -530,5 +560,6 @@ int main()
   testCompoundTokenQueries();
   testParallelWorkersMatchSingleThreaded();
   testDuplicateUrlsAcrossShards();
+  testShardLoadCutoffCanReturnPartialIndex();
   return 0;
 }
