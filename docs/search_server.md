@@ -49,7 +49,8 @@ SEARCH_ROLE=worker NODE_ID=1 NUM_PEERS=3 INDEX_DIR=/path/to/worker1/index ./buil
 SEARCH_ROLE=worker NODE_ID=2 NUM_PEERS=3 INDEX_DIR=/path/to/worker2/index ./build/search_server 8082 /path/to/worker2/index
 ```
 
-All peers must be able to discover each other on the local network or a VPN that supports broadcast traffic.
+All nodes must share the same `peer_list.txt` file in the process working directory. Each line is
+`<node-id> <ip-or-hostname>`, and the coordinator / workers connect over TCP `47857`.
 
 ## API
 
@@ -99,6 +100,14 @@ Timing fields:
 | `rank_ms` | Scoring and top-K selection |
 
 `page` is 1-based. The coordinator overfetches internally before merging worker responses.
+
+Partial-cluster behavior:
+
+- If at least one node returns a successful search response, the coordinator returns partial results
+  without surfacing worker send / timeout / loading warnings in `errors[]`.
+- If no node returns a successful search response, the coordinator returns one infrastructure error:
+  `search cluster unavailable`.
+- Parse errors and coordinator-local fatal errors remain user-visible.
 
 ### Query syntax
 
@@ -166,3 +175,5 @@ curl -s 'http://127.0.0.1:8080/api/search?q='
 - `/`, `/results.html`, and frontend assets are served from `frontend/`.
 - A blank query returns an empty result set.
 - The coordinator returns partial results when a worker times out or is unreachable.
+- Transport degradation is logged on the server, not surfaced to end users when at least one source
+  answered successfully.

@@ -79,6 +79,10 @@ search::SearchResponse MakeLoadingResponse(const string& query, size_t page, siz
   return response;
 }
 
+void LogClusterAvailabilityIssues(const string& query, size_t totalSourceCount,
+                                  const vector<search::SearchSource>& sources,
+                                  const vector<search::SearchError>& transportErrors);
+
 // ──────────────────────────────────────────────────────────────────────────────
 // HTTP helpers
 // ──────────────────────────────────────────────────────────────────────────────
@@ -598,6 +602,8 @@ search::SearchResponse PerformCoordinatorSearch(SearchServerState& state, const 
                                                 std::chrono::steady_clock::now() - startedAt)
                                                 .count());
 
+  LogClusterAvailabilityIssues(query, state.PeerCount, sources, transportErrors);
+
   return search::MergeResponses(query, normalizedPage, normalizedLimit, sources, transportErrors,
                                 tookMs);
 }
@@ -884,6 +890,57 @@ bool StartServiceLoader(SearchServerState& state, const string& indexDirectory)
   }
   loader.detach();
   return true;
+}
+
+void AppendIssueLabel(string& out, const char* label, size_t peerIndex, const string& message)
+{
+  if (out.size() != 0)
+    out += string("; ");
+
+  out += string(label);
+  if (label[0] == 'p')
+    search::AppendUnsigned(out, peerIndex);
+  out += string(": ");
+  out += message;
+}
+
+void LogClusterAvailabilityIssues(const string& query, size_t totalSourceCount,
+                                  const vector<search::SearchSource>& sources,
+                                  const vector<search::SearchError>& transportErrors)
+{
+  size_t successfulSourceCount = 0;
+  string issues;
+
+  for (size_t s = 0; s < sources.size(); ++s)
+  {
+    if (search::IsSuccessfulSourceResponse(sources[s].Response))
+      ++successfulSourceCount;
+
+    for (size_t i = 0; i < sources[s].Response.Errors.size(); ++i)
+    {
+      const search::SearchError& error = sources[s].Response.Errors[i];
+      if (!search::IsAvailabilityError(error))
+        continue;
+
+      AppendIssueLabel(issues, sources[s].IsPeer ? "peer#" : "local",
+                       sources[s].PeerIndex, error.Message);
+    }
+  }
+
+  for (size_t i = 0; i < transportErrors.size(); ++i)
+  {
+    if (!search::IsAvailabilityError(transportErrors[i]))
+      continue;
+    AppendIssueLabel(issues, "peer#", transportErrors[i].Offset, transportErrors[i].Message);
+  }
+
+  if (issues.size() == 0)
+    return;
+
+  std::cerr << (successfulSourceCount >= 1 ? "search_server degraded query=\"" :
+                                            "search_server cluster unavailable query=\"")
+            << query.cstr() << "\" successful_sources=" << successfulSourceCount << "/"
+            << totalSourceCount << " issues=" << issues.cstr() << "\n";
 }
 
 } // namespace
