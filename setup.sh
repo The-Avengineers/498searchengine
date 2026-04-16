@@ -182,7 +182,11 @@ echo -e "${BOLD}Step 4: Shard Load Cutoff${RESET}"
 echo "Optional: stop shard loading after a fixed number of seconds and serve"
 echo "whatever shards finished loading. Leave blank for no cutoff."
 echo ""
-prompt SHARD_LOAD_TIMEOUT_SEC "Shard load cutoff in seconds" ""
+LOAD_TIMEOUT_DEFAULT=""
+if [[ "$ROLE" != "single" ]]; then
+  LOAD_TIMEOUT_DEFAULT="30"
+fi
+prompt SHARD_LOAD_TIMEOUT_SEC "Shard load cutoff in seconds" "$LOAD_TIMEOUT_DEFAULT"
 if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
   validate_integer "$SHARD_LOAD_TIMEOUT_SEC"
 fi

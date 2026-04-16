@@ -137,7 +137,17 @@ bool ResolveShardLoadTimeoutMs(size_t* outMs)
 {
   if (ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_MS", 1u, outMs))
     return true;
-  return ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_SEC", 1000u, outMs);
+  if (ResolveConfiguredDurationMs("SEARCH_LOAD_TIMEOUT_SEC", 1000u, outMs))
+    return true;
+
+  const size_t configuredPeers = ParsePositiveSizeT(std::getenv("NUM_PEERS"));
+  if (configuredPeers > 1 && outMs)
+  {
+    *outMs = 30u * 1000u;
+    return true;
+  }
+
+  return false;
 }
 
 struct BackgroundShardLoadContext

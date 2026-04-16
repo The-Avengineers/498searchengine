@@ -18,7 +18,7 @@ Common environment variables:
 - `NUM_PEERS` - total number of peers in the cluster
 - `INDEX_DIR` - directory containing this node's local `.sfi` files
 - `SEARCH_SHARD_WORKERS` - local shard-search worker count (`0`/unset = auto, `1` = force single-threaded)
-- `SEARCH_LOAD_TIMEOUT_SEC` - optional shard-load cutoff in seconds; if reached, the server marks itself ready with the shards loaded so far and keeps loading the remaining shards in the background
+- `SEARCH_LOAD_TIMEOUT_SEC` - optional shard-load cutoff in seconds; if reached, the server marks itself ready with the shards loaded so far and keeps loading the remaining shards in the background. In distributed mode (`NUM_PEERS > 1`), the server defaults to `30` seconds if this env var is unset.
 
 If `SEARCH_ROLE` is not set, the binary defaults to `coordinator`.
 
