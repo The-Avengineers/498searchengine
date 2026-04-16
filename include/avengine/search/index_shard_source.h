@@ -34,21 +34,21 @@ public:
   ISREndDoc* OpenEndDocIsr() const override;
 
 private:
-  struct DictEntry
+  // Points into the mmap'd data_ region — no heap copy of the string bytes.
+  struct DocSlice
   {
-    uint64_t postingOffset = 0;
+    uint32_t offset = 0;
+    uint32_t len = 0;
   };
 
-  struct ParsedTerm
+  // One entry per unique term: file offsets for both the term bytes and its
+  // posting data. Stored sorted by term string so FindPostingBounds can binary-search.
+  struct TermIndex
   {
-    string Term;
-    DictEntry Entry = {};
-  };
-
-  struct PostingSpan
-  {
-    size_t StartOffset = 0;
-    size_t EndOffset = 0;
+    uint32_t termOffset = 0;  // byte offset in data_ to start of term content
+    uint32_t termLen = 0;
+    size_t startOffset = 0;   // posting data start offset in file
+    size_t endOffset = 0;     // posting data end offset in file
   };
 
   bool ParseDictionary(uint64_t uniqueWords);
@@ -61,12 +61,11 @@ private:
   uint8_t* data_ = nullptr;
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
-  vector<ParsedTerm> terms_;
-  unordered_map<PostingSpan> postingBounds_;
+  vector<TermIndex> termIndex_;
   vector<DocumentInfo> documents_;
-  vector<string> documentUrls_;
-  vector<string> documentTitles_;
-  vector<string> documentDescriptions_;
+  vector<DocSlice> docUrls_;
+  vector<DocSlice> docTitles_;
+  vector<DocSlice> docDescriptions_;
 
   // Per-query cache: populated lazily by OpenTermIsr, cleared via ClearTermCache()
   // after each shard's work is done. Declared mutable so const OpenTermIsr can write it.

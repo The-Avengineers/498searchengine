@@ -2,6 +2,7 @@
 #include <avengine/codec.h>
 #include <avengine/search/index_shard_source.h>
 
+#include <avengine/avengine_lib/string_slice.h>
 #include <avengine/search/search_common.h>
 
 #include <fcntl.h>
@@ -95,23 +96,26 @@ string IndexShardSource::GetPath() const
 
 string IndexShardSource::GetDocumentURL(uint32_t docId) const
 {
-  if (docId >= documentUrls_.size())
+  if (docId >= docUrls_.size())
     return string();
-  return documentUrls_[docId];
+  const DocSlice& s = docUrls_[docId];
+  return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 string IndexShardSource::GetDocumentTitle(uint32_t docId) const
 {
-  if (docId >= documentTitles_.size())
+  if (docId >= docTitles_.size())
     return string();
-  return documentTitles_[docId];
+  const DocSlice& s = docTitles_[docId];
+  return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 string IndexShardSource::GetDocumentDescription(uint32_t docId) const
 {
-  if (docId >= documentDescriptions_.size())
+  if (docId >= docDescriptions_.size())
     return string();
-  return documentDescriptions_[docId];
+  const DocSlice& s = docDescriptions_[docId];
+  return string_slice(reinterpret_cast<char*>(data_ + s.offset), s.len).toString();
 }
 
 const DocumentInfo* IndexShardSource::GetDocumentInfo(uint32_t docId) const
@@ -208,7 +212,7 @@ ISREndDoc* IndexShardSource::OpenEndDocIsr() const
 
 bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
 {
-  terms_.clear();
+  termIndex_.clear();
   if (uniqueWords == 0)
     return false;
 
@@ -217,43 +221,57 @@ bool IndexShardSource::ParseDictionary(uint64_t uniqueWords)
     return false;
 
   Reader r(data_ + fixedHeaderBytes, fileSize_ - fixedHeaderBytes);
+
+  // Collect {termOffset, termLen, rawPostingOffset} without copying term strings.
+  struct RawEntry
+  {
+    uint32_t termOffset;
+    uint32_t termLen;
+    uint64_t postingOffset;
+  };
+  vector<RawEntry> raw;
+
   for (uint64_t i = 0; i < uniqueWords; ++i)
   {
-    const string term = r.readString();
+    if (r.remaining() < 8)
+      return false;
+    const uint64_t termLen = r.readU64();
+    const uint32_t termOffset = static_cast<uint32_t>(r.cursor() - data_);
+    r.skip(termLen);
     (void)r.readU64(); // positions_count
     (void)r.readU64(); // doc/postings_count
     const uint64_t postingOffset = r.readU64();
-    terms_.pushBack({term, {postingOffset}});
+    raw.pushBack({termOffset, static_cast<uint32_t>(termLen), postingOffset});
   }
 
   postingsStart_ = static_cast<size_t>(r.cursor() - data_);
   if (postingsStart_ > fileSize_)
     return false;
-
-  vector<const ParsedTerm*> sortedTerms;
-  for (size_t i = 0; i < terms_.size(); ++i)
-    sortedTerms.pushBack(&terms_[i]);
-
-  sortedTerms.sort([](const ParsedTerm* lhs, const ParsedTerm* rhs)
-                   { return lhs->Entry.postingOffset < rhs->Entry.postingOffset; });
-
-  unordered_map<PostingSpan> postingBounds(sortedTerms.size() * 2u + 1u);
   const size_t postingsBytes = fileSize_ - postingsStart_;
-  for (size_t i = 0; i < sortedTerms.size(); ++i)
+
+  // Sort by postingOffset to compute contiguous span end offsets.
+  raw.sort([](const RawEntry& a, const RawEntry& b) {
+    return a.postingOffset < b.postingOffset;
+  });
+
+  termIndex_.reserve(raw.size());
+  for (size_t i = 0; i < raw.size(); ++i)
   {
-    const ParsedTerm* current = sortedTerms[i];
-    const size_t startOffset = postingsStart_ + static_cast<size_t>(current->Entry.postingOffset);
-    const size_t endOffset =
-        i + 1 < sortedTerms.size()
-            ? postingsStart_ + static_cast<size_t>(sortedTerms[i + 1]->Entry.postingOffset)
-            : postingsStart_ + postingsBytes;
-
-    if (startOffset > endOffset || endOffset > fileSize_)
+    const size_t start = postingsStart_ + static_cast<size_t>(raw[i].postingOffset);
+    const size_t end = i + 1 < raw.size()
+        ? postingsStart_ + static_cast<size_t>(raw[i + 1].postingOffset)
+        : postingsStart_ + postingsBytes;
+    if (start > end || end > fileSize_)
       return false;
-
-    postingBounds.insert(current->Term, {startOffset, endOffset});
+    termIndex_.pushBack({raw[i].termOffset, raw[i].termLen, start, end});
   }
-  swap(postingBounds_, postingBounds);
+
+  // Sort by term string for binary search at query time.
+  termIndex_.sort([this](const TermIndex& a, const TermIndex& b) {
+    const string_slice sa(reinterpret_cast<char*>(data_ + a.termOffset), a.termLen);
+    const string_slice sb(reinterpret_cast<char*>(data_ + b.termOffset), b.termLen);
+    return sa < sb;
+  });
 
   return true;
 }
@@ -290,21 +308,28 @@ bool IndexShardSource::ParseDocumentMetadata()
   Location start = 1;
   for (uint64_t docId = 0; docId < documentFrequency; ++docId)
   {
-    const avengine::string url = r.readString();
-    const avengine::string title = r.readString();
-    const avengine::string description = r.readString();
+    const uint64_t urlLen = r.readU64();
+    const uint32_t urlOff = static_cast<uint32_t>(r.cursor() - data_);
+    r.skip(urlLen);
+
+    const uint64_t titleLen = r.readU64();
+    const uint32_t titleOff = static_cast<uint32_t>(r.cursor() - data_);
+    r.skip(titleLen);
+
+    const uint64_t descLen = r.readU64();
+    const uint32_t descOff = static_cast<uint32_t>(r.cursor() - data_);
+    r.skip(descLen);
 
     RankingInput rankingInput = {};
     if (r.remaining() >= sizeof(RankingInput))
       r.readBytes(&rankingInput, sizeof(RankingInput));
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
-    const uint32_t titleLength = static_cast<uint32_t>(title.size());
-    const uint32_t urlLength = static_cast<uint32_t>(url.size());
     documents_.pushBack(
-        {static_cast<uint32_t>(docId), start, end, titleLength, urlLength, rankingInput});
-    documentUrls_.pushBack(url);
-    documentTitles_.pushBack(title);
-    documentDescriptions_.pushBack(description);
+        {static_cast<uint32_t>(docId), start, end,
+         static_cast<uint32_t>(titleLen), static_cast<uint32_t>(urlLen), rankingInput});
+    docUrls_.pushBack({urlOff, static_cast<uint32_t>(urlLen)});
+    docTitles_.pushBack({titleOff, static_cast<uint32_t>(titleLen)});
+    docDescriptions_.pushBack({descOff, static_cast<uint32_t>(descLen)});
     start = end + 1;
   }
 
@@ -314,33 +339,39 @@ bool IndexShardSource::ParseDocumentMetadata()
 bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** begin,
                                          const uint8_t** end, uint64_t* documentFrequency) const
 {
-  const PostingSpan* span = postingBounds_.get(string_slice(term.cstr()));
-  if (!span)
-    return false;
-
-  const size_t startOffset = span->StartOffset;
-  const size_t endOffset = span->EndOffset;
-  if (startOffset + 24u > endOffset || endOffset > fileSize_)
-    return false;
-
-  if (documentFrequency)
-    *documentFrequency = Reader(data_ + startOffset, 8u).readU64();
-
-  *begin = data_ + startOffset;
-  *end = data_ + endOffset;
-  return true;
+  const string_slice query(term.cstr()); // null-terminated constructor
+  size_t lo = 0, hi = termIndex_.size();
+  while (lo < hi)
+  {
+    const size_t mid = lo + (hi - lo) / 2;
+    const TermIndex& t = termIndex_[mid];
+    const string_slice midTerm(reinterpret_cast<char*>(data_ + t.termOffset), t.termLen);
+    if (midTerm < query)
+      lo = mid + 1;
+    else if (query < midTerm)
+      hi = mid;
+    else
+    {
+      if (t.startOffset + 24u > t.endOffset || t.endOffset > fileSize_)
+        return false;
+      if (documentFrequency)
+        *documentFrequency = Reader(data_ + t.startOffset, 8u).readU64();
+      *begin = data_ + t.startOffset;
+      *end = data_ + t.endOffset;
+      return true;
+    }
+  }
+  return false;
 }
 
 void IndexShardSource::Reset()
 {
   const size_t mappedSize = fileSize_;
-  terms_.clear();
-  unordered_map<PostingSpan> emptyPostingBounds;
-  swap(postingBounds_, emptyPostingBounds);
+  termIndex_.clear();
   documents_.clear();
-  documentUrls_.clear();
-  documentTitles_.clear();
-  documentDescriptions_.clear();
+  docUrls_.clear();
+  docTitles_.clear();
+  docDescriptions_.clear();
   postingsStart_ = 0;
   fileSize_ = 0;
 
