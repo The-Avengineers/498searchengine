@@ -13,6 +13,8 @@
   // core defaults + dom hooks for the results page
   const DEFAULT_PAGE_SIZE = 10;
   const MAX_PAGE_SIZE = 10;
+  // Fetch this many results from the API in one shot, then paginate client-side.
+  const PREFETCH_LIMIT = 100;
   const listEl = document.getElementById("results-list");
   const countEl = document.getElementById("results-count");
   const timingEl = document.getElementById("results-timing");
@@ -50,22 +52,80 @@
   hideFeedback();
   hidePagination();
 
-  // fire the request and render whatever comes back
-  const requestUrl = buildApiUrl(query, requestedPage, pageSize);
-  void loadSearchResults(requestUrl, query);
+  // fire the request (or serve from cache) and render
+  void loadSearchResults(query, requestedPage, pageSize);
 
-  async function loadSearchResults(url, currentQuery) {
+  async function loadSearchResults(currentQuery, currentPage, limitValue) {
+    const cacheKey = "avcache:" + currentQuery;
+    const cached = readCache(cacheKey);
+
+    if (cached) {
+      // serve from sessionStorage — no network round-trip
+      renderFromCache(cached, currentQuery, currentPage, limitValue);
+      return;
+    }
+
+    // cache miss: fetch all 100 results at once
     const startedAtMs = nowMs();
+    const requestUrl = buildApiUrl(currentQuery, 1, PREFETCH_LIMIT);
     try {
-      const payload = await fetchSearch(url);
+      const payload = await fetchSearch(requestUrl);
       setElapsedTime(elapsedSince(startedAtMs));
-      renderPayload(payload, currentQuery);
+      const results = normalizeResults(payload && payload.results);
+      writeCache(cacheKey, results);
+      renderFromCache(results, currentQuery, currentPage, limitValue);
     } catch (error) {
       setElapsedTime(elapsedSince(startedAtMs));
       setCount("Search failed.");
       showFeedback(readErrorMessage(error), false);
       hidePagination();
     }
+  }
+
+  function readCache(key) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeCache(key, results) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(results));
+    } catch (e) {
+      // storage quota exceeded — just skip caching
+    }
+  }
+
+  function renderFromCache(allResults, currentQuery, currentPage, limitValue) {
+    clearList();
+
+    if (allResults.length === 0) {
+      setCount(buildCountLine(0, 0, 0, 0));
+      hidePagination();
+      showFeedback(`No results found for "${currentQuery}".`, true);
+      return;
+    }
+
+    const totalHits = allResults.length;
+    const totalPages = Math.ceil(totalHits / limitValue);
+    const safePage = Math.min(Math.max(currentPage, 1), totalPages);
+    const from = (safePage - 1) * limitValue;
+    const to = Math.min(from + limitValue, totalHits);
+    const pageResults = allResults.slice(from, to);
+
+    setCount(buildCountLine(from + 1, to, pageResults.length, totalHits));
+    hideFeedback();
+
+    for (const result of pageResults) {
+      listEl.appendChild(createResultCard(result));
+    }
+
+    renderPagination(currentQuery, limitValue, safePage, totalPages);
   }
 
   async function fetchSearch(url) {
@@ -95,49 +155,6 @@
     }
 
     return payload;
-  }
-
-  function renderPayload(payload, currentQuery) {
-    // tolerate partial payloads and missing fields
-    const apiErrors = normalizeErrors(payload && payload.errors);
-    const results = normalizeResults(payload && payload.results);
-    const totalHits = parseInteger(payload && payload.total_hits);
-    const currentPage = clampPage(parseInteger(payload && payload.page) || requestedPage);
-    const limitValue = clampLimit(parseInteger(payload && payload.limit) || pageSize);
-
-    clearList();
-
-    if (results.length === 0) {
-      const countLine = buildCountLine(0, 0, 0, totalHits);
-      setCount(countLine);
-      hidePagination();
-
-      if (apiErrors.length > 0) {
-        showFeedback(apiErrors.join(" "), false);
-      } else {
-        showFeedback(`No results found for "${currentQuery}".`, true);
-      }
-      return;
-    }
-
-    // normal success path
-    const from = ((currentPage - 1) * limitValue) + 1;
-    const to = from + results.length - 1;
-    setCount(buildCountLine(from, to, results.length, totalHits));
-    if (apiErrors.length > 0) {
-      showFeedback(`Search completed with warnings: ${apiErrors.join(" ")}`, false);
-    } else {
-      hideFeedback();
-    }
-
-    for (const result of results) {
-      listEl.appendChild(createResultCard(result));
-    }
-
-    const totalPages = Number.isInteger(totalHits) && totalHits > 0
-      ? Math.ceil(totalHits / limitValue)
-      : 1;
-    renderPagination(currentQuery, limitValue, currentPage, totalPages);
   }
 
   function createResultCard(result) {
