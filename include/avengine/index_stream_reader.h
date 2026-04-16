@@ -137,7 +137,7 @@ class ISRWord : public ISR
 {
 public:
   ISRWord() = default;
-  ISRWord(const vector<Location>& occurrences, const vector<DocumentInfo>& documents,
+  ISRWord(const vector<Location>& occurrences, const DocumentInfo* docs, size_t docsSize,
           uint32_t documentCount);
 
   Post* Next() override;
@@ -149,7 +149,8 @@ protected:
   bool ResolveCurrentDocument(DocumentInfo* out) const;
 
   vector<Location> occurrences_;
-  const vector<DocumentInfo>* documents_ = nullptr;
+  const DocumentInfo* documents_ = nullptr;
+  size_t documentsSize_ = 0;
   uint32_t documentCount_ = 0;
   size_t currentIndex_ = 0;
   bool exhausted_ = true;
@@ -162,7 +163,7 @@ class ISRWordLazy : public ISRWord
 public:
   ISRWordLazy(const uint8_t* streamStart, const uint8_t* streamEnd,
               vector<SkipPointerEntry> skipPointers, uint64_t collectionFrequency,
-              const vector<DocumentInfo>& documents, uint32_t documentCount);
+              const DocumentInfo* docs, size_t docsSize, uint32_t documentCount);
 
   Post* Next() override;
   Post* Seek(Location target) override;
@@ -181,7 +182,7 @@ class ISREndDoc : public ISRWord
 {
 public:
   ISREndDoc() = default;
-  explicit ISREndDoc(const vector<DocumentInfo>& documents);
+  ISREndDoc(const DocumentInfo* docs, size_t count);
 
   unsigned GetDocumentLength() const;
   unsigned GetTitleLength() const;
