@@ -3,6 +3,7 @@
 #include <avengine/avengine_lib/lock_guard.h>
 #include <avengine/avengine_lib/mutex.h>
 #include <avengine/avengine_lib/shared_mutex.h>
+#include <avengine/avengine_lib/thread.h>
 #include <avengine/codec.h>
 #include <avengine/node.h>
 #include <avengine/search/coordinator_merge.h>
@@ -853,14 +854,14 @@ static void* serviceLoaderThread(void* arg)
 bool StartServiceLoader(SearchServerState& state, const string& indexDirectory)
 {
   ServiceLoaderArgs* args = new ServiceLoaderArgs{&state, indexDirectory};
-  pthread_t thread;
-  if (pthread_create(&thread, nullptr, serviceLoaderThread, args) != 0)
+  thread loader;
+  if (!loader.start(serviceLoaderThread, args))
   {
     delete args;
     std::cerr << "search_server failed to start index loader thread\n";
     return false;
   }
-  pthread_detach(thread);
+  loader.detach();
   return true;
 }
 

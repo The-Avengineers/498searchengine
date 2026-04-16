@@ -610,6 +610,40 @@ struct RankPhaseArgs
   const RankerWeights* weights = nullptr;
 };
 
+struct LoadShardArgs
+{
+  const vector<string>* paths = nullptr;
+  size_t begin = 0;
+  size_t end = 0;
+  vector<IndexShardSource*> shards;
+  vector<IndexShardSource*> anchorShards;
+};
+
+void* RunLoadShardRange(void* rawArgs)
+{
+  LoadShardArgs* args = static_cast<LoadShardArgs*>(rawArgs);
+  if (!args || !args->paths)
+    return nullptr;
+
+  for (size_t i = args->begin; i < args->end; ++i)
+  {
+    const string& path = (*args->paths)[i];
+    IndexShardSource* shard = new IndexShardSource(path);
+    if (!shard->IsLoaded())
+    {
+      delete shard;
+      continue;
+    }
+
+    if (IsAnchorShard(path))
+      args->anchorShards.pushBack(shard);
+    else
+      args->shards.pushBack(shard);
+  }
+
+  return nullptr;
+}
+
 void* RunRankPhase(void* rawArgs)
 {
   RankPhaseArgs* args = static_cast<RankPhaseArgs*>(rawArgs);
@@ -877,19 +911,43 @@ size_t SearchService::GetQueryExecutionTimeThresholdMs() const
 void SearchService::LoadShards()
 {
   const vector<string> paths = DiscoverShardPaths(indexDirectory_);
-  for (const string& path : paths)
+  const size_t loadWorkers = ResolveShardWorkerCount(paths.size());
+  if (loadWorkers == 0)
+    return;
+
+  LoadShardArgs* args = new LoadShardArgs[loadWorkers];
+  thread* workers = loadWorkers > 1 ? new thread[loadWorkers - 1] : nullptr;
+
+  for (size_t workerIndex = 1; workerIndex < loadWorkers; ++workerIndex)
   {
-    IndexShardSource* shard = new IndexShardSource(path);
-    if (!shard->IsLoaded())
-    {
-      delete shard;
-      continue;
-    }
-    if (IsAnchorShard(path))
-      anchorShards_.pushBack(shard);
-    else
-      shards_.pushBack(shard);
+    args[workerIndex].paths = &paths;
+    args[workerIndex].begin = RangeBegin(workerIndex, loadWorkers, paths.size());
+    args[workerIndex].end = RangeEnd(workerIndex, loadWorkers, paths.size());
+    if (!workers[workerIndex - 1].start(RunLoadShardRange, &args[workerIndex]))
+      RunLoadShardRange(&args[workerIndex]);
   }
+
+  args[0].paths = &paths;
+  args[0].begin = 0;
+  args[0].end = RangeEnd(0, loadWorkers, paths.size());
+  RunLoadShardRange(&args[0]);
+
+  for (size_t i = 0; i + 1 < loadWorkers; ++i)
+  {
+    if (workers[i].joinable())
+      workers[i].join();
+  }
+
+  for (size_t workerIndex = 0; workerIndex < loadWorkers; ++workerIndex)
+  {
+    for (size_t i = 0; i < args[workerIndex].shards.size(); ++i)
+      shards_.pushBack(args[workerIndex].shards[i]);
+    for (size_t i = 0; i < args[workerIndex].anchorShards.size(); ++i)
+      anchorShards_.pushBack(args[workerIndex].anchorShards[i]);
+  }
+
+  delete[] workers;
+  delete[] args;
 }
 
 SearchResponse SearchService::Search(const string& query, size_t limit) const
