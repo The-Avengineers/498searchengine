@@ -7,7 +7,7 @@ namespace avengine
 namespace search
 {
 
-static const size_t kDefaultSearchLimit = 10u;
+static const size_t kDefaultSearchLimit = 100u;
 static const size_t kMaxSearchPageSize = 100u;
 static const size_t kMaxVisibleSearchResults = 100u;
 
