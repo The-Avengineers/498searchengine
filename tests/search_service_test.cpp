@@ -298,6 +298,51 @@ void testShardLoadCacheStaleSourceFallsBackAndRewrites()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testPrefixedShardNamesAreDiscoveredAndClassified()
+{
+  char dirTemplate[] = "/tmp/search_service_prefixed_names_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string primaryA = joinPath(dir, "A_00485.sfi");
+  const string primaryB = joinPath(dir, "B_00750.sfi");
+  const string anchorA = joinPath(dir, "A_anchor_00055.sfi");
+  const string anchorB = joinPath(dir, "B_anchor_00340.sfi");
+  writeShard(primaryA.cstr(), {{"doc://a", "A", "alpha"}});
+  writeShard(primaryB.cstr(), {{"doc://b", "B", "beta"}});
+  writeShard(anchorA.cstr(), {{"doc://anchor-a", "Anchor A", "anchor"}});
+  writeShard(anchorB.cstr(), {{"doc://anchor-b", "Anchor B", "anchor"}});
+
+  const string indexGroup = joinPath(dir, "index_group_000.txt");
+  const string ignoredCache = joinPath(dir, "Z_99999.sfi.loadcache");
+  const string lostFound = joinPath(dir, "lost+found");
+  writeBytes(indexGroup, "ignored", 7);
+  writeBytes(ignoredCache, "ignored", 7);
+  EXPECT(mkdir(lostFound.cstr(), 0755) == 0);
+
+  SearchService service(dir, false);
+  const vector<string> paths = service.DiscoverShardPaths();
+  EXPECT(paths.size() == 4u);
+  EXPECT(paths[0] == primaryA);
+  EXPECT(paths[1] == anchorA);
+  EXPECT(paths[2] == primaryB);
+  EXPECT(paths[3] == anchorB);
+
+  EXPECT(!SearchService::IsAnchorShardPath(primaryA));
+  EXPECT(!SearchService::IsAnchorShardPath(primaryB));
+  EXPECT(SearchService::IsAnchorShardPath(anchorA));
+  EXPECT(SearchService::IsAnchorShardPath(anchorB));
+
+  removeShardAndCache(primaryA);
+  removeShardAndCache(primaryB);
+  removeShardAndCache(anchorA);
+  removeShardAndCache(anchorB);
+  EXPECT(unlink(indexGroup.cstr()) == 0);
+  EXPECT(unlink(ignoredCache.cstr()) == 0);
+  EXPECT(rmdir(lostFound.cstr()) == 0);
+  EXPECT(rmdir(dir) == 0);
+}
+
 void testSolverQueries()
 {
   char dirTemplate[] = "/tmp/search_service_test_XXXXXX";
@@ -688,6 +733,7 @@ int main()
   testShardLoadCacheCreatedAndReused();
   testShardLoadCacheCorruptionFallsBackAndRewrites();
   testShardLoadCacheStaleSourceFallsBackAndRewrites();
+  testPrefixedShardNamesAreDiscoveredAndClassified();
   testSolverQueries();
   testResultDescriptions();
   testPaging();
