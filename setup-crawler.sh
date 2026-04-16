@@ -18,6 +18,7 @@ ExecStart=/home/bitmoder/crawler_main
 Restart=always
 RestartSec=2
 LimitNOFILE=131072
+LimitCORE=infinity
 
 [Install]
 WantedBy=multi-user.target
