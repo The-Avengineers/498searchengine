@@ -109,6 +109,7 @@ add_library(
   src/search/index_shard_source.cpp
   src/search/serving_index_format.cpp
   src/search/serving_index_rebuilder.cpp
+  src/search/serving_shard_source.cpp
   src/search/search_service.cpp
   src/tokenstream.cpp
   src/Utf8.cpp

@@ -10,6 +10,7 @@
 
 using avengine::search::ServingBlockInfoV1;
 using avengine::search::ServingDocMetadataView;
+using avengine::search::ServingDocMetadataEntryV1;
 using avengine::search::ServingLexiconEntryV1;
 using avengine::search::ServingShardHeaderV1;
 using avengine::search::ServingTermInfoV1;
@@ -28,12 +29,15 @@ TEST_CASE("serving index wire records keep fixed layout")
   CHECK(std::is_trivially_copyable<ServingTierInfoV1>::value);
   CHECK(std::is_standard_layout<ServingBlockInfoV1>::value);
   CHECK(std::is_trivially_copyable<ServingBlockInfoV1>::value);
+  CHECK(std::is_standard_layout<ServingDocMetadataEntryV1>::value);
+  CHECK(std::is_trivially_copyable<ServingDocMetadataEntryV1>::value);
 
   CHECK(sizeof(ServingShardHeaderV1) == 256u);
   CHECK(sizeof(ServingLexiconEntryV1) == 24u);
   CHECK(sizeof(ServingTermInfoV1) == 40u);
   CHECK(sizeof(ServingTierInfoV1) == 40u);
   CHECK(sizeof(ServingBlockInfoV1) == 48u);
+  CHECK(sizeof(ServingDocMetadataEntryV1) == 24u);
 }
 
 TEST_CASE("serving index header offsets are stable")
@@ -74,6 +78,10 @@ TEST_CASE("serving index metadata offsets are stable")
   CHECK(offsetof(ServingBlockInfoV1, payloadOffset) == 16u);
   CHECK(offsetof(ServingBlockInfoV1, maxBodyTf) == 32u);
   CHECK(offsetof(ServingBlockInfoV1, fieldMaskUnion) == 44u);
+
+  CHECK(offsetof(ServingDocMetadataEntryV1, urlOffset) == 0u);
+  CHECK(offsetof(ServingDocMetadataEntryV1, titleOffset) == 8u);
+  CHECK(offsetof(ServingDocMetadataEntryV1, descriptionOffset) == 16u);
 }
 
 TEST_CASE("empty serving shard header is self-consistent")

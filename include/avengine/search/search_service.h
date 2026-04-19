@@ -53,6 +53,7 @@ struct LoadShardsResult
 };
 
 class IndexShardSource;
+class ServingShardSource;
 
 class SearchService
 {
@@ -68,8 +69,10 @@ public:
   LoadShardsResult LoadShards();
   vector<string> DiscoverShardPaths() const;
   static bool IsAnchorShardPath(const string& path);
+  static bool IsServingShardPath(const string& path);
   void ResetLoadedShards();
   void AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard);
+  void AppendLoadedServingShard(ServingShardSource* shard);
   size_t PrimaryShardCount() const;
   size_t AnchorShardCount() const;
   SearchResponse Search(const string& query, size_t limit = 10) const;
@@ -80,6 +83,7 @@ private:
   constraint_solver::ConstraintSolver solver_;
   vector<IndexShardSource*> shards_;
   vector<IndexShardSource*> anchorShards_;
+  vector<ServingShardSource*> servingShards_;
 };
 
 } // namespace search

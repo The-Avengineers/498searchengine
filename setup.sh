@@ -86,6 +86,9 @@ ENV_FILE="/etc/avengine/search.env"
 NGINX_CONF_SRC="${REPO_DIR}/deploy/nginx.conf"
 NGINX_CONF_DST="/etc/nginx/conf.d/avengine.conf"
 CERT_PATH="/etc/letsencrypt/live/theavengine.com/fullchain.pem"
+DATA_ROOT="/mnt/data"
+RAW_INDEX_SHARD_DIR="${DATA_ROOT}/crawlers/0"
+SERVING_SHARD_DIR="${DATA_ROOT}/searchshards"
 
 [[ -f "${REPO_DIR}/CMakeLists.txt" ]] \
   || fatal "Cannot find CMakeLists.txt. Run this script from the repo root."
@@ -115,14 +118,16 @@ declare -a PEER_IPS=()
 if [[ "$ROLE" != "single" ]]; then
   echo -e "${BOLD}Step 2: Cluster Configuration${RESET}"
 
-  # ── hardcoded cluster (5 nodes) ───────────────────────────────────────────
-  NUM_PEERS=5
+  # ── hardcoded cluster (3 nodes) ───────────────────────────────────────────
+  # GCP internal VPC IPs:
+  #   new0 = node 0, coordinator/main machine
+  #   new1 = node 1, worker
+  #   new2 = node 2, worker
+  NUM_PEERS=3
   PEER_IPS=(
-    "34.24.66.46"    # node 0 — Josh (coordinator)
-    "34.139.184.22"  # node 1 — Tony
-    "35.185.106.57"  # node 2 — Mick
-    "34.74.173.254"  # node 3 — Jason
-    "35.196.97.246"  # node 4 — Mateo
+    "10.128.0.3"  # node 0 — new0 (coordinator/main)
+    "10.128.0.4"  # node 1 — new1
+    "10.128.0.7"  # node 2 — new2
   )
 
   if [[ "$ROLE" == "coordinator" ]]; then
@@ -134,7 +139,7 @@ if [[ "$ROLE" != "single" ]]; then
       echo "    node ${i} → ${PEER_IPS[$i]}"
     done
     echo ""
-    prompt NODE_ID_STR "This node's ID (1–4)" ""
+    prompt NODE_ID_STR "This node's ID (1–2)" ""
     validate_integer "$NODE_ID_STR"
     NODE_ID="$NODE_ID_STR"
     [[ "$NODE_ID" -eq 0 ]]           && fatal "NODE_ID 0 is reserved for the coordinator."
@@ -149,18 +154,22 @@ fi
 # ── step 3: index directory ───────────────────────────────────────────────────
 
 echo -e "${BOLD}Step 3: Index Shards${RESET}"
-DEFAULT_INDEX="/mnt/data"
-echo "Where are your pre-built .sfi index shard files?"
-echo "(Copy them here with:  scp /path/on/crawler/*.sfi user@this-vm:${DEFAULT_INDEX}/)"
+DEFAULT_RAW_INDEX="${RAW_INDEX_SHARD_DIR}"
+DEFAULT_INDEX="${SERVING_SHARD_DIR}"
+echo "The search server loads rebuilt .ssi serving shards."
+echo "Existing .sfi and anchor_*.sfi shards are read from an input directory,"
+echo "then rebuilt into a separate output directory."
 echo ""
-prompt INDEX_DIR "Path to index shard directory" "$DEFAULT_INDEX"
+prompt RAW_INDEX_DIR "Path to existing .sfi shard directory" "$DEFAULT_RAW_INDEX"
+prompt INDEX_DIR "Output directory for rebuilt .ssi serving shards" "$DEFAULT_INDEX"
 
 # Warn if the path looks like a mount point rather than an index directory.
-if [[ "$INDEX_DIR" == "/mnt" ]]; then
+if [[ "$RAW_INDEX_DIR" == "/mnt" || "$INDEX_DIR" == "/mnt" ]]; then
   warn "That looks like a mount point, not an index directory."
-  warn "Did you mean ${DEFAULT_INDEX}?"
-  prompt_yn FIX_INDEX_DIR "Use ${DEFAULT_INDEX} instead?" "y"
+  warn "Did you mean raw=${DEFAULT_RAW_INDEX} and serving=${DEFAULT_INDEX}?"
+  prompt_yn FIX_INDEX_DIR "Use those defaults instead?" "y"
   if [[ "$FIX_INDEX_DIR" == "y" ]]; then
+    RAW_INDEX_DIR="$DEFAULT_RAW_INDEX"
     INDEX_DIR="$DEFAULT_INDEX"
   fi
 fi
@@ -280,10 +289,11 @@ else
 fi
 echo ""
 
-# Create index dir if it doesn't exist
+# Create shard dirs if they don't exist
+mkdir -p "$RAW_INDEX_DIR" "$INDEX_DIR"
 if [[ ! -d "$INDEX_DIR" ]]; then
   warn "Creating empty index directory at ${INDEX_DIR}"
-  warn "Copy your .sfi shards there before the search server will return results."
+  warn "Run the serving rebuild before the search server will return results."
   mkdir -p "$INDEX_DIR"
 fi
 
@@ -309,13 +319,37 @@ echo ""
 
 # ── build search_server ───────────────────────────────────────────────────────
 
-info "Building search_server (this takes a few minutes)..."
+info "Building search_server and serving-index rebuild tool (this takes a few minutes)..."
 cmake -S "${REPO_DIR}" -B "${REPO_DIR}/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   > /dev/null
-cmake --build "${REPO_DIR}/build" --target search_server -j"$(nproc)"
+cmake --build "${REPO_DIR}/build" --target search_server rebuild_serving_index -j"$(nproc)"
 info "Build complete: ${REPO_DIR}/build/search_server"
+info "Build complete: ${REPO_DIR}/build/rebuild_serving_index"
+echo ""
+
+# ── rebuild serving shards ────────────────────────────────────────────────────
+
+echo -e "${BOLD}Serving Shard Rebuild${RESET}"
+echo "Input .sfi shards:  ${RAW_INDEX_DIR}"
+echo "Output .ssi shards: ${INDEX_DIR}"
+echo ""
+prompt_yn RUN_SERVING_REBUILD "Rebuild serving shards now?" "y"
+if [[ "$RUN_SERVING_REBUILD" == "y" ]]; then
+  if find "$RAW_INDEX_DIR" -maxdepth 1 -type f -name '*.sfi' -print -quit | grep -q .; then
+    info "Rebuilding serving shards into ${INDEX_DIR}..."
+    rm -f "${INDEX_DIR}"/serving_*.ssi
+    "${REPO_DIR}/build/rebuild_serving_index" \
+      --input-dir "$RAW_INDEX_DIR" \
+      --output-dir "$INDEX_DIR"
+    info "Serving shard rebuild complete."
+  else
+    warn "No .sfi shards found in ${RAW_INDEX_DIR}; skipping serving rebuild."
+    warn "After shards exist, run:"
+    warn "  ${REPO_DIR}/build/rebuild_serving_index --input-dir ${RAW_INDEX_DIR} --output-dir ${INDEX_DIR}"
+  fi
+fi
 echo ""
 
 # ── write environment config ──────────────────────────────────────────────────
@@ -488,9 +522,11 @@ echo -e "${BOLD}║                    Setup Complete                    ║${RE
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
 echo ""
 echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=${NUM_PEERS})"
-echo -e "  Index dir:    ${INDEX_DIR}"
+echo -e "  Input shards: ${RAW_INDEX_DIR}"
+echo -e "  Search shards: ${INDEX_DIR}"
 echo -e "  Config:       ${ENV_FILE}"
 echo -e "  Binary:       ${REPO_DIR}/build/search_server"
+echo -e "  Rebuilder:    ${REPO_DIR}/build/rebuild_serving_index"
 if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
   echo -e "  Load cutoff:  ${SHARD_LOAD_TIMEOUT_SEC}s"
 fi
@@ -518,8 +554,9 @@ if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
 fi
 
 if [[ -z "$(ls -A "$INDEX_DIR" 2>/dev/null)" ]]; then
-  warn "Index directory is empty — the server will start but return no results."
-  warn "Copy your .sfi shards to ${INDEX_DIR} then:"
+  warn "Serving shard directory is empty — the server will start but return no results."
+  warn "Run the serving rebuild manually:"
+  warn "  ${REPO_DIR}/build/rebuild_serving_index --input-dir ${RAW_INDEX_DIR} --output-dir ${INDEX_DIR}"
   warn "  sudo systemctl restart ${SERVICE_NAME}"
   echo ""
 fi

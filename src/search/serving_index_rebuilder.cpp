@@ -2,21 +2,16 @@
 #include <avengine/search/serving_index_rebuilder.h>
 #include <avengine/search/legacy_shard_reader.h>
 #include <avengine/codec.h>
+#include <avengine/unordered_map.h>
 
-#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
-#include <map>
-#include <memory>
-#include <string>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <unordered_map>
-#include <vector>
 
 namespace avengine
 {
@@ -122,17 +117,12 @@ bool WriteAll(int fd, const void* data, size_t bytes)
   return true;
 }
 
-std::string ToStdString(const string& value)
-{
-  return std::string(value.cstr());
-}
-
-uint64_t HashTerm(const std::string& term)
+uint64_t HashTerm(const string& term)
 {
   uint64_t hash = 1469598103934665603ULL;
-  for (unsigned char c : term)
+  for (char c : term)
   {
-    hash ^= static_cast<uint64_t>(c);
+    hash ^= static_cast<uint64_t>(static_cast<unsigned char>(c));
     hash *= 1099511628211ULL;
   }
   return hash;
@@ -181,23 +171,60 @@ struct PostingEvidence
   uint32_t anchorTf = 0;
 };
 
+struct TermBuildState
+{
+  string term;
+  vector<PostingEvidence> postings;
+};
+
 struct OutputShardState
 {
   const ServingShardFile* file = nullptr;
-  std::unique_ptr<LegacyShardReader> reader;
-  std::map<std::string, std::map<uint32_t, PostingEvidence>> terms;
-  std::vector<uint32_t> docLengths;
+  LegacyShardReader* reader = nullptr;
+  vector<TermBuildState> terms;
+  vector<uint32_t> docLengths;
 };
 
-void AddEvidence(std::map<std::string, std::map<uint32_t, PostingEvidence>>& terms,
-                 const std::string& term, uint32_t docId, uint32_t bodyTf, uint32_t titleTf,
+void DestroyOutputShards(vector<OutputShardState>& shards)
+{
+  for (OutputShardState& shard : shards)
+  {
+    delete shard.reader;
+    shard.reader = nullptr;
+  }
+}
+
+TermBuildState* FindOrAddTerm(vector<TermBuildState>& terms, const string& term)
+{
+  for (TermBuildState& existing : terms)
+  {
+    if (existing.term == term)
+      return &existing;
+  }
+
+  TermBuildState fresh;
+  fresh.term = term;
+  terms.pushBack(fresh);
+  return &terms.back();
+}
+
+void AddEvidence(vector<TermBuildState>& terms, const string& term, uint32_t docId,
+                 uint32_t bodyTf, uint32_t titleTf,
                  uint32_t anchorTf)
 {
-  PostingEvidence& evidence = terms[term][docId];
-  evidence.docId = docId;
-  evidence.bodyTf += bodyTf;
-  evidence.titleTf += titleTf;
-  evidence.anchorTf += anchorTf;
+  TermBuildState* termState = FindOrAddTerm(terms, term);
+  for (PostingEvidence& evidence : termState->postings)
+  {
+    if (evidence.docId == docId)
+    {
+      evidence.bodyTf += bodyTf;
+      evidence.titleTf += titleTf;
+      evidence.anchorTf += anchorTf;
+      return;
+    }
+  }
+
+  termState->postings.pushBack({docId, bodyTf, titleTf, anchorTf});
 }
 
 void WriteU8(Writer& writer, uint8_t value)
@@ -206,29 +233,34 @@ void WriteU8(Writer& writer, uint8_t value)
 }
 
 template <typename T>
-void AppendRaw(std::vector<uint8_t>& out, const T* data, size_t count)
+void AppendRaw(vector<uint8_t>& out, const T* data, size_t count)
 {
   if (!data || count == 0)
     return;
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
-  out.insert(out.end(), bytes, bytes + (sizeof(T) * count));
+  const size_t bytesCount = sizeof(T) * count;
+  out.reserve(out.size() + bytesCount);
+  for (size_t i = 0; i < bytesCount; ++i)
+    out.pushBack(bytes[i]);
 }
 
-void AppendBytes(std::vector<uint8_t>& out, const void* data, size_t bytes)
+void AppendBytes(vector<uint8_t>& out, const void* data, size_t bytes)
 {
   if (!data || bytes == 0)
     return;
   const uint8_t* p = static_cast<const uint8_t*>(data);
-  out.insert(out.end(), p, p + bytes);
+  out.reserve(out.size() + bytes);
+  for (size_t i = 0; i < bytes; ++i)
+    out.pushBack(p[i]);
 }
 
-bool WriteVector(int fd, const std::vector<uint8_t>& bytes)
+bool WriteVector(int fd, const vector<uint8_t>& bytes)
 {
-  return bytes.empty() || WriteAll(fd, bytes.data(), bytes.size());
+  return bytes.empty() || WriteAll(fd, bytes.begin(), bytes.size());
 }
 
 bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
-                            std::vector<uint8_t>* out, string* error)
+                            vector<uint8_t>* out, string* error)
 {
   if (!shard.reader || !shard.file || !out)
     return false;
@@ -239,18 +271,24 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
     return false;
   }
 
-  std::vector<ServingLexiconEntryV1> lexicon;
-  std::vector<ServingTermInfoV1> termInfos;
-  std::vector<ServingTierInfoV1> tierInfos;
-  std::vector<ServingBlockInfoV1> blockInfos;
-  std::vector<uint8_t> termBytes;
-  std::vector<uint8_t> postings;
+  vector<ServingLexiconEntryV1> lexicon;
+  vector<ServingTermInfoV1> termInfos;
+  vector<ServingTierInfoV1> tierInfos;
+  vector<ServingBlockInfoV1> blockInfos;
+  vector<ServingDocMetadataEntryV1> coldDocEntries;
+  vector<uint8_t> termBytes;
+  vector<uint8_t> postings;
+  vector<uint8_t> coldStrings;
 
-  for (const auto& termPair : shard.terms)
+  vector<TermBuildState> sortedTerms = shard.terms;
+  sortedTerms.sort([](const TermBuildState& a, const TermBuildState& b) {
+    return a.term < b.term;
+  });
+
+  for (const TermBuildState& termState : sortedTerms)
   {
-    const std::string& term = termPair.first;
-    const auto& byDoc = termPair.second;
-    if (term.empty() || byDoc.empty())
+    const string& term = termState.term;
+    if (term.size() == 0 || termState.postings.empty())
       continue;
 
     ServingLexiconEntryV1 lex = {};
@@ -258,20 +296,19 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
     lex.termLength = static_cast<uint32_t>(term.size());
     lex.termInfoIndex = static_cast<uint32_t>(termInfos.size());
     lex.termHash = HashTerm(term);
-    termBytes.insert(termBytes.end(), term.begin(), term.end());
+    AppendBytes(termBytes, term.cstr(), term.size());
 
     ServingTermInfoV1 termInfo = {};
     termInfo.tierInfoIndex = static_cast<uint32_t>(tierInfos.size());
 
-    std::vector<PostingEvidence> tiers[kServingTierCount];
-    for (const auto& docPair : byDoc)
+    vector<PostingEvidence> tiers[kServingTierCount];
+    for (const PostingEvidence& sourcePosting : termState.postings)
     {
-      PostingEvidence posting = docPair.second;
-      posting.docId = docPair.first;
+      PostingEvidence posting = sourcePosting;
       if (posting.bodyTf == 0 && posting.titleTf == 0 && posting.anchorTf == 0)
         continue;
       const uint32_t tierId = TierForPosting(posting.bodyTf, posting.titleTf, posting.anchorTf);
-      tiers[tierId].push_back(posting);
+      tiers[tierId].pushBack(posting);
       termInfo.documentFrequency += 1u;
       termInfo.collectionFrequency += posting.bodyTf + posting.titleTf + posting.anchorTf;
       if (posting.bodyTf > 0)
@@ -287,14 +324,13 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
 
     for (uint32_t tierId = 0; tierId < kServingTierCount; ++tierId)
     {
-      std::vector<PostingEvidence>& tierPostings = tiers[tierId];
+      vector<PostingEvidence>& tierPostings = tiers[tierId];
       if (tierPostings.empty())
         continue;
 
-      std::sort(tierPostings.begin(), tierPostings.end(),
-                [](const PostingEvidence& a, const PostingEvidence& b) {
-                  return a.docId < b.docId;
-                });
+      tierPostings.sort([](const PostingEvidence& a, const PostingEvidence& b) {
+        return a.docId < b.docId;
+      });
 
       ServingTierInfoV1 tierInfo = {};
       tierInfo.tierId = tierId;
@@ -304,8 +340,9 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
 
       for (size_t blockStart = 0; blockStart < tierPostings.size(); blockStart += blockSize)
       {
-        const size_t blockEnd = std::min(blockStart + static_cast<size_t>(blockSize),
-                                         tierPostings.size());
+        size_t blockEnd = blockStart + static_cast<size_t>(blockSize);
+        if (blockEnd > tierPostings.size())
+          blockEnd = tierPostings.size();
         const uint64_t payloadStart = postings.size();
         Writer blockWriter;
         uint32_t previousDocId = 0;
@@ -345,26 +382,26 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
         const size_t oldSize = postings.size();
         postings.resize(oldSize + blockWriter.size());
         if (blockWriter.size() > 0)
-          std::memcpy(postings.data() + oldSize, blockWriter.data(), blockWriter.size());
+          std::memcpy(postings.begin() + oldSize, blockWriter.data(), blockWriter.size());
 
         blockInfo.payloadOffset = payloadStart;
         blockInfo.payloadLength = postings.size() - payloadStart;
-        blockInfos.push_back(blockInfo);
+        blockInfos.pushBack(blockInfo);
         if (blockInfo.maxScoreQ16 > tierInfo.maxScoreQ16)
           tierInfo.maxScoreQ16 = blockInfo.maxScoreQ16;
       }
 
       tierInfo.blockCount = static_cast<uint32_t>(blockInfos.size() - tierInfo.blockIndex);
       tierInfo.payloadLength = static_cast<uint64_t>(postings.size()) - tierInfo.payloadOffset;
-      tierInfos.push_back(tierInfo);
+      tierInfos.pushBack(tierInfo);
       termInfo.tierCount += 1u;
     }
 
     if (termInfo.documentFrequency == 0)
       continue;
 
-    lexicon.push_back(lex);
-    termInfos.push_back(termInfo);
+    lexicon.pushBack(lex);
+    termInfos.pushBack(termInfo);
   }
 
   ServingShardHeaderV1 header = MakeEmptyServingShardHeaderV1(shard.file->shardId);
@@ -374,6 +411,33 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
   header.termCount = termInfos.size();
   header.tierCount = tierInfos.size();
   header.blockCount = blockInfos.size();
+  header.flags = kServingShardHasColdPayload;
+
+  coldDocEntries.reserve(shard.reader->DocumentCount());
+  const uint32_t coldStringBase =
+      static_cast<uint32_t>(shard.reader->DocumentCount() * sizeof(ServingDocMetadataEntryV1));
+  for (size_t doc = 0; doc < shard.reader->DocumentCount(); ++doc)
+  {
+    const LegacyDocumentMetadata* meta = shard.reader->GetDocument(static_cast<uint32_t>(doc));
+    if (!meta)
+    {
+      if (error)
+        *error = string("document metadata missing while writing cold payload");
+      return false;
+    }
+
+    ServingDocMetadataEntryV1 entry = {};
+    entry.urlOffset = coldStringBase + static_cast<uint32_t>(coldStrings.size());
+    entry.urlLength = static_cast<uint32_t>(meta->url.size());
+    AppendBytes(coldStrings, meta->url.cstr(), meta->url.size());
+    entry.titleOffset = coldStringBase + static_cast<uint32_t>(coldStrings.size());
+    entry.titleLength = static_cast<uint32_t>(meta->title.size());
+    AppendBytes(coldStrings, meta->title.cstr(), meta->title.size());
+    entry.descriptionOffset = coldStringBase + static_cast<uint32_t>(coldStrings.size());
+    entry.descriptionLength = static_cast<uint32_t>(meta->description.size());
+    AppendBytes(coldStrings, meta->description.cstr(), meta->description.size());
+    coldDocEntries.pushBack(entry);
+  }
 
   uint64_t offset = sizeof(ServingShardHeaderV1);
   header.lexiconOffset = offset;
@@ -400,23 +464,27 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
   header.staticRankOffset = offset;
   header.staticRankLength = 0;
   header.coldPayloadOffset = offset;
-  header.coldPayloadLength = 0;
+  header.coldPayloadLength =
+      coldDocEntries.size() * sizeof(ServingDocMetadataEntryV1) + coldStrings.size();
+  offset += header.coldPayloadLength;
   header.debugOffset = offset;
   header.debugLength = 0;
 
   out->clear();
   AppendRaw(*out, &header, 1);
-  AppendRaw(*out, lexicon.data(), lexicon.size());
-  AppendBytes(*out, termBytes.data(), termBytes.size());
-  AppendRaw(*out, termInfos.data(), termInfos.size());
-  AppendRaw(*out, tierInfos.data(), tierInfos.size());
-  AppendRaw(*out, blockInfos.data(), blockInfos.size());
-  AppendBytes(*out, postings.data(), postings.size());
-  AppendRaw(*out, shard.docLengths.data(), shard.docLengths.size());
+  AppendRaw(*out, lexicon.begin(), lexicon.size());
+  AppendBytes(*out, termBytes.begin(), termBytes.size());
+  AppendRaw(*out, termInfos.begin(), termInfos.size());
+  AppendRaw(*out, tierInfos.begin(), tierInfos.size());
+  AppendRaw(*out, blockInfos.begin(), blockInfos.size());
+  AppendBytes(*out, postings.begin(), postings.size());
+  AppendRaw(*out, shard.docLengths.begin(), shard.docLengths.size());
+  AppendRaw(*out, coldDocEntries.begin(), coldDocEntries.size());
+  AppendBytes(*out, coldStrings.begin(), coldStrings.size());
   return true;
 }
 
-bool WriteServingShardBytes(const string& outputPath, const std::vector<uint8_t>& bytes,
+bool WriteServingShardBytes(const string& outputPath, const vector<uint8_t>& bytes,
                             string* error)
 {
   const int fd = open(outputPath.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -439,19 +507,18 @@ bool WriteServingShardBytes(const string& outputPath, const std::vector<uint8_t>
 }
 
 bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
-                       std::vector<OutputShardState>* shards,
-                       std::unordered_map<std::string, DocRef>* urlToDoc, string* error)
+                       vector<OutputShardState>* shards,
+                       unordered_map<DocRef>* urlToDoc, string* error)
 {
   if (!shards || !urlToDoc)
     return false;
   shards->clear();
-  urlToDoc->clear();
 
   for (size_t i = 0; i < primary.size(); ++i)
   {
     OutputShardState state;
     state.file = &primary[i];
-    state.reader.reset(new LegacyShardReader(primary[i].inputPath));
+    state.reader = new LegacyShardReader(primary[i].inputPath);
     if (!state.reader->IsLoaded())
     {
       if (error)
@@ -461,6 +528,7 @@ bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
         *error += string(": ");
         *error += state.reader->GetError();
       }
+      delete state.reader;
       return false;
     }
 
@@ -472,13 +540,14 @@ bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
       {
         if (error)
           *error = string("primary shard document metadata missing");
+        delete state.reader;
         return false;
       }
-      state.docLengths.push_back(meta->docLength);
-      (*urlToDoc)[ToStdString(meta->url)] = {i, meta->docId};
+      state.docLengths.pushBack(meta->docLength);
+      urlToDoc->insert(meta->url, {i, meta->docId});
     }
 
-    shards->push_back(std::move(state));
+    shards->pushBack(state);
   }
 
   return true;
@@ -495,23 +564,25 @@ bool AddPrimaryEvidence(OutputShardState* shard, string* error)
     if (!info || info->term == string(DOCEND_TOKEN))
       continue;
 
-    const std::string rawTerm = ToStdString(info->term);
-    if (rawTerm.empty())
+    const string rawTerm = info->term;
+    if (rawTerm.size() == 0)
       continue;
 
     bool isTitle = false;
     bool ignore = false;
-    std::string servingTerm = rawTerm;
+    string servingTerm = rawTerm;
     if (rawTerm[0] == '#')
     {
       isTitle = true;
-      servingTerm = rawTerm.substr(1);
+      servingTerm = string();
+      for (size_t i = 1; i < rawTerm.size(); ++i)
+        servingTerm.pushBack(rawTerm[i]);
     }
     else if (rawTerm[0] == '/')
     {
       ignore = true;
     }
-    if (ignore || servingTerm.empty())
+    if (ignore || servingTerm.size() == 0)
       continue;
 
     vector<LegacyDocTermStats> stats;
@@ -537,8 +608,8 @@ bool AddPrimaryEvidence(OutputShardState* shard, string* error)
   return true;
 }
 
-bool AddAnchorEvidence(const vector<string>& anchors, std::vector<OutputShardState>* shards,
-                       const std::unordered_map<std::string, DocRef>& urlToDoc, string* error)
+bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* shards,
+                       const unordered_map<DocRef>& urlToDoc, string* error)
 {
   if (!shards)
     return false;
@@ -564,8 +635,8 @@ bool AddAnchorEvidence(const vector<string>& anchors, std::vector<OutputShardSta
       if (!info || info->term == string(DOCEND_TOKEN))
         continue;
 
-      const std::string rawTerm = ToStdString(info->term);
-      if (rawTerm.empty() || rawTerm[0] == '#' || rawTerm[0] == '/')
+      const string rawTerm = info->term;
+      if (rawTerm.size() == 0 || rawTerm[0] == '#' || rawTerm[0] == '/')
         continue;
 
       vector<LegacyDocTermStats> stats;
@@ -584,11 +655,11 @@ bool AddAnchorEvidence(const vector<string>& anchors, std::vector<OutputShardSta
         const LegacyDocumentMetadata* meta = anchor.GetDocument(stat.docId);
         if (!meta)
           continue;
-        const auto found = urlToDoc.find(ToStdString(meta->url));
-        if (found == urlToDoc.end())
+        const DocRef* found = urlToDoc.get(string_slice(meta->url.cstr()));
+        if (!found)
           continue;
-        OutputShardState& target = (*shards)[found->second.shardIndex];
-        AddEvidence(target.terms, rawTerm, found->second.docId, 0u, 0u, stat.termFrequency);
+        OutputShardState& target = (*shards)[found->shardIndex];
+        AddEvidence(target.terms, rawTerm, found->docId, 0u, 0u, stat.termFrequency);
       }
     }
   }
@@ -726,32 +797,48 @@ bool RebuildServingIndex(const ServingRebuildOptions& options, ServingRebuildSta
     return false;
   }
 
-  std::vector<OutputShardState> shards;
-  std::unordered_map<std::string, DocRef> urlToDoc;
+  vector<OutputShardState> shards;
+  unordered_map<DocRef> urlToDoc;
   if (!LoadPrimaryShards(primary, &shards, &urlToDoc, &stats->error))
+  {
+    DestroyOutputShards(shards);
     return false;
+  }
 
   for (OutputShardState& shard : shards)
   {
     if (!AddPrimaryEvidence(&shard, &stats->error))
+    {
+      DestroyOutputShards(shards);
       return false;
+    }
   }
 
   if (!AddAnchorEvidence(anchors, &shards, urlToDoc, &stats->error))
+  {
+    DestroyOutputShards(shards);
     return false;
+  }
 
   for (const OutputShardState& shard : shards)
   {
-    std::vector<uint8_t> bytes;
+    vector<uint8_t> bytes;
     if (!BuildServingShardBytes(shard, options.blockSize, &bytes, &stats->error))
+    {
+      DestroyOutputShards(shards);
       return false;
+    }
 
     const string outputPath = JoinPath(options.outputDirectory, shard.file->outputName);
     if (!WriteServingShardBytes(outputPath, bytes, &stats->error))
+    {
+      DestroyOutputShards(shards);
       return false;
+    }
     ++stats->servingShardCount;
   }
 
+  DestroyOutputShards(shards);
   return true;
 }
 

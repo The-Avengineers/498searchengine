@@ -10,6 +10,7 @@
 #include <avengine/search/search_common.h>
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
+#include <avengine/search/serving_shard_source.h>
 
 #include <arpa/inet.h>
 #include <chrono>
@@ -242,6 +243,27 @@ void* RunIncrementalShardLoadWorker(void* rawArgs)
       break;
 
     const string& path = ctx->paths[pathIndex];
+    if (search::SearchService::IsServingShardPath(path))
+    {
+      search::ServingShardSource* shard = new search::ServingShardSource(path);
+      if (!shard->IsLoaded())
+      {
+        delete shard;
+        ctx->failedShardLoads.fetch_add(1);
+      }
+      else
+      {
+        {
+          avengine::lock_guard<SharedMutex> guard(ctx->state->ServiceMutex);
+          ctx->state->Service.AppendLoadedServingShard(shard);
+        }
+        ctx->loadedPrimaryShards.fetch_add(1);
+      }
+
+      ctx->processedPaths.fetch_add(1);
+      continue;
+    }
+
     search::IndexShardSource* shard = new search::IndexShardSource(path);
     if (!shard->IsLoaded())
     {

@@ -6,6 +6,8 @@
 #include <avengine/search/coordinator_merge.h>
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
+#include <avengine/search/serving_shard_source.h>
+#include <avengine/unordered_map.h>
 
 #include <avengine/avengine_lib/atomic.h>
 #include <chrono>
@@ -23,10 +25,20 @@ namespace
 
 using SteadyTimePoint = std::chrono::steady_clock::time_point;
 
+size_t DurationToMs(std::chrono::steady_clock::duration duration);
+size_t ComputeWindowStart(size_t page, size_t limit);
+size_t NormalizeResultLimit(size_t limit);
+
 bool HasSfiSuffix(const string& name)
 {
   return name.size() >= 4 && name[name.size() - 4] == '.' && name[name.size() - 3] == 's' &&
          name[name.size() - 2] == 'f' && name[name.size() - 1] == 'i';
+}
+
+bool HasSsiSuffix(const string& name)
+{
+  return name.size() >= 4 && name[name.size() - 4] == '.' && name[name.size() - 3] == 's' &&
+         name[name.size() - 2] == 's' && name[name.size() - 1] == 'i';
 }
 
 bool IsAnchorShard(const string& path)
@@ -138,10 +150,11 @@ string JoinPath(const string& directory, const string& filename)
 
 vector<string> DiscoverShardPaths(const string& directory)
 {
-  vector<string> paths;
+  vector<string> servingPaths;
+  vector<string> legacyPaths;
   DIR* dir = opendir(directory.cstr());
   if (!dir)
-    return paths;
+    return legacyPaths;
 
   while (dirent* entry = readdir(dir))
   {
@@ -149,15 +162,18 @@ vector<string> DiscoverShardPaths(const string& directory)
       continue;
 
     const string name(entry->d_name);
-    if (HasSfiSuffix(name))
-      paths.pushBack(JoinPath(directory, name));
+    if (HasSsiSuffix(name))
+      servingPaths.pushBack(JoinPath(directory, name));
+    else if (HasSfiSuffix(name))
+      legacyPaths.pushBack(JoinPath(directory, name));
   }
 
   closedir(dir);
   // without sorting, the same query could return different top
   // results across runs just because shard enumeration changed
-  paths.sort();
-  return paths;
+  servingPaths.sort();
+  legacyPaths.sort();
+  return servingPaths.empty() ? legacyPaths : servingPaths;
 }
 
 struct MatchPositions
@@ -210,6 +226,27 @@ struct PooledRankedHit
   Ranker::RankedResult ranked;
   size_t shardOrdinal = 0;
   string description;
+};
+
+struct ServingCandidate
+{
+  uint32_t docId = 0;
+  size_t shardOrdinal = 0;
+  uint64_t matchedTermBits = 0;
+  uint32_t bodyTf = 0;
+  uint32_t titleTf = 0;
+  uint32_t anchorTf = 0;
+  double score = 0.0;
+};
+
+struct ServingPooledHit
+{
+  string url;
+  string title;
+  string description;
+  double score = 0.0;
+  size_t shardOrdinal = 0;
+  uint32_t docId = 0;
 };
 
 string ExtractDomain(const string& url)
@@ -309,6 +346,318 @@ void CollectQueryTerms(const constraint_solver::QueryNode* node, vector<string>&
   default:
     break;
   }
+}
+
+uint64_t ServingTermBit(size_t index)
+{
+  return index < 64u ? (1ULL << index) : 0ULL;
+}
+
+double ServingScore(uint32_t bodyTf, uint32_t titleTf, uint32_t anchorTf)
+{
+  return static_cast<double>(bodyTf) + (3.0 * static_cast<double>(titleTf)) +
+         (2.0 * static_cast<double>(anchorTf));
+}
+
+double ServingScoreFromQ16(uint64_t scoreQ16)
+{
+  return static_cast<double>(scoreQ16) / 65536.0;
+}
+
+size_t FindQueryTermIndex(const vector<string>& terms, const string& term)
+{
+  for (size_t i = 0; i < terms.size(); ++i)
+  {
+    if (terms[i] == term)
+      return i;
+  }
+  return static_cast<size_t>(-1);
+}
+
+ServingCandidate* FindOrAddServingCandidate(vector<ServingCandidate>& candidates,
+                                            vector<uint32_t>& candidateIndexByDoc,
+                                            uint32_t docId, size_t shardIndex)
+{
+  static constexpr uint32_t kInvalidCandidateIndex = 0xffffffffu;
+  if (docId >= candidateIndexByDoc.size())
+    return nullptr;
+
+  const uint32_t existing = candidateIndexByDoc[docId];
+  if (existing != kInvalidCandidateIndex && existing < candidates.size())
+    return &candidates[existing];
+
+  ServingCandidate fresh;
+  fresh.docId = docId;
+  fresh.shardOrdinal = shardIndex;
+  candidates.pushBack(fresh);
+  candidateIndexByDoc[docId] = static_cast<uint32_t>(candidates.size() - 1u);
+  return &candidates.back();
+}
+
+void AddServingPosting(vector<ServingCandidate>& candidates, vector<uint32_t>& candidateIndexByDoc,
+                       const ServingDecodedPosting& posting, size_t shardIndex,
+                       size_t termIndex)
+{
+  ServingCandidate* candidate =
+      FindOrAddServingCandidate(candidates, candidateIndexByDoc, posting.docId, shardIndex);
+  if (!candidate)
+    return;
+
+  candidate->matchedTermBits |= ServingTermBit(termIndex);
+  candidate->bodyTf += posting.bodyTf;
+  candidate->titleTf += posting.titleTf;
+  candidate->anchorTf += posting.anchorTf;
+  candidate->score = ServingScore(candidate->bodyTf, candidate->titleTf, candidate->anchorTf);
+}
+
+bool ServingCandidateMatchesNode(const ServingCandidate& candidate, const vector<string>& terms,
+                                 const constraint_solver::QueryNode* node);
+
+double CurrentServingThreshold(const vector<ServingCandidate>& candidates,
+                               const vector<string>& terms,
+                               const constraint_solver::QueryNode* root, size_t candidateLimit)
+{
+  if (candidateLimit == 0 || candidates.size() < candidateLimit)
+    return 0.0;
+
+  vector<double> topScores;
+  topScores.reserve(candidateLimit);
+  for (size_t i = 0; i < candidates.size(); ++i)
+  {
+    const ServingCandidate& candidate = candidates[i];
+    if (candidate.score <= 0.0 || !ServingCandidateMatchesNode(candidate, terms, root))
+      continue;
+
+    size_t pos = 0;
+    while (pos < topScores.size() && topScores[pos] > candidate.score)
+      ++pos;
+
+    if (pos >= candidateLimit)
+      continue;
+
+    topScores.insert(pos, candidate.score);
+    if (topScores.size() > candidateLimit)
+      topScores.popBack();
+  }
+
+  return topScores.size() >= candidateLimit ? topScores.back() : 0.0;
+}
+
+bool ServingCandidateMatchesNode(const ServingCandidate& candidate, const vector<string>& terms,
+                                 const constraint_solver::QueryNode* node)
+{
+  if (!node)
+    return true;
+
+  using constraint_solver::QueryNodeKind;
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Term:
+  {
+    const size_t index = FindQueryTermIndex(terms, node->Value);
+    const uint64_t bit = ServingTermBit(index);
+    return bit != 0 && (candidate.matchedTermBits & bit) != 0;
+  }
+  case QueryNodeKind::Phrase:
+    for (const string& term : node->PhraseTerms)
+    {
+      const size_t index = FindQueryTermIndex(terms, term);
+      const uint64_t bit = ServingTermBit(index);
+      if (bit == 0 || (candidate.matchedTermBits & bit) == 0)
+        return false;
+    }
+    return true;
+  case QueryNodeKind::Conjunction:
+    for (const constraint_solver::QueryNode* child : node->RequiredChildren)
+    {
+      if (!ServingCandidateMatchesNode(candidate, terms, child))
+        return false;
+    }
+    for (const constraint_solver::QueryNode* child : node->ExcludedChildren)
+    {
+      if (ServingCandidateMatchesNode(candidate, terms, child))
+        return false;
+    }
+    return true;
+  case QueryNodeKind::Or:
+    for (const constraint_solver::QueryNode* child : node->Children)
+    {
+      if (ServingCandidateMatchesNode(candidate, terms, child))
+        return true;
+    }
+    return false;
+  default:
+    return false;
+  }
+}
+
+SearchResponse SearchServingPage(const vector<ServingShardSource*>& shards,
+                                 const constraint_solver::ConstraintSolver& solver,
+                                 const string& query, size_t page, size_t limit)
+{
+  SearchResponse response = {};
+  response.Query = query;
+  response.Page = page == 0 ? 1 : page;
+  response.Limit = NormalizeResultLimit(limit);
+
+  if (IsBlankText(query))
+    return response;
+
+  const auto startedAt = std::chrono::steady_clock::now();
+  const auto parseStartedAt = std::chrono::steady_clock::now();
+  constraint_solver::ParseResult parsed = solver.ParseQuery(query);
+  if (!parsed.Errors.empty())
+  {
+    for (const auto& error : parsed.Errors)
+      response.Errors.pushBack({error.Offset, error.Message});
+    constraint_solver::DestroyQueryTree(parsed.Root);
+    response.ParseMs = DurationToMs(std::chrono::steady_clock::now() - parseStartedAt);
+    response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+    return response;
+  }
+
+  vector<string> queryTerms;
+  CollectQueryTerms(parsed.Root, queryTerms);
+  response.ParseMs = DurationToMs(std::chrono::steady_clock::now() - parseStartedAt);
+
+  const auto retrieveStartedAt = std::chrono::steady_clock::now();
+  const size_t candidateLimit = ComputeOverfetchLimit(response.Page, response.Limit);
+  vector<ServingPooledHit> pooled;
+  for (size_t shardIndex = 0; shardIndex < shards.size(); ++shardIndex)
+  {
+    const ServingShardSource* shard = shards[shardIndex];
+    if (!shard || !shard->IsLoaded())
+      continue;
+
+    vector<ServingCandidate> candidates;
+    vector<uint32_t> candidateIndexByDoc(shard->DocumentCount(), 0xffffffffu);
+    vector<ServingTermView> termViews;
+    vector<uint32_t> termMaxScoresQ16;
+    termViews.reserve(queryTerms.size());
+    termMaxScoresQ16.reserve(queryTerms.size());
+
+    uint64_t totalTermMaxScoreQ16 = 0;
+    for (size_t termIndex = 0; termIndex < queryTerms.size(); ++termIndex)
+    {
+      ServingTermView view;
+      uint32_t maxScoreQ16 = 0;
+      if (shard->LookupTerm(queryTerms[termIndex], &view) && view.IsValid())
+        maxScoreQ16 = view.termInfo->maxScoreQ16;
+      termViews.pushBack(view);
+      termMaxScoresQ16.pushBack(maxScoreQ16);
+      totalTermMaxScoreQ16 += maxScoreQ16;
+    }
+
+    for (uint32_t wantedTier = 0; wantedTier < kServingTierCount; ++wantedTier)
+    {
+      for (size_t termIndex = 0; termIndex < termViews.size(); ++termIndex)
+      {
+        const ServingTermView& view = termViews[termIndex];
+        if (!view.IsValid())
+          continue;
+
+        for (uint32_t ti = 0; ti < view.tierCount; ++ti)
+        {
+          const ServingTierInfoV1& tier = view.tiers[ti];
+          if (tier.tierId != wantedTier)
+            continue;
+
+          for (uint32_t bi = 0; bi < tier.blockCount; ++bi)
+          {
+            const ServingBlockInfoV1* block = shard->GetBlockInfo(tier, bi);
+            if (!block)
+              continue;
+
+            const double threshold =
+                CurrentServingThreshold(candidates, queryTerms, parsed.Root, candidateLimit);
+            const uint64_t otherTermMaxQ16 =
+                totalTermMaxScoreQ16 >= termMaxScoresQ16[termIndex]
+                    ? totalTermMaxScoreQ16 - termMaxScoresQ16[termIndex]
+                    : 0u;
+            const double blockUpperBound =
+                ServingScoreFromQ16(static_cast<uint64_t>(block->maxScoreQ16) + otherTermMaxQ16);
+            if (threshold > 0.0 && blockUpperBound <= threshold)
+              continue;
+
+            ServingPostingBlockCursor cursor;
+            if (!shard->OpenBlockCursor(*block, tier.tierId, &cursor))
+              continue;
+
+            ServingDecodedPosting posting;
+            while (cursor.Next(&posting))
+              AddServingPosting(candidates, candidateIndexByDoc, posting, shardIndex, termIndex);
+          }
+        }
+      }
+    }
+
+    for (size_t i = 0; i < candidates.size(); ++i)
+    {
+      ServingCandidate& candidate = candidates[i];
+      if (!ServingCandidateMatchesNode(candidate, queryTerms, parsed.Root))
+        continue;
+
+      const string url = shard->GetDocumentURL(candidate.docId);
+      if (url.size() == 0)
+        continue;
+
+      if (candidate.score <= 0.0)
+        continue;
+
+      pooled.pushBack({url, shard->GetDocumentTitle(candidate.docId),
+                        shard->GetDocumentDescription(candidate.docId), candidate.score,
+                        shardIndex, candidate.docId});
+    }
+  }
+  response.SolveMs = DurationToMs(std::chrono::steady_clock::now() - retrieveStartedAt);
+
+  const auto rankStartedAt = std::chrono::steady_clock::now();
+  pooled.sort([](const ServingPooledHit& lhs, const ServingPooledHit& rhs) {
+    if (lhs.score != rhs.score)
+      return lhs.score > rhs.score;
+    if (lhs.shardOrdinal != rhs.shardOrdinal)
+      return lhs.shardOrdinal < rhs.shardOrdinal;
+    if (lhs.docId != rhs.docId)
+      return lhs.docId < rhs.docId;
+    return lhs.url < rhs.url;
+  });
+
+  static constexpr uint8_t kMaxResultsPerDomain = 5;
+  unordered_map<uint8_t> seenUrls;
+  unordered_map<uint8_t> domainCounts;
+  const size_t pageStart = ComputeWindowStart(response.Page, response.Limit);
+  const size_t pageEnd = pageStart > static_cast<size_t>(-1) - response.Limit
+                             ? static_cast<size_t>(-1)
+                             : pageStart + response.Limit;
+
+  size_t uniqueIndex = 0;
+  for (const ServingPooledHit& hit : pooled)
+  {
+    const uint8_t* seen = seenUrls.get(string_slice(hit.url.cstr()));
+    if (seen && *seen != 0)
+      continue;
+
+    const string domain = ExtractRegisteredDomain(hit.url);
+    const uint8_t* dc = domainCounts.get(string_slice(domain.cstr()));
+    const uint8_t count = dc ? *dc : 0;
+    if (count >= kMaxResultsPerDomain)
+      continue;
+
+    seenUrls.insert(hit.url, 1u);
+    domainCounts.insert(domain, count + 1u);
+    if (uniqueIndex >= pageStart && uniqueIndex < pageEnd)
+      response.Results.pushBack({hit.url, hit.title, hit.description, hit.score});
+    ++uniqueIndex;
+    if (uniqueIndex >= kMaxVisibleSearchResults)
+      break;
+  }
+  response.TotalHits = uniqueIndex > kMaxVisibleSearchResults ? kMaxVisibleSearchResults
+                                                              : uniqueIndex;
+  response.RankMs = DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
+  response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+
+  constraint_solver::DestroyQueryTree(parsed.Root);
+  return response;
 }
 
 unordered_map<MatchPositions> BuildAnchorPositionMap(
@@ -1031,6 +1380,8 @@ SearchService::~SearchService()
     delete shard;
   for (IndexShardSource* shard : anchorShards_)
     delete shard;
+  for (ServingShardSource* shard : servingShards_)
+    delete shard;
 }
 
 void SearchService::SetQueryExecutionTimeThresholdMs(size_t thresholdMs)
@@ -1053,14 +1404,22 @@ bool SearchService::IsAnchorShardPath(const string& path)
   return IsAnchorShard(path);
 }
 
+bool SearchService::IsServingShardPath(const string& path)
+{
+  return HasSsiSuffix(path);
+}
+
 void SearchService::ResetLoadedShards()
 {
   for (IndexShardSource* shard : shards_)
     delete shard;
   for (IndexShardSource* shard : anchorShards_)
     delete shard;
+  for (ServingShardSource* shard : servingShards_)
+    delete shard;
   shards_.clear();
   anchorShards_.clear();
+  servingShards_.clear();
 }
 
 void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard)
@@ -1074,8 +1433,16 @@ void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShar
     shards_.pushBack(shard);
 }
 
+void SearchService::AppendLoadedServingShard(ServingShardSource* shard)
+{
+  if (shard)
+    servingShards_.pushBack(shard);
+}
+
 size_t SearchService::PrimaryShardCount() const
 {
+  if (!servingShards_.empty())
+    return servingShards_.size();
   return shards_.size();
 }
 
@@ -1114,6 +1481,33 @@ LoadShardsResult SearchService::LoadShards()
       std::fprintf(stderr, "[search] loading %zu shard path(s) from %s using %zu worker(s)\n",
                    paths.size(), indexDirectory_.cstr(), loadWorkers);
     }
+  }
+
+  if (paths.size() != 0 && IsServingShardPath(paths[0]))
+  {
+    for (size_t i = 0; i < paths.size(); ++i)
+    {
+      if (enforceDeadline && std::chrono::steady_clock::now() >=
+                                 startedAt + std::chrono::milliseconds(loadTimeoutMs))
+      {
+        result.TimedOut = true;
+        break;
+      }
+
+      ServingShardSource* shard = new ServingShardSource(paths[i]);
+      if (!shard->IsLoaded())
+      {
+        delete shard;
+        ++result.FailedShardLoads;
+        continue;
+      }
+
+      servingShards_.pushBack(shard);
+      ++result.LoadedPrimaryShards;
+    }
+
+    result.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+    return result;
   }
 
   LoadProgressState progress = {
@@ -1190,6 +1584,9 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
 
   if (IsBlankText(query))
     return response;
+
+  if (!servingShards_.empty())
+    return SearchServingPage(servingShards_, solver_, query, response.Page, response.Limit);
 
   const RankerWeights weights = LoadRankerWeights("ranker_weights.conf");
 

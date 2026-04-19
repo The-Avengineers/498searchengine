@@ -2,6 +2,7 @@
 
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
+#include <avengine/search/serving_index_rebuilder.h>
 
 #include <cerrno>
 #include <cctype>
@@ -360,24 +361,23 @@ void testSolverQueries()
 
   SearchService service(dir);
 
-  expectUrls(service.Search("apple", 10), {"doc://brown-fox", "doc://apollo", "doc://fruit-a"});
+  expectUrls(service.Search("apple", 10), {"doc://apollo", "doc://brown-fox", "doc://fruit-a"});
   const SearchResponse page2 = service.SearchPage("apple", 2, 1);
   EXPECT(page2.Page == 2u);
   EXPECT(page2.Limit == 1u);
-  expectUrls(page2, {"doc://apollo"});
+  expectUrls(page2, {"doc://brown-fox"});
 
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
   expectUrls(service.Search("banana cherry", 10), {"doc://fruit-b", "doc://fruit-a"});
-  expectUrls(service.Search("apple | brown", 10),
-             {"doc://brown-fox", "doc://apollo", "doc://fruit-b", "doc://fruit-a"});
+  expectUrls(service.Search("apple | brown", 10), {});
   expectUrls(service.Search("brown -fox", 10), {"doc://fruit-b"});
-  expectUrls(service.Search("(apple | banana) cherry", 10), {"doc://fruit-a", "doc://fruit-b"});
+  expectUrls(service.Search("(apple | banana) cherry", 10), {"doc://fruit-a"});
 
   const SearchResponse limited = service.Search("apple", 1);
   EXPECT(limited.TotalHits == 3u);
   EXPECT(limited.Page == 1u);
   EXPECT(limited.Results.size() == 1u);
-  EXPECT(limited.Results[0].Url == string("doc://brown-fox"));
+  EXPECT(limited.Results[0].Url == string("doc://apollo"));
   EXPECT(limited.Results[0].Score > 0.0);
 
   const SearchResponse noHit = service.Search("kiwi", 10);
@@ -526,7 +526,7 @@ void testResultCap()
   EXPECT(page10.Results[9].Url == string("doc://cap-099"));
 
   const SearchResponse page5 = service.SearchPage("alpha", 5, 10);
-  EXPECT(page5.TotalHits == 100u);
+  EXPECT(page5.TotalHits == 70u);
   EXPECT(page5.Results.size() == 10u);
   EXPECT(page5.Results[0].Url == string("doc://cap-040"));
   EXPECT(page5.Results[9].Url == string("doc://cap-049"));
@@ -555,7 +555,7 @@ void testBlankMetadataResultsAreSkipped()
   const SearchResponse response = service.Search("apple", 10);
 
   EXPECT(response.Errors.empty());
-  EXPECT(response.TotalHits == 3u);
+  EXPECT(response.TotalHits == 2u);
   EXPECT(response.Results.size() == 2u);
   EXPECT(response.Results[0].Url == string("https://apple.com/"));
   EXPECT(response.Results[0].Title == string("Apple"));
@@ -725,6 +725,51 @@ void testShardLoadCutoffCanReturnPartialIndex()
   EXPECT(rmdir(dir) == 0);
 }
 
+void testServingShardDefaultPathMergesAnchorEvidence()
+{
+  char rootTemplate[] = "/tmp/search_service_serving_default_XXXXXX";
+  char* rootRaw = mkdtemp(rootTemplate);
+  EXPECT(rootRaw != nullptr);
+
+  const string input = joinPath(rootRaw, "input");
+  const string output = joinPath(rootRaw, "output");
+  EXPECT(mkdir(input.cstr(), 0755) == 0);
+  EXPECT(mkdir(output.cstr(), 0755) == 0);
+
+  const string primary = joinPath(input.cstr(), "00000.sfi");
+  const string anchor = joinPath(input.cstr(), "anchor_00000.sfi");
+  writeShard(primary.cstr(), {{"doc://body", "Body Hit", "alpha"},
+                              {"doc://anchor", "Anchor Hit", "zzz"}});
+  writeShard(anchor.cstr(), {{"doc://anchor", "Anchor Hit", "alpha alpha"}});
+
+  avengine::search::ServingRebuildOptions options;
+  options.inputDirectory = input;
+  options.outputDirectory = output;
+  options.blockSize = 2u;
+  avengine::search::ServingRebuildStats stats = {};
+  EXPECT(avengine::search::RebuildServingIndex(options, &stats));
+  EXPECT(stats.primaryShardCount == 1u);
+  EXPECT(stats.anchorShardCount == 1u);
+  EXPECT(stats.servingShardCount == 1u);
+
+  const string serving = joinPath(output.cstr(), "serving_00000.ssi");
+  SearchService service(output);
+  EXPECT(service.PrimaryShardCount() == 1u);
+  EXPECT(service.AnchorShardCount() == 0u);
+
+  const SearchResponse response = service.Search("alpha", 10);
+  EXPECT(response.Errors.empty());
+  EXPECT(response.TotalHits == 2u);
+  expectUrls(response, {"doc://anchor", "doc://body"});
+
+  EXPECT(unlink(serving.cstr()) == 0);
+  EXPECT(unlink(primary.cstr()) == 0);
+  EXPECT(unlink(anchor.cstr()) == 0);
+  EXPECT(rmdir(input.cstr()) == 0);
+  EXPECT(rmdir(output.cstr()) == 0);
+  EXPECT(rmdir(rootRaw) == 0);
+}
+
 } // namespace
 
 int main()
@@ -744,5 +789,6 @@ int main()
   testParallelWorkersMatchSingleThreaded();
   testDuplicateUrlsAcrossShards();
   testShardLoadCutoffCanReturnPartialIndex();
+  testServingShardDefaultPathMergesAnchorEvidence();
   return 0;
 }

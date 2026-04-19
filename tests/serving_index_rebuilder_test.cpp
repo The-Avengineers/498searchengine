@@ -11,10 +11,10 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <vector>
 
 namespace
 {
+using avengine::vector;
 
 avengine::string joinPath(const avengine::string& dir, const char* name)
 {
@@ -56,17 +56,17 @@ void cleanupPath(const avengine::string& path)
     CHECK(errno == ENOENT);
 }
 
-std::vector<uint8_t> readFileBytes(const avengine::string& path)
+vector<uint8_t> readFileBytes(const avengine::string& path)
 {
   struct stat st = {};
   REQUIRE(stat(path.cstr(), &st) == 0);
-  std::vector<uint8_t> bytes(static_cast<size_t>(st.st_size));
+  vector<uint8_t> bytes(static_cast<size_t>(st.st_size));
   const int fd = open(path.cstr(), O_RDONLY);
   REQUIRE(fd >= 0);
   size_t total = 0;
   while (total < bytes.size())
   {
-    const ssize_t n = read(fd, bytes.data() + total, bytes.size() - total);
+    const ssize_t n = read(fd, bytes.begin() + total, bytes.size() - total);
     REQUIRE(n > 0);
     total += static_cast<size_t>(n);
   }
@@ -75,14 +75,14 @@ std::vector<uint8_t> readFileBytes(const avengine::string& path)
 }
 
 template <typename T>
-const T* sectionAt(const std::vector<uint8_t>& bytes, uint64_t offset, uint64_t count)
+const T* sectionAt(const vector<uint8_t>& bytes, uint64_t offset, uint64_t count)
 {
   REQUIRE(offset <= bytes.size());
   REQUIRE(count <= (bytes.size() - static_cast<size_t>(offset)) / sizeof(T));
-  return reinterpret_cast<const T*>(bytes.data() + static_cast<size_t>(offset));
+  return reinterpret_cast<const T*>(bytes.begin() + static_cast<size_t>(offset));
 }
 
-bool termEquals(const std::vector<uint8_t>& bytes,
+bool termEquals(const vector<uint8_t>& bytes,
                 const avengine::search::ServingShardHeaderV1& header,
                 const avengine::search::ServingLexiconEntryV1& entry, const char* term)
 {
@@ -94,11 +94,11 @@ bool termEquals(const std::vector<uint8_t>& bytes,
   const size_t start = static_cast<size_t>(header.termBytesOffset + entry.termOffset);
   if (start + len > bytes.size())
     return false;
-  return std::memcmp(bytes.data() + start, term, len) == 0;
+  return std::memcmp(bytes.begin() + start, term, len) == 0;
 }
 
 const avengine::search::ServingLexiconEntryV1* findServingTerm(
-    const std::vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
+    const vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
     const char* term)
 {
   const auto* lexicon = sectionAt<avengine::search::ServingLexiconEntryV1>(
@@ -111,7 +111,7 @@ const avengine::search::ServingLexiconEntryV1* findServingTerm(
   return nullptr;
 }
 
-uint32_t readVarU32(const std::vector<uint8_t>& bytes, size_t* cursor, size_t end)
+uint32_t readVarU32(const vector<uint8_t>& bytes, size_t* cursor, size_t end)
 {
   uint32_t value = 0;
   uint32_t shift = 0;
@@ -137,11 +137,11 @@ struct DecodedServingPosting
   uint32_t anchorTf = 0;
 };
 
-std::vector<DecodedServingPosting> decodeBlockPostings(
-    const std::vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
+vector<DecodedServingPosting> decodeBlockPostings(
+    const vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
     const avengine::search::ServingBlockInfoV1& block)
 {
-  std::vector<DecodedServingPosting> postings;
+  vector<DecodedServingPosting> postings;
   size_t cursor = static_cast<size_t>(header.postingsOffset + block.payloadOffset);
   const size_t end = cursor + static_cast<size_t>(block.payloadLength);
   REQUIRE(end <= bytes.size());
@@ -161,21 +161,27 @@ std::vector<DecodedServingPosting> decodeBlockPostings(
       posting.titleTf = readVarU32(bytes, &cursor, end);
     if ((posting.mask & avengine::search::kServingFieldAnchor) != 0)
       posting.anchorTf = readVarU32(bytes, &cursor, end);
-    postings.push_back(posting);
+    postings.pushBack(posting);
   }
   CHECK(cursor == end);
   return postings;
 }
 
-void writeIndexShard(const avengine::string& path,
-                     const std::vector<std::pair<DocumentMetadata, std::vector<const char*>>>& docs)
+struct ShardFixtureDoc
+{
+  DocumentMetadata metadata;
+  const char* terms[8];
+  size_t termCount = 0;
+};
+
+void writeIndexShard(const avengine::string& path, const ShardFixtureDoc* docs, size_t docCount)
 {
   Index index;
-  for (const auto& doc : docs)
+  for (size_t docIndex = 0; docIndex < docCount; ++docIndex)
   {
-    index.beginDocument(doc.first);
-    for (const char* term : doc.second)
-      index.ingest(term);
+    index.beginDocument(docs[docIndex].metadata);
+    for (size_t termIndex = 0; termIndex < docs[docIndex].termCount; ++termIndex)
+      index.ingest(docs[docIndex].terms[termIndex]);
     index.endDocument();
   }
 
@@ -288,16 +294,27 @@ TEST_CASE("serving rebuild writes merged tiered postings from primary and anchor
   REQUIRE(mkdir(output.cstr(), 0755) == 0);
 
   RankingInput rank = {};
-  writeIndexShard(joinPath(input, "00000.sfi"),
-                  {{{.url = "doc://one", .title = "One", .description = "first", .input = rank},
-                    {"alpha", "alpha", "beta", "#alpha"}},
-                   {{.url = "doc://two", .title = "Two", .description = "second", .input = rank},
-                    {"alpha", "gamma", "gamma"}}});
-  writeIndexShard(joinPath(input, "anchor_00000.sfi"),
-                  {{{.url = "doc://one", .title = "One", .description = "", .input = rank},
-                    {"alpha", "alpha"}},
-                   {{.url = "doc://two", .title = "Two", .description = "", .input = rank},
-                    {"beta"}}});
+  const ShardFixtureDoc primaryDocs[] = {
+      {{.url = "doc://one", .title = "One", .description = "first", .input = rank},
+       {"alpha", "alpha", "beta", "#alpha"},
+       4u},
+      {{.url = "doc://two", .title = "Two", .description = "second", .input = rank},
+       {"alpha", "gamma", "gamma"},
+       3u},
+  };
+  writeIndexShard(joinPath(input, "00000.sfi"), primaryDocs,
+                  sizeof(primaryDocs) / sizeof(primaryDocs[0]));
+
+  const ShardFixtureDoc anchorDocs[] = {
+      {{.url = "doc://one", .title = "One", .description = "", .input = rank},
+       {"alpha", "alpha"},
+       2u},
+      {{.url = "doc://two", .title = "Two", .description = "", .input = rank},
+       {"beta"},
+       1u},
+  };
+  writeIndexShard(joinPath(input, "anchor_00000.sfi"), anchorDocs,
+                  sizeof(anchorDocs) / sizeof(anchorDocs[0]));
 
   avengine::search::ServingRebuildOptions options;
   options.inputDirectory = input;
@@ -311,10 +328,10 @@ TEST_CASE("serving rebuild writes merged tiered postings from primary and anchor
   CHECK(stats.servingShardCount == 1u);
 
   const avengine::string servingPath = joinPath(output, "serving_00000.ssi");
-  const std::vector<uint8_t> bytes = readFileBytes(servingPath);
+  const vector<uint8_t> bytes = readFileBytes(servingPath);
   REQUIRE(bytes.size() > sizeof(avengine::search::ServingShardHeaderV1));
 
-  const auto* header = reinterpret_cast<const avengine::search::ServingShardHeaderV1*>(bytes.data());
+  const auto* header = reinterpret_cast<const avengine::search::ServingShardHeaderV1*>(bytes.begin());
   CHECK(avengine::search::IsServingShardMagic(header->magic));
   CHECK(header->documentCount == 2u);
   CHECK(header->lexiconEntryCount == 3u);

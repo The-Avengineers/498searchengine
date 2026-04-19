@@ -20,7 +20,7 @@ namespace search
 //   [hot postings payload]
 //   [hot doc length array: u32[documentCount]]
 //   [optional static rank array: u32[documentCount]]
-//   [optional cold payload]
+//   [optional cold payload: ServingDocMetadataEntryV1[documentCount], string bytes]
 //   [optional debug payload]
 //
 // All offsets in the header are absolute byte offsets from the start of the
@@ -154,6 +154,18 @@ struct ServingBlockInfoV1
   uint32_t fieldMaskUnion = 0;
 };
 
+// Cold result metadata. Offsets are relative to coldPayloadOffset and point
+// into the same cold payload section, after the fixed doc metadata table.
+struct ServingDocMetadataEntryV1
+{
+  uint32_t urlOffset = 0;
+  uint32_t urlLength = 0;
+  uint32_t titleOffset = 0;
+  uint32_t titleLength = 0;
+  uint32_t descriptionOffset = 0;
+  uint32_t descriptionLength = 0;
+};
+
 // Non-owning view over hot per-document metadata arrays. These arrays are
 // indexed by serving docID, not by source-shard docID.
 struct ServingDocMetadataView
@@ -176,6 +188,8 @@ static_assert(sizeof(ServingLexiconEntryV1) == 24, "ServingLexiconEntryV1 wire s
 static_assert(sizeof(ServingTermInfoV1) == 40, "ServingTermInfoV1 wire size changed");
 static_assert(sizeof(ServingTierInfoV1) == 40, "ServingTierInfoV1 wire size changed");
 static_assert(sizeof(ServingBlockInfoV1) == 48, "ServingBlockInfoV1 wire size changed");
+static_assert(sizeof(ServingDocMetadataEntryV1) == 24,
+              "ServingDocMetadataEntryV1 wire size changed");
 
 } // namespace search
 } // namespace avengine
