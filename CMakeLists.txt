@@ -106,6 +106,7 @@ add_library(
   src/index_stream_reader.cpp
   src/ranker/ranker.cpp
   src/search/index_shard_source.cpp
+  src/search/serving_index_format.cpp
   src/search/search_service.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
