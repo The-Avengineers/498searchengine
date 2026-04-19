@@ -105,6 +105,7 @@ add_library(
   src/indexer/anchor_indexer.cpp
   src/index_stream_reader.cpp
   src/ranker/ranker.cpp
+  src/search/legacy_shard_reader.cpp
   src/search/index_shard_source.cpp
   src/search/serving_index_format.cpp
   src/search/serving_index_rebuilder.cpp
