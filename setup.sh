@@ -66,6 +66,64 @@ validate_ip() {
   fi
 }
 
+primary_shard_key() {
+  local base="$1"
+  local stem="${base%.sfi}"
+  [[ "$stem" == *anchor_* ]] && return 1
+  [[ "$stem" =~ (^|_)[0-9]{5}$ ]] || return 1
+  printf '%s' "$stem"
+}
+
+anchor_shard_key() {
+  local base="$1"
+  local stem="${base%.sfi}"
+  if [[ "$stem" =~ ^anchor_([0-9]{5})$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$stem" =~ ^(.+)_anchor_([0-9]{5})$ ]]; then
+    printf '%s_%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  return 1
+}
+
+normalize_shard_names_for_rebuild() {
+  local input_dir="$1"
+  local output_dir="$2"
+  rm -rf "$output_dir"
+  mkdir -p "$output_dir"
+
+  declare -A normalized_ids=()
+  local next_id=0
+  local base key normalized
+
+  while IFS= read -r base; do
+    key="$(primary_shard_key "$base" || true)"
+    [[ -z "$key" ]] && continue
+
+    printf -v normalized '%05d' "$next_id"
+    normalized_ids["$key"]="$normalized"
+    ln -s "${input_dir}/${base}" "${output_dir}/${normalized}.sfi"
+    next_id=$((next_id + 1))
+  done < <(find "$input_dir" -maxdepth 1 -type f -name '*.sfi' -printf '%f\n' | sort)
+
+  while IFS= read -r base; do
+    key="$(anchor_shard_key "$base" || true)"
+    [[ -z "$key" ]] && continue
+
+    normalized="${normalized_ids[$key]:-}"
+    if [[ -z "$normalized" ]]; then
+      warn "Skipping anchor shard without matching primary: ${base}"
+      continue
+    fi
+
+    ln -s "${input_dir}/${base}" "${output_dir}/anchor_${normalized}.sfi"
+  done < <(find "$input_dir" -maxdepth 1 -type f -name '*.sfi' -printf '%f\n' | sort)
+
+  [[ "$next_id" -gt 0 ]]
+}
+
 # ── banner ────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -88,6 +146,7 @@ NGINX_CONF_DST="/etc/nginx/conf.d/avengine.conf"
 CERT_PATH="/etc/letsencrypt/live/theavengine.com/fullchain.pem"
 DATA_ROOT="/mnt/data"
 RAW_INDEX_SHARD_DIR="${DATA_ROOT}/crawlers/0"
+NORMALIZED_INDEX_SHARD_DIR="${DATA_ROOT}/serving-rebuild-input"
 SERVING_SHARD_DIR="${DATA_ROOT}/searchshards"
 
 [[ -f "${REPO_DIR}/CMakeLists.txt" ]] \
@@ -290,7 +349,7 @@ fi
 echo ""
 
 # Create shard dirs if they don't exist
-mkdir -p "$RAW_INDEX_DIR" "$INDEX_DIR"
+mkdir -p "$RAW_INDEX_DIR" "$INDEX_DIR" "$NORMALIZED_INDEX_SHARD_DIR"
 if [[ ! -d "$INDEX_DIR" ]]; then
   warn "Creating empty index directory at ${INDEX_DIR}"
   warn "Run the serving rebuild before the search server will return results."
@@ -338,16 +397,20 @@ echo ""
 prompt_yn RUN_SERVING_REBUILD "Rebuild serving shards now?" "y"
 if [[ "$RUN_SERVING_REBUILD" == "y" ]]; then
   if find "$RAW_INDEX_DIR" -maxdepth 1 -type f -name '*.sfi' -print -quit | grep -q .; then
+    info "Normalizing shard names for rebuild into ${NORMALIZED_INDEX_SHARD_DIR}..."
+    if ! normalize_shard_names_for_rebuild "$RAW_INDEX_DIR" "$NORMALIZED_INDEX_SHARD_DIR"; then
+      fatal "No primary shards matching NNNNN.sfi or PREFIX_NNNNN.sfi found in ${RAW_INDEX_DIR}"
+    fi
     info "Rebuilding serving shards into ${INDEX_DIR}..."
     rm -f "${INDEX_DIR}"/serving_*.ssi
     "${REPO_DIR}/build/rebuild_serving_index" \
-      --input-dir "$RAW_INDEX_DIR" \
+      --input-dir "$NORMALIZED_INDEX_SHARD_DIR" \
       --output-dir "$INDEX_DIR"
     info "Serving shard rebuild complete."
   else
     warn "No .sfi shards found in ${RAW_INDEX_DIR}; skipping serving rebuild."
     warn "After shards exist, run:"
-    warn "  ${REPO_DIR}/build/rebuild_serving_index --input-dir ${RAW_INDEX_DIR} --output-dir ${INDEX_DIR}"
+    warn "  rerun setup.sh so it can normalize names and rebuild ${INDEX_DIR}"
   fi
 fi
 echo ""
@@ -523,6 +586,7 @@ echo -e "${BOLD}╚════════════════════�
 echo ""
 echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=${NUM_PEERS})"
 echo -e "  Input shards: ${RAW_INDEX_DIR}"
+echo -e "  Rebuild input:${NORMALIZED_INDEX_SHARD_DIR}"
 echo -e "  Search shards: ${INDEX_DIR}"
 echo -e "  Config:       ${ENV_FILE}"
 echo -e "  Binary:       ${REPO_DIR}/build/search_server"
@@ -555,8 +619,7 @@ fi
 
 if [[ -z "$(ls -A "$INDEX_DIR" 2>/dev/null)" ]]; then
   warn "Serving shard directory is empty — the server will start but return no results."
-  warn "Run the serving rebuild manually:"
-  warn "  ${REPO_DIR}/build/rebuild_serving_index --input-dir ${RAW_INDEX_DIR} --output-dir ${INDEX_DIR}"
+  warn "Rerun setup.sh after ${RAW_INDEX_DIR} contains shards so it can normalize names and rebuild."
   warn "  sudo systemctl restart ${SERVICE_NAME}"
   echo ""
 fi
