@@ -107,6 +107,7 @@ add_library(
   src/ranker/ranker.cpp
   src/search/index_shard_source.cpp
   src/search/serving_index_format.cpp
+  src/search/serving_index_rebuilder.cpp
   src/search/search_service.cpp
   src/tokenstream.cpp
   src/Utf8.cpp
@@ -143,6 +144,11 @@ target_include_directories(index_reader
 add_executable(anchor_processor src/indexer/anchor_processor.cpp)
 target_link_libraries(anchor_processor PRIVATE avengine)
 target_include_directories(anchor_processor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# Offline serving-index rebuild/export tool.
+add_executable(rebuild_serving_index src/rebuild_serving_index.cpp)
+target_link_libraries(rebuild_serving_index PRIVATE avengine)
+target_include_directories(rebuild_serving_index PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Helper tool for comparing probing strategies at different load factors.
 add_executable(probing_benchmark src/probing_benchmark.cpp)
@@ -183,6 +189,7 @@ foreach(avengine_target
         index_builder
         index_reader
         anchor_processor
+        rebuild_serving_index
         probing_benchmark
         crawler_index_profile
         crawler_main
@@ -200,6 +207,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(anchor_processor PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(rebuild_serving_index PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_index_profile PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
