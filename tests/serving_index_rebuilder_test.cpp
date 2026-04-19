@@ -4,11 +4,14 @@
 
 #include <avengine/search/serving_index_format.h>
 #include <avengine/search/serving_index_rebuilder.h>
+#include <avengine/indexer/indexer.h>
 
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace
 {
@@ -51,6 +54,135 @@ void cleanupPath(const avengine::string& path)
 {
   if (unlink(path.cstr()) != 0)
     CHECK(errno == ENOENT);
+}
+
+std::vector<uint8_t> readFileBytes(const avengine::string& path)
+{
+  struct stat st = {};
+  REQUIRE(stat(path.cstr(), &st) == 0);
+  std::vector<uint8_t> bytes(static_cast<size_t>(st.st_size));
+  const int fd = open(path.cstr(), O_RDONLY);
+  REQUIRE(fd >= 0);
+  size_t total = 0;
+  while (total < bytes.size())
+  {
+    const ssize_t n = read(fd, bytes.data() + total, bytes.size() - total);
+    REQUIRE(n > 0);
+    total += static_cast<size_t>(n);
+  }
+  CHECK(close(fd) == 0);
+  return bytes;
+}
+
+template <typename T>
+const T* sectionAt(const std::vector<uint8_t>& bytes, uint64_t offset, uint64_t count)
+{
+  REQUIRE(offset <= bytes.size());
+  REQUIRE(count <= (bytes.size() - static_cast<size_t>(offset)) / sizeof(T));
+  return reinterpret_cast<const T*>(bytes.data() + static_cast<size_t>(offset));
+}
+
+bool termEquals(const std::vector<uint8_t>& bytes,
+                const avengine::search::ServingShardHeaderV1& header,
+                const avengine::search::ServingLexiconEntryV1& entry, const char* term)
+{
+  size_t len = 0;
+  while (term[len] != '\0')
+    ++len;
+  if (entry.termLength != len)
+    return false;
+  const size_t start = static_cast<size_t>(header.termBytesOffset + entry.termOffset);
+  if (start + len > bytes.size())
+    return false;
+  return std::memcmp(bytes.data() + start, term, len) == 0;
+}
+
+const avengine::search::ServingLexiconEntryV1* findServingTerm(
+    const std::vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
+    const char* term)
+{
+  const auto* lexicon = sectionAt<avengine::search::ServingLexiconEntryV1>(
+      bytes, header.lexiconOffset, header.lexiconEntryCount);
+  for (uint64_t i = 0; i < header.lexiconEntryCount; ++i)
+  {
+    if (termEquals(bytes, header, lexicon[i], term))
+      return &lexicon[i];
+  }
+  return nullptr;
+}
+
+uint32_t readVarU32(const std::vector<uint8_t>& bytes, size_t* cursor, size_t end)
+{
+  uint32_t value = 0;
+  uint32_t shift = 0;
+  while (*cursor < end && shift < 35)
+  {
+    const uint8_t byte = bytes[*cursor];
+    ++(*cursor);
+    value |= static_cast<uint32_t>(byte & 0x7fu) << shift;
+    if ((byte & 0x80u) == 0)
+      return value;
+    shift += 7u;
+  }
+  FAIL("truncated varint");
+  return 0;
+}
+
+struct DecodedServingPosting
+{
+  uint32_t docId = 0;
+  uint8_t mask = 0;
+  uint32_t bodyTf = 0;
+  uint32_t titleTf = 0;
+  uint32_t anchorTf = 0;
+};
+
+std::vector<DecodedServingPosting> decodeBlockPostings(
+    const std::vector<uint8_t>& bytes, const avengine::search::ServingShardHeaderV1& header,
+    const avengine::search::ServingBlockInfoV1& block)
+{
+  std::vector<DecodedServingPosting> postings;
+  size_t cursor = static_cast<size_t>(header.postingsOffset + block.payloadOffset);
+  const size_t end = cursor + static_cast<size_t>(block.payloadLength);
+  REQUIRE(end <= bytes.size());
+
+  uint32_t previousDocId = 0;
+  for (uint32_t i = 0; i < block.docCount; ++i)
+  {
+    DecodedServingPosting posting;
+    const uint32_t delta = readVarU32(bytes, &cursor, end);
+    posting.docId = i == 0 ? delta : previousDocId + delta;
+    previousDocId = posting.docId;
+    REQUIRE(cursor < end);
+    posting.mask = bytes[cursor++];
+    if ((posting.mask & avengine::search::kServingFieldBody) != 0)
+      posting.bodyTf = readVarU32(bytes, &cursor, end);
+    if ((posting.mask & avengine::search::kServingFieldTitle) != 0)
+      posting.titleTf = readVarU32(bytes, &cursor, end);
+    if ((posting.mask & avengine::search::kServingFieldAnchor) != 0)
+      posting.anchorTf = readVarU32(bytes, &cursor, end);
+    postings.push_back(posting);
+  }
+  CHECK(cursor == end);
+  return postings;
+}
+
+void writeIndexShard(const avengine::string& path,
+                     const std::vector<std::pair<DocumentMetadata, std::vector<const char*>>>& docs)
+{
+  Index index;
+  for (const auto& doc : docs)
+  {
+    index.beginDocument(doc.first);
+    for (const char* term : doc.second)
+      index.ingest(term);
+    index.endDocument();
+  }
+
+  const int fd = open(path.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  REQUIRE(fd >= 0);
+  REQUIRE(index.serialize(fd) == false);
+  CHECK(close(fd) == 0);
 }
 
 } // namespace
@@ -139,6 +271,119 @@ TEST_CASE("serving rebuild skeleton fails when no primary shards exist")
   CHECK(stats.error.size() > 0u);
 
   cleanupPath(joinPath(input, "anchor_00000.sfi"));
+  CHECK(rmdir(input.cstr()) == 0);
+  CHECK(rmdir(output.cstr()) == 0);
+  CHECK(rmdir(root.cstr()) == 0);
+}
+
+TEST_CASE("serving rebuild writes merged tiered postings from primary and anchor shards")
+{
+  char rootTemplate[] = "/tmp/serving_rebuilder_full_XXXXXX";
+  char* rootRaw = mkdtemp(rootTemplate);
+  REQUIRE(rootRaw != nullptr);
+  const avengine::string root(rootRaw);
+  const avengine::string input = joinPath(root, "input");
+  const avengine::string output = joinPath(root, "output");
+  REQUIRE(mkdir(input.cstr(), 0755) == 0);
+  REQUIRE(mkdir(output.cstr(), 0755) == 0);
+
+  RankingInput rank = {};
+  writeIndexShard(joinPath(input, "00000.sfi"),
+                  {{{.url = "doc://one", .title = "One", .description = "first", .input = rank},
+                    {"alpha", "alpha", "beta", "#alpha"}},
+                   {{.url = "doc://two", .title = "Two", .description = "second", .input = rank},
+                    {"alpha", "gamma", "gamma"}}});
+  writeIndexShard(joinPath(input, "anchor_00000.sfi"),
+                  {{{.url = "doc://one", .title = "One", .description = "", .input = rank},
+                    {"alpha", "alpha"}},
+                   {{.url = "doc://two", .title = "Two", .description = "", .input = rank},
+                    {"beta"}}});
+
+  avengine::search::ServingRebuildOptions options;
+  options.inputDirectory = input;
+  options.outputDirectory = output;
+  options.blockSize = 2u;
+
+  avengine::search::ServingRebuildStats stats = {};
+  REQUIRE(avengine::search::RebuildServingIndex(options, &stats));
+  CHECK(stats.primaryShardCount == 1u);
+  CHECK(stats.anchorShardCount == 1u);
+  CHECK(stats.servingShardCount == 1u);
+
+  const avengine::string servingPath = joinPath(output, "serving_00000.ssi");
+  const std::vector<uint8_t> bytes = readFileBytes(servingPath);
+  REQUIRE(bytes.size() > sizeof(avengine::search::ServingShardHeaderV1));
+
+  const auto* header = reinterpret_cast<const avengine::search::ServingShardHeaderV1*>(bytes.data());
+  CHECK(avengine::search::IsServingShardMagic(header->magic));
+  CHECK(header->documentCount == 2u);
+  CHECK(header->lexiconEntryCount == 3u);
+  CHECK(header->termCount == 3u);
+  CHECK(header->blockSize == 2u);
+  CHECK(header->docLengthLength == 2u * sizeof(uint32_t));
+
+  const auto* docLengths = sectionAt<uint32_t>(bytes, header->docLengthOffset, 2u);
+  CHECK(docLengths[0] == 4u);
+  CHECK(docLengths[1] == 4u);
+
+  const auto* alphaLex = findServingTerm(bytes, *header, "alpha");
+  REQUIRE(alphaLex != nullptr);
+  const auto* termInfos = sectionAt<avengine::search::ServingTermInfoV1>(
+      bytes, header->termInfoOffset, header->termCount);
+  const auto& alphaInfo = termInfos[alphaLex->termInfoIndex];
+  CHECK(alphaInfo.documentFrequency == 2u);
+  CHECK(alphaInfo.collectionFrequency == 6u);
+  CHECK(alphaInfo.bodyDocumentFrequency == 2u);
+  CHECK(alphaInfo.titleDocumentFrequency == 1u);
+  CHECK(alphaInfo.anchorDocumentFrequency == 1u);
+  CHECK(alphaInfo.tierCount == 2u);
+
+  const auto* tiers = sectionAt<avengine::search::ServingTierInfoV1>(
+      bytes, header->tierInfoOffset, header->tierCount);
+  const auto* blocks = sectionAt<avengine::search::ServingBlockInfoV1>(
+      bytes, header->blockInfoOffset, header->blockCount);
+  const auto& alphaStrong = tiers[alphaInfo.tierInfoIndex];
+  CHECK(alphaStrong.tierId == static_cast<uint32_t>(avengine::search::ServingTierId::Strong));
+  REQUIRE(alphaStrong.blockCount == 1u);
+  auto alphaStrongPostings = decodeBlockPostings(bytes, *header, blocks[alphaStrong.blockIndex]);
+  REQUIRE(alphaStrongPostings.size() == 1u);
+  CHECK(alphaStrongPostings[0].docId == 0u);
+  CHECK(alphaStrongPostings[0].bodyTf == 2u);
+  CHECK(alphaStrongPostings[0].titleTf == 1u);
+  CHECK(alphaStrongPostings[0].anchorTf == 2u);
+  CHECK(alphaStrongPostings[0].mask ==
+        (avengine::search::kServingFieldBody | avengine::search::kServingFieldTitle |
+         avengine::search::kServingFieldAnchor));
+
+  const auto& alphaRecall = tiers[alphaInfo.tierInfoIndex + 1u];
+  CHECK(alphaRecall.tierId == static_cast<uint32_t>(avengine::search::ServingTierId::Recall));
+  auto alphaRecallPostings = decodeBlockPostings(bytes, *header, blocks[alphaRecall.blockIndex]);
+  REQUIRE(alphaRecallPostings.size() == 1u);
+  CHECK(alphaRecallPostings[0].docId == 1u);
+  CHECK(alphaRecallPostings[0].bodyTf == 1u);
+  CHECK(alphaRecallPostings[0].titleTf == 0u);
+  CHECK(alphaRecallPostings[0].anchorTf == 0u);
+
+  const auto* gammaLex = findServingTerm(bytes, *header, "gamma");
+  REQUIRE(gammaLex != nullptr);
+  const auto& gammaInfo = termInfos[gammaLex->termInfoIndex];
+  REQUIRE(gammaInfo.tierCount == 1u);
+  const auto& gammaTier = tiers[gammaInfo.tierInfoIndex];
+  CHECK(gammaTier.tierId == static_cast<uint32_t>(avengine::search::ServingTierId::Medium));
+  auto gammaPostings = decodeBlockPostings(bytes, *header, blocks[gammaTier.blockIndex]);
+  REQUIRE(gammaPostings.size() == 1u);
+  CHECK(gammaPostings[0].docId == 1u);
+  CHECK(gammaPostings[0].bodyTf == 2u);
+
+  const auto* betaLex = findServingTerm(bytes, *header, "beta");
+  REQUIRE(betaLex != nullptr);
+  const auto& betaInfo = termInfos[betaLex->termInfoIndex];
+  CHECK(betaInfo.documentFrequency == 2u);
+  CHECK(betaInfo.anchorDocumentFrequency == 1u);
+
+  cleanupPath(joinPath(input, "00000.sfi"));
+  cleanupPath(joinPath(input, "anchor_00000.sfi"));
+  cleanupPath(servingPath);
   CHECK(rmdir(input.cstr()) == 0);
   CHECK(rmdir(output.cstr()) == 0);
   CHECK(rmdir(root.cstr()) == 0);

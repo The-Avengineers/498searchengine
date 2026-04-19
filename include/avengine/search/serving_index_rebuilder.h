@@ -37,6 +37,7 @@ bool DiscoverServingInputShards(const string& inputDirectory, vector<ServingShar
                                 vector<string>* anchors, string* error);
 bool WriteEmptyServingShard(const string& outputPath, uint64_t shardId, uint32_t blockSize,
                             string* error);
+bool RebuildServingIndex(const ServingRebuildOptions& options, ServingRebuildStats* stats);
 bool RebuildServingIndexSkeleton(const ServingRebuildOptions& options,
                                  ServingRebuildStats* stats);
 

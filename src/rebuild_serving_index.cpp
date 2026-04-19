@@ -12,8 +12,8 @@ void PrintUsage(const char* prog)
   std::fprintf(stderr,
                "Usage: %s --input-dir <dir> --output-dir <dir> [--block-size N]\n"
                "\n"
-               "Build serving_*.ssi shards from existing NNNNN.sfi and anchor_NNNNN.sfi inputs.\n"
-               "Milestone 2 writes valid empty serving shards; later milestones fill postings.\n",
+               "Build tiered serving_*.ssi shards from existing NNNNN.sfi and "
+               "anchor_NNNNN.sfi inputs.\n",
                prog);
 }
 
@@ -76,7 +76,7 @@ int main(int argc, char** argv)
   }
 
   avengine::search::ServingRebuildStats stats = {};
-  if (!avengine::search::RebuildServingIndexSkeleton(options, &stats))
+  if (!avengine::search::RebuildServingIndex(options, &stats))
   {
     std::fprintf(stderr, "[rebuild_serving_index] failed: %s\n", stats.error.cstr());
     return 1;
