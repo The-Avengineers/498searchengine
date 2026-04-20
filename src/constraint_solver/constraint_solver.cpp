@@ -1,6 +1,7 @@
 #include <avengine/constraint_solver/constraint_solver.h>
 
 #include <avengine/constraint_solver/isr_tree.h>
+#include <avengine/constraint_solver/stop_words.h>
 
 #include <chrono>
 #include <limits>
@@ -140,6 +141,89 @@ ISR* BuildExecutionTree(const QueryNode* node, const IsrSource& source, IsrExecu
     return nullptr;
   }
 }
+// Counts term nodes that are not stop words, just counts does not edit any nodes
+int countNonStopTerms(const QueryNode* node)
+{
+  if (!node)
+    return 0;
+
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Term:
+    return isStopWord(node->Value) ? 0 : 1;
+
+  case QueryNodeKind::Phrase:
+    return 1;
+
+  case QueryNodeKind::Conjunction:
+  {
+    int count = 0;
+    for (const QueryNode* c : node->RequiredChildren)
+      count += countNonStopTerms(c);
+    return count;
+  }
+
+  case QueryNodeKind::Or:
+  {
+    int count = 0;
+    for (const QueryNode* c : node->Children)
+      count += countNonStopTerms(c);
+    return count;
+  }
+
+  default:
+    return 0;
+  }
+}
+
+// Strips stop word term nodes from children in place.
+// Returns true if this node should be kept
+bool applyStopWordFilter(QueryNode* node)
+{
+  if (!node)
+    return false;
+
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Term:
+    return !isStopWord(node->Value);
+
+  case QueryNodeKind::Phrase:
+    return true;
+
+  case QueryNodeKind::Conjunction:
+  {
+    vector<QueryNode*> kept;
+    for (QueryNode* c : node->RequiredChildren)
+    {
+      if (applyStopWordFilter(c))
+        kept.pushBack(c);
+      else
+        DestroyQueryTree(c);
+    }
+    node->RequiredChildren = kept;
+    return !node->RequiredChildren.empty() || !node->ExcludedChildren.empty();
+  }
+
+  case QueryNodeKind::Or:
+  {
+    vector<QueryNode*> kept;
+    for (QueryNode* c : node->Children)
+    {
+      if (applyStopWordFilter(c))
+        kept.pushBack(c);
+      else
+        DestroyQueryTree(c);
+    }
+    node->Children = kept;
+    return !node->Children.empty();
+  }
+
+  default:
+    return true;
+  }
+}
+
 } // namespace
 
 void ConstraintSolver::SetExecutionTimeThresholdMs(size_t thresholdMs)
@@ -169,6 +253,9 @@ SolveResult ConstraintSolver::SolveQuery(const string& query, const IsrSource& s
     DestroyQueryTree(parsed.Root);
     return result;
   }
+
+  if (countNonStopTerms(parsed.Root) >= 2)
+    applyStopWordFilter(parsed.Root);
 
   result = SolveParsed(parsed.Root, source);
   DestroyQueryTree(parsed.Root);
