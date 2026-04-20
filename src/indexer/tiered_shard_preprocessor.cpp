@@ -1,15 +1,20 @@
-#include <avengine/codec.h>
 #include <avengine/avengine_lib/atomic.h>
 #include <avengine/avengine_lib/mutex.h>
 #include <avengine/avengine_lib/thread.h>
 #include <avengine/indexer/indexer.h>
-#include <avengine/unordered_map.h>
 
+#include <algorithm>
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
-#include <stdio.h>
+#include <string>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace
 {
@@ -20,13 +25,17 @@ constexpr size_t kDefaultMaxThreads = 2;
 constexpr size_t kMaxRankThreads = 2;
 constexpr size_t kMaxRewriteThreads = 1;
 constexpr size_t kRewriteDocsPerChunk = 1024;
+constexpr size_t kMaxMetadataStringBytes = 16u * 1024u * 1024u;
+constexpr const char* kCheckpointHeader = "AVENGINE_TIERED_PREPROCESS_CHECKPOINT 1";
 
 struct Options
 {
   avengine::string inputDir = avengine::string(".");
   avengine::string outputDir = avengine::string("tiered-index");
+  avengine::string checkpointPath;
   size_t threads = 0;
   bool force = false;
+  bool resetCheckpoint = false;
   bool help = false;
 };
 
@@ -46,23 +55,114 @@ struct DocMeta
   avengine::string title;
   avengine::string description;
   RankingInput input = {};
-  double staticScore = 0.0;
+};
+
+struct MappedShard
+{
+  const uint8_t* data = nullptr;
+  size_t size = 0;
+  int fd = -1;
+
+  MappedShard() = default;
+  MappedShard(const MappedShard&) = delete;
+  MappedShard& operator=(const MappedShard&) = delete;
+
+  ~MappedShard()
+  {
+    reset();
+  }
+
+  void reset()
+  {
+    if (data)
+      munmap(const_cast<uint8_t*>(data), size);
+    if (fd >= 0)
+      close(fd);
+    data = nullptr;
+    size = 0;
+    fd = -1;
+  }
+
+  bool load(const avengine::string& path, std::string& reason)
+  {
+    reset();
+    fd = open(path.cstr(), O_RDONLY);
+    if (fd < 0)
+    {
+      reason = "open failed";
+      return false;
+    }
+
+    struct stat st = {};
+    if (fstat(fd, &st) != 0 || st.st_size < 0)
+    {
+      reason = "stat failed";
+      return false;
+    }
+    if (st.st_size == 0)
+    {
+      reason = "empty file";
+      return false;
+    }
+
+    size = static_cast<size_t>(st.st_size);
+    void* mapped = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mapped == MAP_FAILED)
+    {
+      reason = "mmap failed";
+      data = nullptr;
+      return false;
+    }
+    data = static_cast<const uint8_t*>(mapped);
+    return true;
+  }
 };
 
 struct ParsedShard
 {
   avengine::string path;
   bool isAnchor = false;
-  avengine::vector<uint8_t> bytes;
+  uint64_t documentCount = 0;
+  size_t rankingInputSize = 0;
+  MappedShard mapping;
   avengine::vector<TermEntry> terms;
   avengine::vector<uint32_t> docEndPositions;
   avengine::vector<DocMeta> docs;
+
+  void clear()
+  {
+    mapping.reset();
+    path = avengine::string();
+    isAnchor = false;
+    documentCount = 0;
+    rankingInputSize = 0;
+    terms.clear();
+    docEndPositions.clear();
+    docs.clear();
+  }
+};
+
+struct ShardFile
+{
+  avengine::string path;
+  std::string pathStd;
+  std::string stem;
+  uint64_t size = 0;
+  int64_t mtime = 0;
+  bool isAnchor = false;
 };
 
 struct RankedDoc
 {
   avengine::string url;
   double score = 0.0;
+};
+
+struct RankBoundaries
+{
+  size_t totalDocs = 0;
+  RankedDoc tier0Last;
+  RankedDoc tier1Last;
 };
 
 struct TokenAtPosition
@@ -79,6 +179,24 @@ struct ProgressState
   avengine::atomic_counter documents;
   avengine::atomic_counter failedShards;
   avengine::atomic_counter done;
+};
+
+struct CheckpointEntry
+{
+  std::string path;
+  uint64_t size = 0;
+  int64_t mtime = 0;
+  bool isAnchor = false;
+  size_t documents = 0;
+  bool completed = false;
+  bool failed = false;
+  std::string reason;
+  std::vector<std::string> outputs;
+};
+
+struct CheckpointState
+{
+  std::vector<CheckpointEntry> entries;
 };
 
 void PrintProgress(const ProgressState& state, bool final)
@@ -115,6 +233,19 @@ void* ProgressThread(void* raw)
   return nullptr;
 }
 
+std::string ToStdString(const avengine::string& value)
+{
+  return std::string(value.cstr(), value.size());
+}
+
+avengine::string ToAvString(const std::string& value)
+{
+  avengine::string out;
+  for (char c : value)
+    out.pushBack(c);
+  return out;
+}
+
 bool ParseSize(const char* text, size_t& out)
 {
   if (!text || text[0] == '\0')
@@ -126,6 +257,24 @@ bool ParseSize(const char* text, size_t& out)
       return false;
     const size_t digit = static_cast<size_t>(text[i] - '0');
     if (value > (static_cast<size_t>(-1) - digit) / 10u)
+      return false;
+    value = (value * 10u) + digit;
+  }
+  out = value;
+  return true;
+}
+
+bool ParseU64(const std::string& text, uint64_t& out)
+{
+  if (text.empty())
+    return false;
+  uint64_t value = 0;
+  for (char c : text)
+  {
+    if (c < '0' || c > '9')
+      return false;
+    const uint64_t digit = static_cast<uint64_t>(c - '0');
+    if (value > (~uint64_t{0} - digit) / 10u)
       return false;
     value = (value * 10u) + digit;
   }
@@ -160,6 +309,141 @@ size_t ClampPhaseThreadCount(size_t requested, size_t workItems, size_t phaseMax
   if (count > phaseMax)
     count = phaseMax;
   return count;
+}
+
+bool CheckedAdd(size_t lhs, size_t rhs, size_t& out)
+{
+  if (lhs > static_cast<size_t>(-1) - rhs)
+    return false;
+  out = lhs + rhs;
+  return true;
+}
+
+bool HasBytes(size_t offset, size_t length, size_t total)
+{
+  return offset <= total && length <= total - offset;
+}
+
+uint64_t ReadU64Le(const uint8_t* p)
+{
+  uint64_t v = 0;
+  for (int i = 0; i < 8; ++i)
+    v |= static_cast<uint64_t>(p[i]) << (8 * i);
+  return v;
+}
+
+bool ReadU64At(const uint8_t* data, size_t size, size_t offset, uint64_t& out)
+{
+  if (!HasBytes(offset, sizeof(uint64_t), size))
+    return false;
+  out = ReadU64Le(data + offset);
+  return true;
+}
+
+void CopyBytes(void* destination, const void* source, size_t size)
+{
+  uint8_t* dst = static_cast<uint8_t*>(destination);
+  const uint8_t* src = static_cast<const uint8_t*>(source);
+  for (size_t i = 0; i < size; ++i)
+    dst[i] = src[i];
+}
+
+bool ReadLpStringAt(const uint8_t* data, size_t size, size_t& cursor, avengine::string& out)
+{
+  uint64_t len = 0;
+  if (!ReadU64At(data, size, cursor, len))
+    return false;
+  cursor += sizeof(uint64_t);
+  if (len > kMaxMetadataStringBytes || len > static_cast<uint64_t>(size - cursor))
+    return false;
+
+  out = avengine::string();
+  for (size_t i = 0; i < static_cast<size_t>(len); ++i)
+    out.pushBack(static_cast<char>(data[cursor + i]));
+  cursor += static_cast<size_t>(len);
+  return true;
+}
+
+bool ReadVarU32(const uint8_t*& cursor, const uint8_t* end, uint32_t& out)
+{
+  uint32_t result = 0;
+  uint32_t shift = 0;
+  while (cursor < end && shift < 35)
+  {
+    const uint8_t byte = *cursor++;
+    if (shift == 28 && (byte & 0xF0u) != 0)
+      return false;
+    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
+    if ((byte & 0x80u) == 0)
+    {
+      out = result;
+      return true;
+    }
+    shift += 7;
+  }
+  return false;
+}
+
+bool SkipPostingHeaderAndSkips(const uint8_t* begin, const uint8_t* end, uint64_t& docFreq,
+                               uint64_t& collFreq, uint64_t& skipCount, const uint8_t*& cursor)
+{
+  if (!begin || !end || begin > end || static_cast<size_t>(end - begin) < 24u)
+    return false;
+  docFreq = ReadU64Le(begin);
+  collFreq = ReadU64Le(begin + 8);
+  skipCount = ReadU64Le(begin + 16);
+  cursor = begin + 24;
+
+  const size_t remaining = static_cast<size_t>(end - cursor);
+  if (skipCount > remaining / 3u)
+    return false;
+
+  uint32_t ignored = 0;
+  for (uint64_t s = 0; s < skipCount; ++s)
+  {
+    for (int field = 0; field < 3; ++field)
+    {
+      if (!ReadVarU32(cursor, end, ignored))
+        return false;
+    }
+  }
+  return true;
+}
+
+bool DecodePositions(const ParsedShard& shard, const TermEntry& term, avengine::vector<uint32_t>& out)
+{
+  out.clear();
+  if (!HasBytes(term.postingStart, 24u, shard.mapping.size) ||
+      term.postingEnd > shard.mapping.size || term.postingStart > term.postingEnd)
+    return false;
+
+  const uint8_t* begin = shard.mapping.data + term.postingStart;
+  const uint8_t* end = shard.mapping.data + term.postingEnd;
+  uint64_t documentFrequency = 0;
+  uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
+  const uint8_t* cursor = nullptr;
+  if (!SkipPostingHeaderAndSkips(begin, end, documentFrequency, collectionFrequency, skipCount,
+                                 cursor))
+  {
+    return false;
+  }
+  if (documentFrequency != term.documentFrequency || collectionFrequency != term.positionsCount)
+    return false;
+  if (collectionFrequency > static_cast<uint64_t>(end - cursor))
+    return false;
+
+  out.reserve(static_cast<size_t>(collectionFrequency));
+  uint32_t absolute = 0;
+  for (uint64_t i = 0; i < collectionFrequency; ++i)
+  {
+    uint32_t delta = 0;
+    if (!ReadVarU32(cursor, end, delta) || delta > UINT32_MAX - absolute)
+      return false;
+    absolute += delta;
+    out.pushBack(absolute);
+  }
+  return true;
 }
 
 bool HasSfiSuffix(const avengine::string& name)
@@ -225,122 +509,161 @@ avengine::string JoinPath(const avengine::string& dir, const avengine::string& n
   return path;
 }
 
-bool ReadFile(const avengine::string& path, avengine::vector<uint8_t>& out)
+std::string SanitizedStem(const avengine::string& path)
 {
-  out.clear();
-  const int fd = open(path.cstr(), O_RDONLY);
-  if (fd < 0)
-    return false;
+  const avengine::string base = Basename(path);
+  const size_t suffixStart = HasSfiSuffix(base) ? base.size() - 4u : base.size();
+  std::string out;
+  out.reserve(suffixStart);
+  for (size_t i = 0; i < suffixStart; ++i)
+  {
+    const char c = base[i];
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '-';
+    out.push_back(ok ? c : '_');
+  }
+  if (out.empty())
+    out = "shard";
+  uint64_t hash = 1469598103934665603ULL;
+  const std::string fullPath = ToStdString(path);
+  for (unsigned char c : fullPath)
+  {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= 1099511628211ULL;
+  }
+  char suffix[32];
+  snprintf(suffix, sizeof(suffix), "_%016llx", static_cast<unsigned long long>(hash));
+  out += suffix;
+  return out;
+}
 
+bool EnsureOutputDirectory(const avengine::string& path)
+{
   struct stat st = {};
-  if (fstat(fd, &st) != 0 || st.st_size < 0)
+  if (stat(path.cstr(), &st) == 0)
+    return (st.st_mode & S_IFDIR) != 0;
+  return mkdir(path.cstr(), 0755) == 0;
+}
+
+bool FileExists(const std::string& path)
+{
+  struct stat st = {};
+  return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+void RemoveTempFiles(const avengine::string& path)
+{
+  DIR* dir = opendir(path.cstr());
+  if (!dir)
+    return;
+  while (dirent* ent = readdir(dir))
   {
-    close(fd);
+    const avengine::string name(ent->d_name);
+    if (EndsWithLiteral(name, ".sfi.tmp"))
+      unlink(JoinPath(path, name).cstr());
+  }
+  closedir(dir);
+}
+
+bool PrepareOutputDirectory(const avengine::string& path, const avengine::string& checkpointPath,
+                            bool force, bool resetCheckpoint)
+{
+  if (!EnsureOutputDirectory(path))
+  {
+    fprintf(stderr, "failed to create output directory: %s\n", path.cstr());
     return false;
   }
 
-  out.resize(static_cast<size_t>(st.st_size));
-  size_t total = 0;
-  while (total < out.size())
-  {
-    const ssize_t n = read(fd, out.begin() + total, out.size() - total);
-    if (n <= 0)
-    {
-      close(fd);
-      return false;
-    }
-    total += static_cast<size_t>(n);
-  }
+  RemoveTempFiles(path);
+  if (resetCheckpoint)
+    unlink(checkpointPath.cstr());
 
-  close(fd);
-  return true;
-}
-
-uint64_t ReadU64Le(const uint8_t* p)
-{
-  uint64_t v = 0;
-  for (int i = 0; i < 8; ++i)
-    v |= static_cast<uint64_t>(p[i]) << (8 * i);
-  return v;
-}
-
-void CopyBytes(void* destination, const void* source, size_t size)
-{
-  uint8_t* dst = static_cast<uint8_t*>(destination);
-  const uint8_t* src = static_cast<const uint8_t*>(source);
-  for (size_t i = 0; i < size; ++i)
-    dst[i] = src[i];
-}
-
-bool ReadLpString(const uint8_t*& cursor, const uint8_t* end, avengine::string& out)
-{
-  if (cursor + sizeof(uint64_t) > end)
-    return false;
-  const uint64_t len = ReadU64Le(cursor);
-  cursor += sizeof(uint64_t);
-  if (len > static_cast<uint64_t>(end - cursor))
-    return false;
-  out = avengine::string();
-  for (size_t i = 0; i < static_cast<size_t>(len); ++i)
-    out.pushBack(static_cast<char>(cursor[i]));
-  cursor += len;
-  return true;
-}
-
-bool ReadVarU32(const uint8_t*& cursor, const uint8_t* end, uint32_t& out)
-{
-  uint32_t result = 0;
-  uint32_t shift = 0;
-  while (cursor < end && shift < 35)
-  {
-    const uint8_t byte = *cursor++;
-    result |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
-    if ((byte & 0x80u) == 0)
-    {
-      out = result;
-      return true;
-    }
-    shift += 7;
-  }
-  return false;
-}
-
-bool DecodePositions(const ParsedShard& shard, const TermEntry& term, avengine::vector<uint32_t>& out)
-{
-  out.clear();
-  if (term.postingStart + 24u > term.postingEnd || term.postingEnd > shard.bytes.size())
+  DIR* dir = opendir(path.cstr());
+  if (!dir)
     return false;
 
-  const uint8_t* cursor = shard.bytes.begin() + term.postingStart;
-  const uint8_t* end = shard.bytes.begin() + term.postingEnd;
-  const uint64_t collectionFrequency = ReadU64Le(cursor + 8);
-  const uint64_t skipCount = ReadU64Le(cursor + 16);
-  cursor += 24;
-
-  uint32_t ignored = 0;
-  for (uint64_t s = 0; s < skipCount; ++s)
+  avengine::vector<avengine::string> sfiFiles;
+  while (dirent* ent = readdir(dir))
   {
-    for (int field = 0; field < 3; ++field)
-    {
-      if (!ReadVarU32(cursor, end, ignored))
-        return false;
-    }
+    const avengine::string name(ent->d_name);
+    if (HasSfiSuffix(name))
+      sfiFiles.pushBack(JoinPath(path, name));
+  }
+  closedir(dir);
+
+  const bool hasCheckpoint = FileExists(ToStdString(checkpointPath));
+  if (!sfiFiles.empty() && !force && !hasCheckpoint)
+  {
+    fprintf(stderr, "output directory already contains .sfi files; pass --force to replace\n");
+    return false;
   }
 
-  uint32_t absolute = 0;
-  out.reserve(static_cast<size_t>(collectionFrequency));
-  for (uint64_t i = 0; i < collectionFrequency; ++i)
+  if (!sfiFiles.empty() && (resetCheckpoint || (!hasCheckpoint && force)))
   {
-    uint32_t delta = 0;
-    if (!ReadVarU32(cursor, end, delta))
-      return false;
-    absolute += delta;
-    out.pushBack(absolute);
+    for (const avengine::string& file : sfiFiles)
+      unlink(file.cstr());
   }
   return true;
 }
 
-bool ParseDocEnd(ParsedShard& shard)
+std::vector<ShardFile> DiscoverSfiFiles(const avengine::string& dirPath)
+{
+  std::vector<ShardFile> files;
+  DIR* dir = opendir(dirPath.cstr());
+  if (!dir)
+    return files;
+
+  while (dirent* ent = readdir(dir))
+  {
+    if (ent->d_name[0] == '.')
+      continue;
+    const avengine::string name(ent->d_name);
+    if (!HasSfiSuffix(name))
+      continue;
+
+    ShardFile file;
+    file.path = JoinPath(dirPath, name);
+    file.pathStd = ToStdString(file.path);
+    file.stem = SanitizedStem(file.path);
+    file.isAnchor = IsAnchorShardName(file.path);
+    struct stat st = {};
+    if (stat(file.path.cstr(), &st) == 0 && S_ISREG(st.st_mode) && st.st_size >= 0)
+    {
+      file.size = static_cast<uint64_t>(st.st_size);
+      file.mtime = static_cast<int64_t>(st.st_mtime);
+    }
+    files.push_back(file);
+  }
+  closedir(dir);
+
+  std::sort(files.begin(), files.end(), [](const ShardFile& lhs, const ShardFile& rhs) {
+    return lhs.pathStd < rhs.pathStd;
+  });
+  return files;
+}
+
+size_t CountPrimaryFiles(const std::vector<ShardFile>& files)
+{
+  size_t count = 0;
+  for (const ShardFile& file : files)
+  {
+    if (!file.isAnchor)
+      ++count;
+  }
+  return count;
+}
+
+bool ReadHeader(const ParsedShard& shard, uint64_t& magic, uint64_t& documentCount,
+                uint64_t& uniqueWords, uint64_t& tokenOffset, uint64_t& rankingInputSize)
+{
+  const uint8_t* data = shard.mapping.data;
+  const size_t size = shard.mapping.size;
+  return ReadU64At(data, size, 0, magic) && ReadU64At(data, size, 8, documentCount) &&
+         ReadU64At(data, size, 16, uniqueWords) && ReadU64At(data, size, 24, tokenOffset) &&
+         ReadU64At(data, size, 32, rankingInputSize);
+}
+
+bool ParseDocEnd(ParsedShard& shard, std::string& reason)
 {
   const TermEntry* docEnd = nullptr;
   for (const TermEntry& term : shard.terms)
@@ -352,116 +675,180 @@ bool ParseDocEnd(ParsedShard& shard)
     }
   }
   if (!docEnd)
+  {
+    reason = "missing DOCUMENT_END";
     return false;
+  }
 
   if (!DecodePositions(shard, *docEnd, shard.docEndPositions))
+  {
+    reason = "invalid DOCUMENT_END positions";
     return false;
+  }
 
-  const uint8_t* cursor = shard.bytes.begin() + docEnd->postingStart;
-  const uint8_t* end = shard.bytes.begin() + docEnd->postingEnd;
-  const uint64_t documentFrequency = ReadU64Le(cursor);
-  const uint64_t collectionFrequency = ReadU64Le(cursor + 8);
-  const uint64_t skipCount = ReadU64Le(cursor + 16);
-  cursor += 24;
+  const uint8_t* begin = shard.mapping.data + docEnd->postingStart;
+  const uint8_t* end = shard.mapping.data + docEnd->postingEnd;
+  uint64_t documentFrequency = 0;
+  uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
+  const uint8_t* cursorPtr = nullptr;
+  if (!SkipPostingHeaderAndSkips(begin, end, documentFrequency, collectionFrequency, skipCount,
+                                 cursorPtr))
+  {
+    reason = "invalid DOCUMENT_END header";
+    return false;
+  }
+  if (documentFrequency != collectionFrequency || documentFrequency != shard.documentCount ||
+      documentFrequency != shard.docEndPositions.size())
+  {
+    reason = "DOCUMENT_END count mismatch";
+    return false;
+  }
+  if (documentFrequency > (shard.mapping.size / (24u + shard.rankingInputSize)))
+  {
+    reason = "impossible document count";
+    return false;
+  }
 
   uint32_t ignored = 0;
-  for (uint64_t s = 0; s < skipCount; ++s)
-  {
-    for (int field = 0; field < 3; ++field)
-    {
-      if (!ReadVarU32(cursor, end, ignored))
-        return false;
-    }
-  }
   for (uint64_t i = 0; i < collectionFrequency; ++i)
   {
-    if (!ReadVarU32(cursor, end, ignored))
+    if (!ReadVarU32(cursorPtr, end, ignored))
+    {
+      reason = "truncated DOCUMENT_END deltas";
       return false;
+    }
   }
 
   shard.docs.clear();
   shard.docs.reserve(static_cast<size_t>(documentFrequency));
+  size_t cursor = static_cast<size_t>(cursorPtr - shard.mapping.data);
+  const size_t endOffset = static_cast<size_t>(end - shard.mapping.data);
   for (uint64_t i = 0; i < documentFrequency; ++i)
   {
     DocMeta doc;
-    if (!ReadLpString(cursor, end, doc.url) || !ReadLpString(cursor, end, doc.title) ||
-        !ReadLpString(cursor, end, doc.description))
+    if (!ReadLpStringAt(shard.mapping.data, endOffset, cursor, doc.url) ||
+        !ReadLpStringAt(shard.mapping.data, endOffset, cursor, doc.title) ||
+        !ReadLpStringAt(shard.mapping.data, endOffset, cursor, doc.description))
     {
+      reason = "truncated document metadata";
       return false;
     }
-    if (cursor + sizeof(RankingInput) > end)
+    if (!HasBytes(cursor, shard.rankingInputSize, endOffset))
+    {
+      reason = "truncated ranking input";
       return false;
-    CopyBytes(&doc.input, cursor, sizeof(RankingInput));
-    cursor += sizeof(RankingInput);
+    }
+    doc.input = {};
+    CopyBytes(&doc.input, shard.mapping.data + cursor, shard.rankingInputSize);
+    cursor += shard.rankingInputSize;
     shard.docs.pushBack(doc);
   }
 
-  return shard.docs.size() == shard.docEndPositions.size();
+  return true;
 }
 
-bool ParseShard(const avengine::string& path, bool isAnchor, ParsedShard& shard)
+bool ParseShard(const ShardFile& file, ParsedShard& shard, std::string& reason)
 {
-  shard = ParsedShard();
-  shard.path = path;
-  shard.isAnchor = isAnchor;
-  if (!ReadFile(path, shard.bytes) || shard.bytes.size() < 5u * sizeof(uint64_t))
+  shard.clear();
+  shard.path = file.path;
+  shard.isAnchor = file.isAnchor;
+  if (!shard.mapping.load(file.path, reason) || shard.mapping.size < 5u * sizeof(uint64_t))
+  {
+    if (reason.empty())
+      reason = "short shard header";
     return false;
+  }
 
-  const uint8_t* data = shard.bytes.begin();
-  const uint8_t* end = data + shard.bytes.size();
-  if (ReadU64Le(data) != kIndexMagic)
+  uint64_t magic = 0;
+  uint64_t documentCount = 0;
+  uint64_t uniqueWords = 0;
+  uint64_t tokenOffset = 0;
+  uint64_t rankingInputSize = 0;
+  if (!ReadHeader(shard, magic, documentCount, uniqueWords, tokenOffset, rankingInputSize) ||
+      magic != kIndexMagic)
+  {
+    reason = "invalid shard header";
     return false;
-  const uint64_t documentCount = ReadU64Le(data + 8);
-  const uint64_t uniqueWords = ReadU64Le(data + 16);
-  const uint64_t rankingInputSize = ReadU64Le(data + 32);
-  if (rankingInputSize != sizeof(RankingInput))
+  }
+  if (rankingInputSize > sizeof(RankingInput))
+  {
+    reason = "unsupported ranking input size";
     return false;
+  }
+  if (uniqueWords > (shard.mapping.size - 5u * sizeof(uint64_t)) / 32u + 1u)
+  {
+    reason = "impossible dictionary size";
+    return false;
+  }
+
+  shard.documentCount = documentCount;
+  shard.rankingInputSize = static_cast<size_t>(rankingInputSize);
   if (documentCount == 0)
     return true;
 
-  const uint8_t* cursor = data + (5u * sizeof(uint64_t));
+  size_t cursor = 5u * sizeof(uint64_t);
   shard.terms.reserve(static_cast<size_t>(uniqueWords));
   for (uint64_t i = 0; i < uniqueWords; ++i)
   {
     TermEntry term;
-    if (!ReadLpString(cursor, end, term.term))
+    if (!ReadLpStringAt(shard.mapping.data, shard.mapping.size, cursor, term.term) ||
+        !HasBytes(cursor, 24u, shard.mapping.size))
+    {
+      reason = "truncated dictionary";
       return false;
-    if (cursor + 24 > end)
-      return false;
-    term.positionsCount = ReadU64Le(cursor);
-    term.documentFrequency = ReadU64Le(cursor + 8);
-    term.postingOffset = ReadU64Le(cursor + 16);
-    cursor += 24;
+    }
+    term.positionsCount = ReadU64Le(shard.mapping.data + cursor);
+    term.documentFrequency = ReadU64Le(shard.mapping.data + cursor + 8);
+    term.postingOffset = ReadU64Le(shard.mapping.data + cursor + 16);
+    cursor += 24u;
     shard.terms.pushBack(term);
   }
 
-  const size_t postingsStart = static_cast<size_t>(cursor - data);
-  avengine::vector<size_t> order(shard.terms.size());
+  const size_t postingsStart = cursor;
+  std::vector<size_t> order(shard.terms.size());
   for (size_t i = 0; i < order.size(); ++i)
     order[i] = i;
-  order.sort([&](size_t lhs, size_t rhs) {
+  std::sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
     return shard.terms[lhs].postingOffset < shard.terms[rhs].postingOffset;
   });
 
   for (size_t oi = 0; oi < order.size(); ++oi)
   {
     TermEntry& term = shard.terms[order[oi]];
-    const size_t start = postingsStart + static_cast<size_t>(term.postingOffset);
-    const size_t next = oi + 1 < order.size()
-                            ? postingsStart +
-                                  static_cast<size_t>(shard.terms[order[oi + 1]].postingOffset)
-                            : shard.bytes.size();
-    if (start > next || next > shard.bytes.size())
+    if (term.postingOffset > static_cast<uint64_t>(shard.mapping.size - postingsStart))
+    {
+      reason = "posting offset outside shard";
       return false;
+    }
+    size_t start = 0;
+    if (!CheckedAdd(postingsStart, static_cast<size_t>(term.postingOffset), start))
+    {
+      reason = "posting offset overflow";
+      return false;
+    }
+    size_t next = shard.mapping.size;
+    if (oi + 1 < order.size())
+    {
+      const uint64_t nextOffset = shard.terms[order[oi + 1]].postingOffset;
+      if (nextOffset > static_cast<uint64_t>(shard.mapping.size - postingsStart) ||
+          !CheckedAdd(postingsStart, static_cast<size_t>(nextOffset), next))
+      {
+        reason = "next posting offset outside shard";
+        return false;
+      }
+    }
+    if (start > next || next > shard.mapping.size || !HasBytes(start, 24u, shard.mapping.size))
+    {
+      reason = "invalid posting bounds";
+      return false;
+    }
     term.postingStart = start;
     term.postingEnd = next;
   }
 
-  if (!ParseDocEnd(shard))
+  if (!ParseDocEnd(shard, reason))
     return false;
-
-  for (DocMeta& doc : shard.docs)
-    doc.staticScore = 0.0;
   return true;
 }
 
@@ -572,89 +959,328 @@ int TierForRankIndex(size_t index, size_t total)
   return 2;
 }
 
-int TierForScore(double score, double tier0Min, double tier1Min)
+bool BetterOrEqualRank(const RankedDoc& doc, const RankedDoc& cutoff)
 {
-  if (score >= tier0Min)
+  if (doc.score != cutoff.score)
+    return doc.score > cutoff.score;
+  return doc.url <= cutoff.url;
+}
+
+int TierForDoc(const DocMeta& doc, const RankBoundaries& boundaries)
+{
+  RankedDoc ranked{doc.url, StaticRankScore(doc)};
+  if (BetterOrEqualRank(ranked, boundaries.tier0Last))
     return 0;
-  if (score >= tier1Min)
+  if (BetterOrEqualRank(ranked, boundaries.tier1Last))
     return 1;
   return 2;
 }
 
-bool EnsureOutputDirectory(const avengine::string& path)
+std::string HexEncode(const std::string& text)
 {
-  struct stat st = {};
-  if (stat(path.cstr(), &st) == 0)
-    return (st.st_mode & S_IFDIR) != 0;
-  return mkdir(path.cstr(), 0755) == 0;
+  static const char hex[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(text.size() * 2u);
+  for (unsigned char c : text)
+  {
+    out.push_back(hex[c >> 4]);
+    out.push_back(hex[c & 0x0Fu]);
+  }
+  return out;
 }
 
-bool PrepareOutputDirectory(const avengine::string& path, bool force)
+int HexValue(char c)
 {
-  if (!EnsureOutputDirectory(path))
-  {
-    fprintf(stderr, "failed to create output directory: %s\n", path.cstr());
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return 10 + (c - 'a');
+  if (c >= 'A' && c <= 'F')
+    return 10 + (c - 'A');
+  return -1;
+}
+
+bool HexDecode(const std::string& encoded, std::string& out)
+{
+  if ((encoded.size() % 2u) != 0)
     return false;
-  }
-
-  DIR* dir = opendir(path.cstr());
-  if (!dir)
-    return false;
-
-  avengine::vector<avengine::string> sfiFiles;
-  avengine::vector<avengine::string> tempFiles;
-  while (dirent* ent = readdir(dir))
+  out.clear();
+  out.reserve(encoded.size() / 2u);
+  for (size_t i = 0; i < encoded.size(); i += 2)
   {
-    const avengine::string name(ent->d_name);
-    if (HasSfiSuffix(name))
-    {
-      sfiFiles.pushBack(JoinPath(path, name));
-    }
-    else if (EndsWithLiteral(name, ".sfi.tmp"))
-    {
-      tempFiles.pushBack(JoinPath(path, name));
-    }
+    const int hi = HexValue(encoded[i]);
+    const int lo = HexValue(encoded[i + 1]);
+    if (hi < 0 || lo < 0)
+      return false;
+    out.push_back(static_cast<char>((hi << 4) | lo));
   }
-  closedir(dir);
-
-  if (!force && !sfiFiles.empty())
-  {
-    fprintf(stderr, "output directory already contains .sfi files; pass --force to replace\n");
-    return false;
-  }
-
-  for (const avengine::string& file : sfiFiles)
-    unlink(file.cstr());
-  for (const avengine::string& file : tempFiles)
-    unlink(file.cstr());
   return true;
 }
 
-avengine::vector<avengine::string> DiscoverSfiFiles(const avengine::string& dirPath)
+std::vector<std::string> SplitWords(const std::string& line)
 {
-  avengine::vector<avengine::string> files;
-  DIR* dir = opendir(dirPath.cstr());
+  std::vector<std::string> out;
+  size_t i = 0;
+  while (i < line.size())
+  {
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t' || line[i] == '\n' ||
+                               line[i] == '\r'))
+    {
+      ++i;
+    }
+    const size_t start = i;
+    while (i < line.size() && line[i] != ' ' && line[i] != '\t' && line[i] != '\n' &&
+           line[i] != '\r')
+    {
+      ++i;
+    }
+    if (i > start)
+      out.push_back(line.substr(start, i - start));
+  }
+  return out;
+}
+
+CheckpointEntry* FindCheckpointEntry(CheckpointState& state, const std::string& path)
+{
+  for (CheckpointEntry& entry : state.entries)
+  {
+    if (entry.path == path)
+      return &entry;
+  }
+  return nullptr;
+}
+
+const CheckpointEntry* FindCheckpointEntry(const CheckpointState& state, const std::string& path)
+{
+  for (const CheckpointEntry& entry : state.entries)
+  {
+    if (entry.path == path)
+      return &entry;
+  }
+  return nullptr;
+}
+
+bool SameFingerprint(const CheckpointEntry& entry, const ShardFile& file)
+{
+  return entry.path == file.pathStd && entry.size == file.size && entry.mtime == file.mtime &&
+         entry.isAnchor == file.isAnchor;
+}
+
+bool LoadCheckpoint(const avengine::string& path, CheckpointState& state)
+{
+  state.entries.clear();
+  FILE* fp = fopen(path.cstr(), "r");
+  if (!fp)
+    return false;
+
+  char line[65536];
+  if (!fgets(line, sizeof(line), fp))
+  {
+    fclose(fp);
+    return false;
+  }
+  std::string header(line);
+  while (!header.empty() && (header.back() == '\n' || header.back() == '\r'))
+    header.pop_back();
+  if (header != kCheckpointHeader)
+  {
+    fclose(fp);
+    return false;
+  }
+
+  while (fgets(line, sizeof(line), fp))
+  {
+    std::vector<std::string> parts = SplitWords(line);
+    if (parts.empty())
+      continue;
+    if ((parts[0] == "DONE" || parts[0] == "FAIL") && parts.size() >= 6)
+    {
+      std::string decodedPath;
+      if (!HexDecode(parts[1], decodedPath))
+        continue;
+      uint64_t size = 0;
+      uint64_t mtime = 0;
+      uint64_t isAnchor = 0;
+      uint64_t docs = 0;
+      if (!ParseU64(parts[2], size) || !ParseU64(parts[3], mtime) ||
+          !ParseU64(parts[4], isAnchor) || !ParseU64(parts[5], docs))
+      {
+        continue;
+      }
+
+      CheckpointEntry* entry = FindCheckpointEntry(state, decodedPath);
+      if (!entry)
+      {
+        CheckpointEntry created;
+        created.path = decodedPath;
+        state.entries.push_back(created);
+        entry = &state.entries.back();
+      }
+      entry->size = size;
+      entry->mtime = static_cast<int64_t>(mtime);
+      entry->isAnchor = isAnchor != 0;
+      entry->documents = static_cast<size_t>(docs);
+      entry->completed = parts[0] == "DONE";
+      entry->failed = parts[0] == "FAIL";
+      if (entry->failed && parts.size() >= 7)
+        HexDecode(parts[6], entry->reason);
+    }
+    else if (parts[0] == "OUT" && parts.size() >= 3)
+    {
+      std::string decodedPath;
+      std::string decodedOut;
+      if (!HexDecode(parts[1], decodedPath) || !HexDecode(parts[2], decodedOut))
+        continue;
+      CheckpointEntry* entry = FindCheckpointEntry(state, decodedPath);
+      if (entry)
+        entry->outputs.push_back(decodedOut);
+    }
+  }
+
+  fclose(fp);
+  return true;
+}
+
+bool SaveCheckpoint(const avengine::string& path, const CheckpointState& state)
+{
+  const std::string finalPath = ToStdString(path);
+  const std::string tmpPath = finalPath + ".tmp";
+  FILE* fp = fopen(tmpPath.c_str(), "w");
+  if (!fp)
+    return false;
+
+  fprintf(fp, "%s\n", kCheckpointHeader);
+  for (const CheckpointEntry& entry : state.entries)
+  {
+    if (entry.completed)
+    {
+      fprintf(fp, "DONE %s %llu %lld %d %zu\n", HexEncode(entry.path).c_str(),
+              static_cast<unsigned long long>(entry.size), static_cast<long long>(entry.mtime),
+              entry.isAnchor ? 1 : 0, entry.documents);
+      for (const std::string& output : entry.outputs)
+      {
+        fprintf(fp, "OUT %s %s\n", HexEncode(entry.path).c_str(), HexEncode(output).c_str());
+      }
+    }
+    else if (entry.failed)
+    {
+      fprintf(fp, "FAIL %s %llu %lld %d %zu %s\n", HexEncode(entry.path).c_str(),
+              static_cast<unsigned long long>(entry.size), static_cast<long long>(entry.mtime),
+              entry.isAnchor ? 1 : 0, entry.documents, HexEncode(entry.reason).c_str());
+    }
+  }
+
+  const int fd = fileno(fp);
+  fflush(fp);
+  fsync(fd);
+  const bool closeOk = fclose(fp) == 0;
+  if (!closeOk || rename(tmpPath.c_str(), finalPath.c_str()) != 0)
+  {
+    unlink(tmpPath.c_str());
+    return false;
+  }
+  return true;
+}
+
+void MarkCheckpointComplete(CheckpointState& state, const ShardFile& file, size_t documents,
+                            const std::vector<std::string>& outputs)
+{
+  CheckpointEntry* entry = FindCheckpointEntry(state, file.pathStd);
+  if (!entry)
+  {
+    CheckpointEntry created;
+    created.path = file.pathStd;
+    state.entries.push_back(created);
+    entry = &state.entries.back();
+  }
+  entry->size = file.size;
+  entry->mtime = file.mtime;
+  entry->isAnchor = file.isAnchor;
+  entry->documents = documents;
+  entry->completed = true;
+  entry->failed = false;
+  entry->reason.clear();
+  entry->outputs = outputs;
+}
+
+void MarkCheckpointFailed(CheckpointState& state, const ShardFile& file, const std::string& reason)
+{
+  CheckpointEntry* entry = FindCheckpointEntry(state, file.pathStd);
+  if (!entry)
+  {
+    CheckpointEntry created;
+    created.path = file.pathStd;
+    state.entries.push_back(created);
+    entry = &state.entries.back();
+  }
+  entry->size = file.size;
+  entry->mtime = file.mtime;
+  entry->isAnchor = file.isAnchor;
+  entry->documents = 0;
+  entry->completed = false;
+  entry->failed = true;
+  entry->reason = reason;
+  entry->outputs.clear();
+}
+
+bool CompletedOutputsExist(const CheckpointEntry& entry)
+{
+  if (!entry.completed)
+    return false;
+  for (const std::string& output : entry.outputs)
+  {
+    if (!FileExists(output))
+      return false;
+  }
+  return true;
+}
+
+bool CheckpointFailedSameInput(const CheckpointState& checkpoint, const ShardFile& file)
+{
+  const CheckpointEntry* entry = FindCheckpointEntry(checkpoint, file.pathStd);
+  return entry && entry->failed && SameFingerprint(*entry, file);
+}
+
+bool CheckpointCompletedSameInput(const CheckpointState& checkpoint, const ShardFile& file)
+{
+  const CheckpointEntry* entry = FindCheckpointEntry(checkpoint, file.pathStd);
+  return entry && SameFingerprint(*entry, file) && CompletedOutputsExist(*entry);
+}
+
+void RemoveShardOutputs(const avengine::string& outputDir, const ShardFile& file)
+{
+  DIR* dir = opendir(outputDir.cstr());
   if (!dir)
-    return files;
+    return;
 
   while (dirent* ent = readdir(dir))
   {
-    if (ent->d_name[0] == '.')
-      continue;
-    const avengine::string name(ent->d_name);
-    if (HasSfiSuffix(name))
-      files.pushBack(JoinPath(dirPath, name));
+    const std::string name(ent->d_name);
+    bool belongsToShard = false;
+    for (size_t tier = 0; tier < kTierCount && !belongsToShard; ++tier)
+    {
+      std::string prefix = "tier" + std::to_string(tier);
+      if (file.isAnchor)
+        prefix += "_anchor";
+      prefix += "_";
+      prefix += file.stem;
+      prefix += "_";
+      belongsToShard = name.starts_with(prefix);
+    }
+    if (belongsToShard && (name.ends_with(".sfi") || name.ends_with(".sfi.tmp")))
+    {
+      unlink(JoinPath(outputDir, ToAvString(name)).cstr());
+    }
   }
   closedir(dir);
-  files.sort();
-  return files;
 }
 
 class TierShardWriter
 {
 public:
-  TierShardWriter(avengine::string outputDir, bool anchor, size_t partition, bool partitioned)
-      : outputDir_(outputDir), anchor_(anchor), partition_(partition), partitioned_(partitioned)
+  TierShardWriter(avengine::string outputDir, bool anchor, std::string stem,
+                  std::vector<std::string>* outputs)
+      : outputDir_(outputDir), anchor_(anchor), stem_(std::move(stem)), outputs_(outputs)
   {
     for (size_t i = 0; i < kTierCount; ++i)
       indexes_[i] = new Index();
@@ -688,7 +1314,7 @@ public:
     index->endDocument();
 
     if (index->offset >= OFFSET_THRESHOLD)
-      return FlushTier(static_cast<size_t>(tier), false);
+      return FlushTier(static_cast<size_t>(tier));
     return true;
   }
 
@@ -697,31 +1323,36 @@ public:
     bool ok = true;
     for (size_t tier = 0; tier < kTierCount; ++tier)
     {
-      if (!FlushTier(tier, true))
+      if (!FlushTier(tier))
         ok = false;
     }
     return ok;
   }
 
+  const std::string& error() const
+  {
+    return error_;
+  }
+
 private:
   avengine::string OutputPath(size_t tier, size_t ordinal, bool temp) const
   {
-    char name[64];
-    if (partitioned_ && anchor_)
-      snprintf(name, sizeof(name), "tier%zu_anchor_part%02zu_%05zu.sfi%s", tier, partition_,
-               ordinal, temp ? ".tmp" : "");
-    else if (partitioned_)
-      snprintf(name, sizeof(name), "tier%zu_part%02zu_%05zu.sfi%s", tier, partition_, ordinal,
-               temp ? ".tmp" : "");
-    else if (anchor_)
-      snprintf(name, sizeof(name), "tier%zu_anchor_%05zu.sfi%s", tier, ordinal,
-               temp ? ".tmp" : "");
-    else
-      snprintf(name, sizeof(name), "tier%zu_%05zu.sfi%s", tier, ordinal, temp ? ".tmp" : "");
-    return JoinPath(outputDir_, name);
+    char ordinalText[32];
+    snprintf(ordinalText, sizeof(ordinalText), "%05zu", ordinal);
+    std::string name = "tier" + std::to_string(tier);
+    if (anchor_)
+      name += "_anchor";
+    name += "_";
+    name += stem_;
+    name += "_";
+    name += ordinalText;
+    name += ".sfi";
+    if (temp)
+      name += ".tmp";
+    return JoinPath(outputDir_, ToAvString(name));
   }
 
-  bool FlushTier(size_t tier, bool final)
+  bool FlushTier(size_t tier)
   {
     Index* index = indexes_[tier];
     if (index->documentMetadata.empty())
@@ -733,55 +1364,53 @@ private:
     const int fd = open(tmpPath.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
     {
+      error_ = "open output failed";
       perror(tmpPath.cstr());
       return false;
     }
 
     const bool ioError = index->serialize(fd);
+    const bool syncOk = fsync(fd) == 0;
     const bool closeOk = close(fd) == 0;
-    if (ioError || !closeOk || rename(tmpPath.cstr(), finalPath.cstr()) != 0)
+    if (ioError || !syncOk || !closeOk || rename(tmpPath.cstr(), finalPath.cstr()) != 0)
     {
+      error_ = "write output failed";
       unlink(tmpPath.cstr());
       return false;
     }
 
+    if (outputs_)
+      outputs_->push_back(ToStdString(finalPath));
+
     delete indexes_[tier];
-    indexes_[tier] = final ? new Index() : new Index();
+    indexes_[tier] = new Index();
     return true;
   }
 
   avengine::string outputDir_;
   bool anchor_ = false;
-  size_t partition_ = 0;
-  bool partitioned_ = false;
+  std::string stem_;
+  std::vector<std::string>* outputs_ = nullptr;
   Index* indexes_[kTierCount] = {};
   size_t counters_[kTierCount] = {};
+  std::string error_;
 };
-
-size_t CountPrimaryFiles(const avengine::vector<avengine::string>& files)
-{
-  size_t count = 0;
-  for (const avengine::string& path : files)
-  {
-    if (!IsAnchorShardName(path))
-      ++count;
-  }
-  return count;
-}
 
 struct RankWorkerArgs
 {
-  const avengine::vector<avengine::string>* files = nullptr;
+  const std::vector<ShardFile>* files = nullptr;
   avengine::atomic_counter* nextFile = nullptr;
-  avengine::vector<RankedDoc>* docs = nullptr;
+  std::vector<RankedDoc>* docs = nullptr;
   avengine::mutex* docsMutex = nullptr;
   ProgressState* progress = nullptr;
+  CheckpointState* checkpoint = nullptr;
+  avengine::mutex* checkpointMutex = nullptr;
 };
 
 void* RankWorkerMain(void* raw)
 {
   RankWorkerArgs* args = static_cast<RankWorkerArgs*>(raw);
-  avengine::vector<RankedDoc> localDocs;
+  std::vector<RankedDoc> localDocs;
 
   for (;;)
   {
@@ -789,30 +1418,32 @@ void* RankWorkerMain(void* raw)
     if (next < 0 || static_cast<size_t>(next) >= args->files->size())
       break;
 
-    const avengine::string& path = (*args->files)[static_cast<size_t>(next)];
-    if (IsAnchorShardName(path))
+    const ShardFile& file = (*args->files)[static_cast<size_t>(next)];
+    if (file.isAnchor)
       continue;
 
     ParsedShard shard;
-    if (!ParseShard(path, false, shard))
+    std::string reason;
+    if (!ParseShard(file, shard, reason))
     {
-      fprintf(stderr, "warning: failed to parse primary shard %s\n", path.cstr());
+      fprintf(stderr, "warning: failed to parse primary shard %s: %s\n", file.path.cstr(),
+              reason.c_str());
       args->progress->failedShards.fetch_add(1);
       args->progress->processedShards.fetch_add(1);
+      args->checkpointMutex->lock();
+      MarkCheckpointFailed(*args->checkpoint, file, reason);
+      args->checkpointMutex->unlock();
       continue;
     }
 
     for (size_t i = 0; i < shard.docs.size(); ++i)
-    {
-      const DocMeta& doc = shard.docs[i];
-      localDocs.pushBack({doc.url, StaticRankScore(doc)});
-    }
+      localDocs.push_back({shard.docs[i].url, StaticRankScore(shard.docs[i])});
 
     if (!localDocs.empty())
     {
       args->docsMutex->lock();
-      for (size_t i = 0; i < localDocs.size(); ++i)
-        args->docs->pushBack(localDocs[i]);
+      for (const RankedDoc& doc : localDocs)
+        args->docs->push_back(doc);
       args->docsMutex->unlock();
       localDocs.clear();
     }
@@ -822,11 +1453,10 @@ void* RankWorkerMain(void* raw)
   return nullptr;
 }
 
-bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
-                     avengine::unordered_map<int>& tierByUrl, double& tier0Min,
-                     double& tier1Min, size_t threadCount)
+bool BuildRankBoundaries(const std::vector<ShardFile>& files, CheckpointState& checkpoint,
+                         RankBoundaries& boundaries, size_t threadCount)
 {
-  avengine::vector<RankedDoc> docs;
+  std::vector<RankedDoc> docs;
   const size_t primaryCount = CountPrimaryFiles(files);
   if (primaryCount == 0)
     return false;
@@ -840,6 +1470,7 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
 
   avengine::atomic_counter nextFile(0);
   avengine::mutex docsMutex;
+  avengine::mutex checkpointMutex;
   const size_t workerCount = ClampPhaseThreadCount(threadCount, files.size(), kMaxRankThreads);
   printf("[tiered_shard_preprocessor] ranking with %zu worker thread(s)\n", workerCount);
   avengine::thread* workers = new avengine::thread[workerCount];
@@ -853,6 +1484,8 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
     args[i].docs = &docs;
     args[i].docsMutex = &docsMutex;
     args[i].progress = &progress;
+    args[i].checkpoint = &checkpoint;
+    args[i].checkpointMutex = &checkpointMutex;
     if (!workers[i].start(RankWorkerMain, &args[i]))
     {
       started = false;
@@ -876,39 +1509,119 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
     fprintf(stderr, "failed to start rank worker thread\n");
     return false;
   }
-
   if (docs.empty())
     return false;
 
-  docs.sort([](const RankedDoc& lhs, const RankedDoc& rhs) {
+  std::sort(docs.begin(), docs.end(), [](const RankedDoc& lhs, const RankedDoc& rhs) {
     if (lhs.score != rhs.score)
       return lhs.score > rhs.score;
     return lhs.url < rhs.url;
   });
 
-  tier0Min = docs.front().score;
-  tier1Min = docs.back().score;
+  size_t tier0Index = 0;
+  size_t tier1Index = docs.size() - 1u;
   for (size_t i = 0; i < docs.size(); ++i)
   {
     const int tier = TierForRankIndex(i, docs.size());
     if (tier == 0)
-      tier0Min = docs[i].score;
-    else if (tier == 1)
-      tier1Min = docs[i].score;
-
-    if (!tierByUrl.get(avengine::string_slice(docs[i].url.cstr())))
-      tierByUrl.insert(static_cast<avengine::string&&>(docs[i].url), tier);
+      tier0Index = i;
+    if (tier <= 1)
+      tier1Index = i;
   }
 
+  boundaries.totalDocs = docs.size();
+  boundaries.tier0Last = docs[tier0Index];
+  boundaries.tier1Last = docs[tier1Index];
   printf("[tiered_shard_preprocessor] ranked %zu primary document(s)\n", docs.size());
   return true;
 }
 
-bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& tierByUrl,
-                  double tier0Min, double tier1Min, TierShardWriter& writer,
-                  ProgressState* progress)
+struct TermCursor
 {
-  avengine::vector<uint32_t> positions;
+  const TermEntry* term = nullptr;
+  const uint8_t* cursor = nullptr;
+  const uint8_t* end = nullptr;
+  uint64_t remaining = 0;
+  uint32_t current = 0;
+  bool valid = false;
+
+  bool advance()
+  {
+    if (remaining == 0)
+    {
+      valid = false;
+      return true;
+    }
+    uint32_t delta = 0;
+    if (!ReadVarU32(cursor, end, delta) || delta > UINT32_MAX - current)
+      return false;
+    current += delta;
+    --remaining;
+    valid = true;
+    return true;
+  }
+};
+
+bool InitTermCursor(const ParsedShard& shard, const TermEntry& term, TermCursor& cursor)
+{
+  if (!HasBytes(term.postingStart, 24u, shard.mapping.size) || term.postingEnd > shard.mapping.size)
+    return false;
+
+  const uint8_t* begin = shard.mapping.data + term.postingStart;
+  const uint8_t* end = shard.mapping.data + term.postingEnd;
+  uint64_t documentFrequency = 0;
+  uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
+  const uint8_t* deltas = nullptr;
+  if (!SkipPostingHeaderAndSkips(begin, end, documentFrequency, collectionFrequency, skipCount,
+                                 deltas))
+  {
+    return false;
+  }
+  if (documentFrequency != term.documentFrequency || collectionFrequency != term.positionsCount ||
+      collectionFrequency > static_cast<uint64_t>(end - deltas))
+  {
+    return false;
+  }
+
+  cursor.term = &term;
+  cursor.cursor = deltas;
+  cursor.end = end;
+  cursor.remaining = collectionFrequency;
+  cursor.current = 0;
+  cursor.valid = false;
+  return cursor.advance();
+}
+
+struct RewriteResult
+{
+  bool ok = false;
+  bool fatal = false;
+  size_t documents = 0;
+  std::string reason;
+  std::vector<std::string> outputs;
+};
+
+RewriteResult RewriteShard(const ParsedShard& shard, const RankBoundaries& boundaries,
+                           TierShardWriter& writer)
+{
+  RewriteResult result;
+  std::vector<TermCursor> cursors;
+  cursors.reserve(shard.terms.size());
+
+  for (size_t termIndex = 0; termIndex < shard.terms.size(); ++termIndex)
+  {
+    const TermEntry& term = shard.terms[termIndex];
+    if (term.term == DOCEND_TOKEN)
+      continue;
+    TermCursor cursor;
+    if (!InitTermCursor(shard, term, cursor))
+    {
+      result.reason = "invalid term posting";
+      return result;
+    }
+    cursors.push_back(cursor);
+  }
 
   for (size_t chunkBegin = 0; chunkBegin < shard.docs.size(); chunkBegin += kRewriteDocsPerChunk)
   {
@@ -919,35 +1632,34 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
     avengine::vector<avengine::vector<TokenAtPosition>> tokensByDoc(chunkEnd - chunkBegin);
     const uint32_t chunkStartPosition =
         chunkBegin == 0 ? 0u : static_cast<uint32_t>(shard.docEndPositions[chunkBegin - 1] + 1u);
+    const uint32_t chunkEndPosition = shard.docEndPositions[chunkEnd - 1];
 
-    for (size_t termIndex = 0; termIndex < shard.terms.size(); ++termIndex)
+    for (TermCursor& cursor : cursors)
     {
-      const TermEntry& term = shard.terms[termIndex];
-      if (term.term == DOCEND_TOKEN)
-        continue;
-      if (!DecodePositions(shard, term, positions))
-        return false;
-
-      size_t posIndex = 0;
-      size_t posHi = positions.size();
-      while (posIndex < posHi)
+      while (cursor.valid && cursor.current < chunkStartPosition)
       {
-        const size_t mid = posIndex + ((posHi - posIndex) / 2);
-        if (positions[mid] < chunkStartPosition)
-          posIndex = mid + 1;
-        else
-          posHi = mid;
+        if (!cursor.advance())
+        {
+          result.reason = "invalid term delta";
+          return result;
+        }
       }
 
       size_t docIndex = chunkBegin;
-      for (; posIndex < positions.size(); ++posIndex)
+      while (cursor.valid && cursor.current <= chunkEndPosition)
       {
-        const uint32_t pos = positions[posIndex];
-        while (docIndex < chunkEnd && shard.docEndPositions[docIndex] < pos)
+        while (docIndex < chunkEnd && shard.docEndPositions[docIndex] < cursor.current)
           ++docIndex;
         if (docIndex >= chunkEnd)
           break;
-        tokensByDoc[docIndex - chunkBegin].pushBack({pos, static_cast<uint32_t>(termIndex)});
+        const size_t termIndex = static_cast<size_t>(cursor.term - shard.terms.begin());
+        tokensByDoc[docIndex - chunkBegin].pushBack(
+            {cursor.current, static_cast<uint32_t>(termIndex)});
+        if (!cursor.advance())
+        {
+          result.reason = "invalid term delta";
+          return result;
+        }
       }
     }
 
@@ -960,42 +1672,45 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
         return lhs.termIndex < rhs.termIndex;
       });
 
-      int tier = 2;
-      const int* found = tierByUrl.get(avengine::string_slice(shard.docs[docIndex].url.cstr()));
-      if (found)
-        tier = *found;
-      else
-        tier = TierForScore(StaticRankScore(shard.docs[docIndex]), tier0Min, tier1Min);
-
+      const int tier = TierForDoc(shard.docs[docIndex], boundaries);
       if (!writer.AddDocument(tier, shard.docs[docIndex], tokens, shard.terms))
-        return false;
-      if (progress)
-        progress->documents.fetch_add(1);
+      {
+        result.reason = writer.error();
+        result.fatal = true;
+        return result;
+      }
+      ++result.documents;
     }
   }
 
-  return true;
+  if (!writer.Finish())
+  {
+    result.reason = writer.error();
+    result.fatal = true;
+    return result;
+  }
+
+  result.ok = true;
+  return result;
 }
 
 struct RewriteWorkerArgs
 {
-  const avengine::vector<avengine::string>* files = nullptr;
-  const avengine::unordered_map<int>* tierByUrl = nullptr;
+  const std::vector<ShardFile>* files = nullptr;
+  const RankBoundaries* boundaries = nullptr;
+  CheckpointState* checkpoint = nullptr;
+  avengine::mutex* checkpointMutex = nullptr;
   avengine::atomic_counter* nextFile = nullptr;
   ProgressState* progress = nullptr;
   const avengine::string* outputDir = nullptr;
-  double tier0Min = 0.0;
-  double tier1Min = 0.0;
-  size_t workerIndex = 0;
-  bool partitionedOutput = false;
+  const avengine::string* checkpointPath = nullptr;
   avengine::atomic_counter* fatalFailure = nullptr;
+  avengine::atomic_counter* completedPrimary = nullptr;
 };
 
 void* RewriteWorkerMain(void* raw)
 {
   RewriteWorkerArgs* args = static_cast<RewriteWorkerArgs*>(raw);
-  TierShardWriter primaryWriter(*args->outputDir, false, args->workerIndex, args->partitionedOutput);
-  TierShardWriter anchorWriter(*args->outputDir, true, args->workerIndex, args->partitionedOutput);
 
   for (;;)
   {
@@ -1006,38 +1721,84 @@ void* RewriteWorkerMain(void* raw)
     if (next < 0 || static_cast<size_t>(next) >= args->files->size())
       break;
 
-    const avengine::string& path = (*args->files)[static_cast<size_t>(next)];
-    const bool isAnchor = IsAnchorShardName(path);
-    ParsedShard shard;
-    if (!ParseShard(path, isAnchor, shard))
+    const ShardFile& file = (*args->files)[static_cast<size_t>(next)];
+
+    args->checkpointMutex->lock();
+    const bool completed = CheckpointCompletedSameInput(*args->checkpoint, file);
+    const bool failed = CheckpointFailedSameInput(*args->checkpoint, file);
+    args->checkpointMutex->unlock();
+
+    if (completed)
     {
-      fprintf(stderr, "warning: failed to parse shard %s\n", path.cstr());
+      if (!file.isAnchor)
+        args->completedPrimary->fetch_add(1);
+      args->progress->processedShards.fetch_add(1);
+      continue;
+    }
+    if (failed)
+    {
       args->progress->failedShards.fetch_add(1);
       args->progress->processedShards.fetch_add(1);
       continue;
     }
 
-    TierShardWriter& writer = isAnchor ? anchorWriter : primaryWriter;
-    if (!RewriteShard(shard, *args->tierByUrl, args->tier0Min, args->tier1Min, writer,
-                      args->progress))
+    RemoveShardOutputs(*args->outputDir, file);
+
+    ParsedShard shard;
+    std::string reason;
+    if (!ParseShard(file, shard, reason))
     {
-      fprintf(stderr, "failed while rewriting shard %s\n", path.cstr());
+      fprintf(stderr, "warning: failed to parse shard %s: %s\n", file.path.cstr(), reason.c_str());
+      args->checkpointMutex->lock();
+      MarkCheckpointFailed(*args->checkpoint, file, reason);
+      SaveCheckpoint(*args->checkpointPath, *args->checkpoint);
+      args->checkpointMutex->unlock();
       args->progress->failedShards.fetch_add(1);
       args->progress->processedShards.fetch_add(1);
-      args->fatalFailure->store(1);
-      break;
+      continue;
     }
+
+    std::vector<std::string> outputs;
+    TierShardWriter writer(*args->outputDir, file.isAnchor, file.stem, &outputs);
+    RewriteResult result = RewriteShard(shard, *args->boundaries, writer);
+    if (!result.ok)
+    {
+      fprintf(stderr, "warning: failed while rewriting shard %s: %s\n", file.path.cstr(),
+              result.reason.c_str());
+      args->checkpointMutex->lock();
+      if (result.fatal)
+      {
+        args->fatalFailure->store(1);
+      }
+      else
+      {
+        MarkCheckpointFailed(*args->checkpoint, file, result.reason);
+        SaveCheckpoint(*args->checkpointPath, *args->checkpoint);
+      }
+      args->checkpointMutex->unlock();
+      args->progress->failedShards.fetch_add(1);
+      args->progress->processedShards.fetch_add(1);
+      if (result.fatal)
+        break;
+      continue;
+    }
+
+    args->checkpointMutex->lock();
+    MarkCheckpointComplete(*args->checkpoint, file, result.documents, outputs);
+    SaveCheckpoint(*args->checkpointPath, *args->checkpoint);
+    args->checkpointMutex->unlock();
+
+    if (!file.isAnchor)
+      args->completedPrimary->fetch_add(1);
+    args->progress->documents.fetch_add(static_cast<int>(result.documents));
     args->progress->processedShards.fetch_add(1);
   }
-
-  if (!primaryWriter.Finish() || !anchorWriter.Finish())
-    args->fatalFailure->store(1);
   return nullptr;
 }
 
-bool RewriteAll(const avengine::vector<avengine::string>& files,
-                const avengine::unordered_map<int>& tierByUrl, double tier0Min,
-                double tier1Min, const avengine::string& outputDir, size_t threadCount)
+bool RewriteAll(const std::vector<ShardFile>& files, const RankBoundaries& boundaries,
+                CheckpointState& checkpoint, const avengine::string& outputDir,
+                const avengine::string& checkpointPath, size_t threadCount)
 {
   ProgressState progress;
   progress.phase = "rewrite";
@@ -1048,25 +1809,26 @@ bool RewriteAll(const avengine::vector<avengine::string>& files,
 
   avengine::atomic_counter nextFile(0);
   avengine::atomic_counter fatalFailure(0);
+  avengine::atomic_counter completedPrimary(0);
+  avengine::mutex checkpointMutex;
   const size_t workerCount = ClampPhaseThreadCount(threadCount, files.size(), kMaxRewriteThreads);
   printf("[tiered_shard_preprocessor] rewriting with %zu worker thread(s)\n", workerCount);
   avengine::thread* workers = new avengine::thread[workerCount];
   RewriteWorkerArgs* args = new RewriteWorkerArgs[workerCount];
-  const bool partitionedOutput = workerCount > 1;
 
   bool started = true;
   for (size_t i = 0; i < workerCount; ++i)
   {
     args[i].files = &files;
-    args[i].tierByUrl = &tierByUrl;
+    args[i].boundaries = &boundaries;
+    args[i].checkpoint = &checkpoint;
+    args[i].checkpointMutex = &checkpointMutex;
     args[i].nextFile = &nextFile;
     args[i].progress = &progress;
     args[i].outputDir = &outputDir;
-    args[i].tier0Min = tier0Min;
-    args[i].tier1Min = tier1Min;
-    args[i].workerIndex = i;
-    args[i].partitionedOutput = partitionedOutput;
+    args[i].checkpointPath = &checkpointPath;
     args[i].fatalFailure = &fatalFailure;
+    args[i].completedPrimary = &completedPrimary;
     if (!workers[i].start(RewriteWorkerMain, &args[i]))
     {
       started = false;
@@ -1088,13 +1850,24 @@ bool RewriteAll(const avengine::vector<avengine::string>& files,
 
   if (!started)
     fprintf(stderr, "failed to start rewrite worker thread\n");
+  if (started && !fatalFailure.load() && completedPrimary.get_val() == 0)
+  {
+    fprintf(stderr, "[tiered_shard_preprocessor] no primary shards completed\n");
+    return false;
+  }
   return started && !fatalFailure.load();
+}
+
+avengine::string DefaultCheckpointPath(const avengine::string& outputDir)
+{
+  return JoinPath(outputDir, avengine::string(".tiered_preprocess.checkpoint"));
 }
 
 void Usage(const char* prog)
 {
   fprintf(stderr,
-          "Usage: %s [--input DIR] [--output DIR] [--threads N] [--force]\n"
+          "Usage: %s [--input DIR] [--output DIR] [--threads N] [--checkpoint PATH]\n"
+          "          [--force] [--reset-checkpoint]\n"
           "Rewrites existing primary and anchor .sfi shards into tiered .sfi shards.\n",
           prog);
 }
@@ -1108,6 +1881,8 @@ bool ParseOptions(int argc, char** argv, Options& options)
       options.inputDir = argv[++i];
     else if (arg == "--output" && i + 1 < argc)
       options.outputDir = argv[++i];
+    else if (arg == "--checkpoint" && i + 1 < argc)
+      options.checkpointPath = argv[++i];
     else if (arg == "--threads" && i + 1 < argc)
     {
       if (!ParseSize(argv[++i], options.threads) || options.threads == 0)
@@ -1118,6 +1893,8 @@ bool ParseOptions(int argc, char** argv, Options& options)
     }
     else if (arg == "--force")
       options.force = true;
+    else if (arg == "--reset-checkpoint")
+      options.resetCheckpoint = true;
     else if (arg == "--help" || arg == "-h")
     {
       Usage(argv[0]);
@@ -1130,6 +1907,8 @@ bool ParseOptions(int argc, char** argv, Options& options)
       return false;
     }
   }
+  if (options.checkpointPath.size() == 0)
+    options.checkpointPath = DefaultCheckpointPath(options.outputDir);
   return true;
 }
 
@@ -1148,33 +1927,47 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  const avengine::vector<avengine::string> files = DiscoverSfiFiles(options.inputDir);
+  const std::vector<ShardFile> files = DiscoverSfiFiles(options.inputDir);
   if (files.empty())
   {
     fprintf(stderr, "[tiered_shard_preprocessor] no .sfi files found in %s\n",
-                 options.inputDir.cstr());
+            options.inputDir.cstr());
     return 1;
   }
 
-  if (!PrepareOutputDirectory(options.outputDir, options.force))
+  if (!PrepareOutputDirectory(options.outputDir, options.checkpointPath, options.force,
+                              options.resetCheckpoint))
+  {
     return 1;
+  }
+
+  CheckpointState checkpoint;
+  if (!options.resetCheckpoint && LoadCheckpoint(options.checkpointPath, checkpoint))
+  {
+    printf("[tiered_shard_preprocessor] loaded checkpoint %s\n", options.checkpointPath.cstr());
+  }
 
   const size_t threadCount = ClampThreadCount(options.threads, files.size());
   printf("[tiered_shard_preprocessor] found %zu shard(s), max worker thread(s) %zu\n",
          files.size(), threadCount);
 
-  avengine::unordered_map<int> tierByUrl;
-  double tier0Min = 0.0;
-  double tier1Min = 0.0;
-  if (!BuildUrlTierMap(files, tierByUrl, tier0Min, tier1Min, threadCount))
+  RankBoundaries boundaries;
+  if (!BuildRankBoundaries(files, checkpoint, boundaries, threadCount))
   {
     fprintf(stderr, "[tiered_shard_preprocessor] no primary documents found\n");
+    SaveCheckpoint(options.checkpointPath, checkpoint);
+    return 1;
+  }
+  SaveCheckpoint(options.checkpointPath, checkpoint);
+
+  if (!RewriteAll(files, boundaries, checkpoint, options.outputDir, options.checkpointPath,
+                  threadCount))
+  {
+    SaveCheckpoint(options.checkpointPath, checkpoint);
     return 1;
   }
 
-  if (!RewriteAll(files, tierByUrl, tier0Min, tier1Min, options.outputDir, threadCount))
-    return 1;
-
+  SaveCheckpoint(options.checkpointPath, checkpoint);
   printf("[tiered_shard_preprocessor] wrote tiered shards to %s\n", options.outputDir.cstr());
   return 0;
 }

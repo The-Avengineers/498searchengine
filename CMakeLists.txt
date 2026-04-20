@@ -256,7 +256,13 @@ if(BUILD_TESTING)
       target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    if(test_name STREQUAL "tiered_shard_preprocessor_test")
+      add_dependencies(${test_name} tiered_shard_preprocessor)
+      add_test(NAME ${test_name}
+               COMMAND ${test_name} $<TARGET_FILE:tiered_shard_preprocessor>)
+    else()
+      add_test(NAME ${test_name} COMMAND ${test_name})
+    endif()
   endforeach()
 
   find_program(NODE_EXECUTABLE NAMES node nodejs)

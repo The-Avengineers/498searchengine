@@ -75,13 +75,14 @@ bool IndexShardSource::Load(const string& path)
   (void)headerReader.readU64(); // document count
   const uint64_t uniqueWords = headerReader.readU64();
   (void)headerReader.readU64(); // token offset
-  uint64_t rankingInputSize = headerReader.readU64(); // ranking-input size
+  const uint64_t rankingInputSize = headerReader.readU64(); // ranking-input size
 
-  if (rankingInputSize != sizeof(RankingInput))
+  if (rankingInputSize > sizeof(RankingInput))
   {
     Reset();
     return false;
   }
+  rankingInputSize_ = static_cast<size_t>(rankingInputSize);
 
   if (magic != kIndexMagic)
   {
@@ -337,8 +338,10 @@ bool IndexShardSource::ParseDocumentMetadata()
     r.skip(descLen);
 
     RankingInput rankingInput = {};
-    if (r.remaining() >= sizeof(RankingInput))
-      r.readBytes(&rankingInput, sizeof(RankingInput));
+    if (r.remaining() < rankingInputSize_)
+      return false;
+    if (rankingInputSize_ > 0)
+      r.readBytes(&rankingInput, rankingInputSize_);
     const Location end = docId < boundaries.size() ? boundaries[static_cast<size_t>(docId)] : start;
     documentsStorage_.pushBack(
         {static_cast<uint32_t>(docId), start, end,
@@ -406,6 +409,7 @@ void IndexShardSource::Reset()
   documentSize_ = 0;
 
   postingsStart_ = 0;
+  rankingInputSize_ = 0;
 
   fileSize_ = 0;
   if (data_)

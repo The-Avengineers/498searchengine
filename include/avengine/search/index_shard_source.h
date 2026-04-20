@@ -61,6 +61,7 @@ private:
   uint8_t* data_ = nullptr;
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
+  size_t rankingInputSize_ = 0;
 
   // Active read views point into the storage vectors below. Always valid after
   // a successful Load().
