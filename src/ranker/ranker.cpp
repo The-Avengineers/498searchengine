@@ -59,7 +59,9 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
     using namespace ranking_strategy_detail;
     const bool title_covered = signals.title_term_positions != nullptr &&
                                CoverageScore(*signals.title_term_positions) > 0.0;
-    if (!title_covered && !HasExactPhrase(term_positions))
+    const bool anchor_covered = signals.anchor_term_positions != nullptr &&
+                                CoverageScore(*signals.anchor_term_positions) > 0.0;
+    if (!title_covered && !anchor_covered && !HasExactPhrase(term_positions))
       return;
   }
 

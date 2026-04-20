@@ -7,6 +7,7 @@
 #include <avengine/unordered_map.h>
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -165,12 +166,21 @@ struct DocRef
   uint32_t docId = 0;
 };
 
+struct PendingDocRef
+{
+  string url;
+  uint32_t docId = 0;
+};
+
 struct PostingEvidence
 {
   uint32_t docId = 0;
   uint32_t bodyTf = 0;
   uint32_t titleTf = 0;
   uint32_t anchorTf = 0;
+  vector<uint32_t> bodyPositions;
+  vector<uint32_t> titlePositions;
+  vector<uint32_t> anchorPositions;
 };
 
 struct TermBuildState
@@ -185,6 +195,7 @@ struct OutputShardState
   LegacyShardReader* reader = nullptr;
   vector<TermBuildState> terms;
   vector<uint32_t> docLengths;
+  vector<ServingDocRankMetadataV1> docRanks;
 };
 
 struct OutputWriteJob
@@ -226,9 +237,27 @@ TermBuildState* FindOrAddTerm(vector<TermBuildState>& terms, const string& term)
   return &terms.back();
 }
 
+void AppendPositions(vector<uint32_t>& destination, const vector<uint32_t>& source)
+{
+  for (uint32_t position : source)
+    destination.pushBack(position);
+}
+
+void AppendAnchorPositionsWithGap(vector<uint32_t>& destination, const vector<uint32_t>& source)
+{
+  uint32_t base = 0;
+  if (!destination.empty())
+    base = destination.back() + 2u;
+
+  for (uint32_t position : source)
+    destination.pushBack(base + position);
+}
+
 void AddEvidence(vector<TermBuildState>& terms, const string& term, uint32_t docId,
-                 uint32_t bodyTf, uint32_t titleTf,
-                 uint32_t anchorTf)
+                 uint32_t bodyTf, uint32_t titleTf, uint32_t anchorTf,
+                 const vector<uint32_t>* bodyPositions = nullptr,
+                 const vector<uint32_t>* titlePositions = nullptr,
+                 const vector<uint32_t>* anchorPositions = nullptr)
 {
   TermBuildState* termState = FindOrAddTerm(terms, term);
   for (PostingEvidence& evidence : termState->postings)
@@ -238,11 +267,28 @@ void AddEvidence(vector<TermBuildState>& terms, const string& term, uint32_t doc
       evidence.bodyTf += bodyTf;
       evidence.titleTf += titleTf;
       evidence.anchorTf += anchorTf;
+      if (bodyPositions)
+        AppendPositions(evidence.bodyPositions, *bodyPositions);
+      if (titlePositions)
+        AppendPositions(evidence.titlePositions, *titlePositions);
+      if (anchorPositions)
+        AppendAnchorPositionsWithGap(evidence.anchorPositions, *anchorPositions);
       return;
     }
   }
 
-  termState->postings.pushBack({docId, bodyTf, titleTf, anchorTf});
+  PostingEvidence fresh;
+  fresh.docId = docId;
+  fresh.bodyTf = bodyTf;
+  fresh.titleTf = titleTf;
+  fresh.anchorTf = anchorTf;
+  if (bodyPositions)
+    AppendPositions(fresh.bodyPositions, *bodyPositions);
+  if (titlePositions)
+    AppendPositions(fresh.titlePositions, *titlePositions);
+  if (anchorPositions)
+    AppendPositions(fresh.anchorPositions, *anchorPositions);
+  termState->postings.pushBack(fresh);
 }
 
 void WriteU8(Writer& writer, uint8_t value)
@@ -288,14 +334,25 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
       *error = string("block size must be greater than zero");
     return false;
   }
+  if (shard.docRanks.size() != shard.reader->DocumentCount() ||
+      shard.docLengths.size() != shard.reader->DocumentCount())
+  {
+    if (error)
+      *error = string("document metadata arrays do not match document count");
+    return false;
+  }
 
   vector<ServingLexiconEntryV1> lexicon;
   vector<ServingTermInfoV1> termInfos;
   vector<ServingTierInfoV1> tierInfos;
   vector<ServingBlockInfoV1> blockInfos;
   vector<ServingDocMetadataEntryV1> coldDocEntries;
+  vector<ServingTermPositionInfoV1> termPositionInfos;
+  vector<ServingDocPositionEntryV1> docPositionEntries;
   vector<uint8_t> termBytes;
   vector<uint8_t> postings;
+  vector<uint8_t> positionPayload;
+  vector<uint8_t> positionSection;
   vector<uint8_t> coldStrings;
 
   vector<TermBuildState> sortedTerms = shard.terms;
@@ -318,6 +375,8 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
 
     ServingTermInfoV1 termInfo = {};
     termInfo.tierInfoIndex = static_cast<uint32_t>(tierInfos.size());
+    ServingTermPositionInfoV1 positionInfo = {};
+    positionInfo.docPositionIndex = static_cast<uint32_t>(docPositionEntries.size());
 
     vector<PostingEvidence> tiers[kServingTierCount];
     for (const PostingEvidence& sourcePosting : termState.postings)
@@ -418,8 +477,59 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
     if (termInfo.documentFrequency == 0)
       continue;
 
+    vector<PostingEvidence> positionPostings = termState.postings;
+    positionPostings.sort([](const PostingEvidence& a, const PostingEvidence& b) {
+      return a.docId < b.docId;
+    });
+    for (PostingEvidence& posting : positionPostings)
+    {
+      struct FieldPositions
+      {
+        uint32_t fieldId = 0;
+        vector<uint32_t>* positions = nullptr;
+      };
+      FieldPositions fields[] = {
+          {static_cast<uint32_t>(ServingPositionField::Body), &posting.bodyPositions},
+          {static_cast<uint32_t>(ServingPositionField::Title), &posting.titlePositions},
+          {static_cast<uint32_t>(ServingPositionField::Anchor), &posting.anchorPositions},
+      };
+      for (const FieldPositions& field : fields)
+      {
+        if (!field.positions || field.positions->empty())
+          continue;
+
+        field.positions->sort();
+        ServingDocPositionEntryV1 entry = {};
+        entry.docId = posting.docId;
+        entry.fieldId = field.fieldId;
+        entry.positionCount = static_cast<uint32_t>(field.positions->size());
+        entry.payloadOffset = static_cast<uint32_t>(positionPayload.size());
+
+        Writer positionWriter;
+        uint32_t previous = 0;
+        for (size_t i = 0; i < field.positions->size(); ++i)
+        {
+          const uint32_t value = (*field.positions)[i];
+          const uint32_t delta = i == 0 ? value : value - previous;
+          previous = value;
+          positionWriter.writeVarU32(delta);
+        }
+
+        const size_t oldSize = positionPayload.size();
+        positionPayload.resize(oldSize + positionWriter.size());
+        if (positionWriter.size() > 0)
+          std::memcpy(positionPayload.begin() + oldSize, positionWriter.data(),
+                      positionWriter.size());
+        entry.payloadLength = static_cast<uint32_t>(positionPayload.size() - oldSize);
+        docPositionEntries.pushBack(entry);
+      }
+    }
+    positionInfo.docPositionCount =
+        static_cast<uint32_t>(docPositionEntries.size() - positionInfo.docPositionIndex);
+
     lexicon.pushBack(lex);
     termInfos.pushBack(termInfo);
+    termPositionInfos.pushBack(positionInfo);
   }
 
   ServingShardHeaderV1 header = MakeEmptyServingShardHeaderV1(shard.file->shardId);
@@ -429,7 +539,8 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
   header.termCount = termInfos.size();
   header.tierCount = tierInfos.size();
   header.blockCount = blockInfos.size();
-  header.flags = kServingShardHasColdPayload;
+  header.flags = kServingShardHasColdPayload | kServingShardHasRankMetadata |
+                 kServingShardHasPositions;
 
   coldDocEntries.reserve(shard.reader->DocumentCount());
   const uint32_t coldStringBase =
@@ -480,13 +591,35 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
   header.docLengthLength = shard.docLengths.size() * sizeof(uint32_t);
   offset += header.docLengthLength;
   header.staticRankOffset = offset;
-  header.staticRankLength = 0;
+  header.staticRankLength = shard.docRanks.size() * sizeof(ServingDocRankMetadataV1);
+  offset += header.staticRankLength;
   header.coldPayloadOffset = offset;
   header.coldPayloadLength =
       coldDocEntries.size() * sizeof(ServingDocMetadataEntryV1) + coldStrings.size();
   offset += header.coldPayloadLength;
   header.debugOffset = offset;
-  header.debugLength = 0;
+  ServingPositionSectionHeaderV1 positionHeader = {};
+  positionHeader.magic = kServingPositionSectionMagic;
+  positionHeader.version = 1;
+  positionHeader.termCount = termPositionInfos.size();
+  positionHeader.docPositionEntryCount = docPositionEntries.size();
+  uint64_t positionOffset = sizeof(ServingPositionSectionHeaderV1);
+  positionHeader.termPositionOffset = positionOffset;
+  positionHeader.termPositionLength = termPositionInfos.size() * sizeof(ServingTermPositionInfoV1);
+  positionOffset += positionHeader.termPositionLength;
+  positionHeader.docPositionOffset = positionOffset;
+  positionHeader.docPositionLength =
+      docPositionEntries.size() * sizeof(ServingDocPositionEntryV1);
+  positionOffset += positionHeader.docPositionLength;
+  positionHeader.payloadOffset = positionOffset;
+  positionHeader.payloadLength = positionPayload.size();
+  positionOffset += positionHeader.payloadLength;
+  AppendRaw(positionSection, &positionHeader, 1);
+  AppendRaw(positionSection, termPositionInfos.begin(), termPositionInfos.size());
+  AppendRaw(positionSection, docPositionEntries.begin(), docPositionEntries.size());
+  AppendBytes(positionSection, positionPayload.begin(), positionPayload.size());
+  header.debugLength = positionSection.size();
+  offset += header.debugLength;
 
   out->clear();
   AppendRaw(*out, &header, 1);
@@ -497,8 +630,10 @@ bool BuildServingShardBytes(const OutputShardState& shard, uint32_t blockSize,
   AppendRaw(*out, blockInfos.begin(), blockInfos.size());
   AppendBytes(*out, postings.begin(), postings.size());
   AppendRaw(*out, shard.docLengths.begin(), shard.docLengths.size());
+  AppendRaw(*out, shard.docRanks.begin(), shard.docRanks.size());
   AppendRaw(*out, coldDocEntries.begin(), coldDocEntries.size());
   AppendBytes(*out, coldStrings.begin(), coldStrings.size());
+  AppendBytes(*out, positionSection.begin(), positionSection.size());
   return true;
 }
 
@@ -596,7 +731,11 @@ bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
     }
 
     state.docLengths.reserve(state.reader->DocumentCount());
+    state.docRanks.reserve(state.reader->DocumentCount());
+    vector<PendingDocRef> pendingDocRefs;
+    pendingDocRefs.reserve(state.reader->DocumentCount());
     const size_t shardIndex = shards->size();
+    bool metadataOk = true;
     for (size_t doc = 0; doc < state.reader->DocumentCount(); ++doc)
     {
       const LegacyDocumentMetadata* meta = state.reader->GetDocument(static_cast<uint32_t>(doc));
@@ -608,14 +747,26 @@ bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
           ++stats->skippedPrimaryShardCount;
         delete state.reader;
         state.reader = nullptr;
+        metadataOk = false;
         break;
       }
       state.docLengths.pushBack(meta->docLength);
-      urlToDoc->insert(meta->url, {shardIndex, meta->docId});
+      ServingDocRankMetadataV1 rank = {};
+      rank.domainDepth = meta->rankingInput.domainDepth;
+      rank.depth = meta->rankingInput.depth;
+      rank.urlLength = meta->rankingInput.urlLength;
+      rank.titleWordCount = meta->rankingInput.titleWordCount;
+      rank.seedSource = meta->rankingInput.seedSource;
+      state.docRanks.pushBack(rank);
+      pendingDocRefs.pushBack({meta->url, meta->docId});
     }
 
-    if (state.reader)
+    if (state.reader && metadataOk)
+    {
+      for (const PendingDocRef& ref : pendingDocRefs)
+        urlToDoc->insert(ref.url, {shardIndex, ref.docId});
       shards->pushBack(state);
+    }
   }
 
   if (shards->empty())
@@ -668,20 +819,24 @@ bool AddPrimaryEvidence(OutputShardState* shard)
     if (ignore || servingTerm.size() == 0)
       continue;
 
-    vector<LegacyDocTermStats> stats;
-    if (!shard->reader->DecodeTermDocumentStats(info->term, &stats))
+    vector<LegacyDocTermPositions> positions;
+    if (!shard->reader->DecodeTermDocumentPositions(info->term, &positions))
     {
       std::fprintf(stderr, "[rebuild_serving_index] skip primary term %s in %s: decode failed\n",
                    info->term.cstr(), shard->file ? shard->file->inputPath.cstr() : "(unknown)");
       continue;
     }
 
-    for (const LegacyDocTermStats& stat : stats)
+    for (const LegacyDocTermPositions& stat : positions)
     {
       if (isTitle)
-        AddEvidence(shard->terms, servingTerm, stat.docId, 0u, stat.termFrequency, 0u);
+        AddEvidence(shard->terms, servingTerm, stat.docId, 0u,
+                    static_cast<uint32_t>(stat.positions.size()), 0u, nullptr,
+                    &stat.positions, nullptr);
       else
-        AddEvidence(shard->terms, servingTerm, stat.docId, stat.termFrequency, 0u, 0u);
+        AddEvidence(shard->terms, servingTerm, stat.docId,
+                    static_cast<uint32_t>(stat.positions.size()), 0u, 0u,
+                    &stat.positions, nullptr, nullptr);
     }
   }
 
@@ -726,8 +881,8 @@ bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* 
       if (rawTerm.size() == 0 || rawTerm[0] == '#' || rawTerm[0] == '/')
         continue;
 
-      vector<LegacyDocTermStats> termStats;
-      if (!anchor.DecodeTermDocumentStats(info->term, &termStats))
+      vector<LegacyDocTermPositions> termPositions;
+      if (!anchor.DecodeTermDocumentPositions(info->term, &termPositions))
       {
         std::fprintf(stderr, "[rebuild_serving_index] skip anchor %s: failed to decode term %s\n",
                      path.cstr(), info->term.cstr());
@@ -736,7 +891,7 @@ bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* 
         break;
       }
 
-      for (const LegacyDocTermStats& stat : termStats)
+      for (const LegacyDocTermPositions& stat : termPositions)
       {
         const LegacyDocumentMetadata* meta = anchor.GetDocument(stat.docId);
         if (!meta)
@@ -745,7 +900,9 @@ bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* 
         if (!found)
           continue;
         OutputShardState& target = (*shards)[found->shardIndex];
-        AddEvidence(target.terms, rawTerm, found->docId, 0u, 0u, stat.termFrequency);
+        AddEvidence(target.terms, rawTerm, found->docId, 0u, 0u,
+                    static_cast<uint32_t>(stat.positions.size()), nullptr, nullptr,
+                    &stat.positions);
       }
     }
   }

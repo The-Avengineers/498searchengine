@@ -156,6 +156,29 @@ TEST_CASE("serving shard source loads into memory and streams block postings")
   REQUIRE(source.DecodeTermPostings(avengine::string("alpha"), &decoded));
   CHECK(decoded.size() == 2u);
 
+  CHECK(source.HasPositionData());
+  avengine::vector<size_t> positions;
+  REQUIRE(source.DecodeTermPositions(avengine::string("alpha"), 0u,
+                                     avengine::search::ServingPositionField::Body,
+                                     &positions));
+  REQUIRE(positions.size() == 2u);
+  CHECK(positions[0] == 1u);
+  CHECK(positions[1] == 2u);
+  REQUIRE(source.DecodeTermPositions(avengine::string("alpha"), 0u,
+                                     avengine::search::ServingPositionField::Title,
+                                     &positions));
+  REQUIRE(positions.size() == 1u);
+  CHECK(positions[0] == 3u);
+  REQUIRE(source.DecodeTermPositions(avengine::string("alpha"), 0u,
+                                     avengine::search::ServingPositionField::Anchor,
+                                     &positions));
+  REQUIRE(positions.size() == 1u);
+  CHECK(positions[0] == 1u);
+
+  const avengine::search::ServingDocRankMetadataV1 rank = source.GetDocumentRankMetadata(0u);
+  CHECK(rank.urlLength == avengine::string("doc://one").size());
+  CHECK(rank.titleWordCount == 1u);
+
   cleanupPath(joinPath(input, "00000.sfi"));
   cleanupPath(joinPath(input, "anchor_00000.sfi"));
   cleanupPath(servingPath);

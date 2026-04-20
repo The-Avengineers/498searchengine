@@ -361,11 +361,11 @@ void testSolverQueries()
 
   SearchService service(dir);
 
-  expectUrls(service.Search("apple", 10), {"doc://apollo", "doc://brown-fox", "doc://fruit-a"});
+  expectUrls(service.Search("apple", 10), {"doc://brown-fox", "doc://apollo", "doc://fruit-a"});
   const SearchResponse page2 = service.SearchPage("apple", 2, 1);
   EXPECT(page2.Page == 2u);
   EXPECT(page2.Limit == 1u);
-  expectUrls(page2, {"doc://brown-fox"});
+  expectUrls(page2, {"doc://apollo"});
 
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
   expectUrls(service.Search("banana cherry", 10), {"doc://fruit-b", "doc://fruit-a"});
@@ -377,7 +377,7 @@ void testSolverQueries()
   EXPECT(limited.TotalHits == 3u);
   EXPECT(limited.Page == 1u);
   EXPECT(limited.Results.size() == 1u);
-  EXPECT(limited.Results[0].Url == string("doc://apollo"));
+  EXPECT(limited.Results[0].Url == string("doc://brown-fox"));
   EXPECT(limited.Results[0].Score > 0.0);
 
   const SearchResponse noHit = service.Search("kiwi", 10);
@@ -770,6 +770,52 @@ void testServingShardDefaultPathMergesAnchorEvidence()
   EXPECT(rmdir(rootRaw) == 0);
 }
 
+void testServingShardPhraseMatchingUsesBodyAndAnchorPositions()
+{
+  char rootTemplate[] = "/tmp/search_service_serving_phrase_XXXXXX";
+  char* rootRaw = mkdtemp(rootTemplate);
+  EXPECT(rootRaw != nullptr);
+
+  const string input = joinPath(rootRaw, "input");
+  const string output = joinPath(rootRaw, "output");
+  EXPECT(mkdir(input.cstr(), 0755) == 0);
+  EXPECT(mkdir(output.cstr(), 0755) == 0);
+
+  const string primary = joinPath(input.cstr(), "00000.sfi");
+  const string anchor = joinPath(input.cstr(), "anchor_00000.sfi");
+  writeShard(primary.cstr(), {{"doc://body-phrase", "Body Phrase", "alpha beta"},
+                              {"doc://body-gap", "Body Gap", "alpha zzz beta"},
+                              {"doc://anchor-phrase", "Anchor Phrase", "zzz"}});
+  writeShard(anchor.cstr(), {{"doc://anchor-phrase", "Anchor Phrase", "gamma delta"},
+                             {"doc://body-gap", "Body Gap", "gamma zzz delta"}});
+
+  avengine::search::ServingRebuildOptions options;
+  options.inputDirectory = input;
+  options.outputDirectory = output;
+  options.blockSize = 2u;
+  avengine::search::ServingRebuildStats stats = {};
+  EXPECT(avengine::search::RebuildServingIndex(options, &stats));
+  EXPECT(stats.servingShardCount == 1u);
+
+  SearchService service(output);
+
+  const SearchResponse bodyPhrase = service.Search("\"alpha beta\"", 10);
+  EXPECT(bodyPhrase.Errors.empty());
+  expectUrls(bodyPhrase, {"doc://body-phrase"});
+
+  const SearchResponse anchorPhrase = service.Search("\"gamma delta\"", 10);
+  EXPECT(anchorPhrase.Errors.empty());
+  expectUrls(anchorPhrase, {"doc://anchor-phrase"});
+
+  const string serving = joinPath(output.cstr(), "serving_00000.ssi");
+  EXPECT(unlink(serving.cstr()) == 0);
+  EXPECT(unlink(primary.cstr()) == 0);
+  EXPECT(unlink(anchor.cstr()) == 0);
+  EXPECT(rmdir(input.cstr()) == 0);
+  EXPECT(rmdir(output.cstr()) == 0);
+  EXPECT(rmdir(rootRaw) == 0);
+}
+
 } // namespace
 
 int main()
@@ -784,11 +830,12 @@ int main()
   testPaging();
   testResultCap();
   testBlankMetadataResultsAreSkipped();
+  testServingShardDefaultPathMergesAnchorEvidence();
+  testServingShardPhraseMatchingUsesBodyAndAnchorPositions();
   testTitleIntentWins();
   testCompoundTokenQueries();
   testParallelWorkersMatchSingleThreaded();
   testDuplicateUrlsAcrossShards();
   testShardLoadCutoffCanReturnPartialIndex();
-  testServingShardDefaultPathMergesAnchorEvidence();
   return 0;
 }

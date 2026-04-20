@@ -53,7 +53,7 @@ bool IsServingShardMagic(uint64_t magic)
 
 bool IsSupportedServingShardVersion(uint32_t version)
 {
-  return version == kServingShardVersion;
+  return version >= kServingShardMinReadableVersion && version <= kServingShardVersion;
 }
 
 bool IsValidServingTierId(uint32_t tierId)

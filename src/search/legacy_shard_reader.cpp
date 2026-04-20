@@ -263,6 +263,67 @@ bool LegacyShardReader::DecodeTermDocumentStats(const string& term,
   return out->size() == documentFrequency;
 }
 
+bool LegacyShardReader::DecodeTermDocumentPositions(const string& term,
+                                                    vector<LegacyDocTermPositions>* out) const
+{
+  if (!out)
+    return false;
+  out->clear();
+
+  const TermEntry* entry = FindTerm(term);
+  if (!entry)
+    return false;
+
+  uint64_t documentFrequency = 0;
+  uint64_t collectionFrequency = 0;
+  uint64_t skipCount = 0;
+  size_t cursor = 0;
+  if (!DecodePostingHeader(data_, fileSize_, entry->postingStart, entry->postingEnd,
+                           &documentFrequency, &collectionFrequency, &skipCount, &cursor))
+  {
+    return false;
+  }
+
+  for (uint64_t i = 0; i < skipCount; ++i)
+  {
+    for (int field = 0; field < 3; ++field)
+    {
+      uint32_t ignored = 0;
+      if (!ReadVarU32(data_, fileSize_, &cursor, entry->postingEnd, &ignored))
+        return false;
+    }
+  }
+
+  uint32_t absolutePosition = 0;
+  size_t docIndex = 0;
+  for (uint64_t i = 0; i < collectionFrequency; ++i)
+  {
+    uint32_t delta = 0;
+    if (!ReadVarU32(data_, fileSize_, &cursor, entry->postingEnd, &delta))
+      return false;
+    absolutePosition += delta;
+    const uint32_t location = absolutePosition + 1u;
+
+    while (docIndex < documents_.size() && documents_[docIndex].endLocation < location)
+      ++docIndex;
+    if (docIndex >= documents_.size())
+      return false;
+    if (location < documents_[docIndex].startLocation)
+      return false;
+
+    const uint32_t docId = documents_[docIndex].docId;
+    if (out->empty() || out->back().docId != docId)
+    {
+      LegacyDocTermPositions positions;
+      positions.docId = docId;
+      out->pushBack(positions);
+    }
+    out->back().positions.pushBack(location);
+  }
+
+  return out->size() == documentFrequency;
+}
+
 bool LegacyShardReader::ParseHeaderAndDictionary(uint64_t* documentCount)
 {
   if (!documentCount)

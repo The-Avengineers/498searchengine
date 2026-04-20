@@ -78,7 +78,11 @@ public:
   bool OpenBlockCursor(const ServingBlockInfoV1& block, uint32_t tierId,
                        ServingPostingBlockCursor* out) const;
   bool DecodeTermPostings(const string& term, vector<ServingDecodedPosting>* out) const;
+  bool DecodeTermPositions(const string& term, uint32_t docId, ServingPositionField field,
+                           vector<size_t>* out) const;
+  bool HasPositionData() const;
   uint32_t GetDocLength(uint32_t docId) const;
+  ServingDocRankMetadataV1 GetDocumentRankMetadata(uint32_t docId) const;
   string GetDocumentURL(uint32_t docId) const;
   string GetDocumentTitle(uint32_t docId) const;
   string GetDocumentDescription(uint32_t docId) const;
@@ -86,6 +90,7 @@ public:
 private:
   bool Validate();
   const ServingLexiconEntryV1* FindLexiconEntry(const string& term) const;
+  bool DecodePositionsFromEntry(const ServingDocPositionEntryV1& entry, vector<size_t>* out) const;
   string ReadColdString(uint32_t offset, uint32_t length) const;
   void SetError(const char* message);
   void SetErrnoError(const char* operation, const string& path);
@@ -105,7 +110,12 @@ private:
   const ServingBlockInfoV1* blockInfos_ = nullptr;
   const uint8_t* postings_ = nullptr;
   const uint32_t* docLengths_ = nullptr;
+  const ServingDocRankMetadataV1* rankMetadata_ = nullptr;
   const ServingDocMetadataEntryV1* coldDocs_ = nullptr;
+  const ServingPositionSectionHeaderV1* positionHeader_ = nullptr;
+  const ServingTermPositionInfoV1* termPositions_ = nullptr;
+  const ServingDocPositionEntryV1* docPositions_ = nullptr;
+  const uint8_t* positionPayload_ = nullptr;
 };
 
 } // namespace search

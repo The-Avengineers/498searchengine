@@ -37,6 +37,12 @@ struct LegacyDocTermStats
   uint32_t termFrequency = 0;
 };
 
+struct LegacyDocTermPositions
+{
+  uint32_t docId = 0;
+  vector<uint32_t> positions;
+};
+
 // Read-only parser for current .sfi shards used by the serving rebuild tool.
 // This is intentionally separate from IndexShardSource: rebuild needs full term
 // enumeration and doc-oriented reconstruction, while IndexShardSource is tuned
@@ -61,6 +67,7 @@ public:
   const LegacyTermInfo* GetTerm(size_t index) const;
   const LegacyDocumentMetadata* GetDocument(uint32_t docId) const;
   bool DecodeTermDocumentStats(const string& term, vector<LegacyDocTermStats>* out) const;
+  bool DecodeTermDocumentPositions(const string& term, vector<LegacyDocTermPositions>* out) const;
 
 private:
   struct TermEntry

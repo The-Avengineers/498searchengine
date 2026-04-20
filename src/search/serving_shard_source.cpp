@@ -193,7 +193,12 @@ void ServingShardSource::Reset()
   blockInfos_ = nullptr;
   postings_ = nullptr;
   docLengths_ = nullptr;
+  rankMetadata_ = nullptr;
   coldDocs_ = nullptr;
+  positionHeader_ = nullptr;
+  termPositions_ = nullptr;
+  docPositions_ = nullptr;
+  positionPayload_ = nullptr;
 }
 
 bool ServingShardSource::IsLoaded() const
@@ -300,11 +305,89 @@ bool ServingShardSource::DecodeTermPostings(const string& term,
   return true;
 }
 
+bool ServingShardSource::DecodePositionsFromEntry(const ServingDocPositionEntryV1& entry,
+                                                  vector<size_t>* out) const
+{
+  if (!out || !positionPayload_ || entry.payloadOffset + entry.payloadLength >
+                                   positionHeader_->payloadLength)
+  {
+    return false;
+  }
+
+  out->clear();
+  const uint8_t* cursor = positionPayload_ + entry.payloadOffset;
+  const uint8_t* end = cursor + entry.payloadLength;
+  uint32_t previous = 0;
+  for (uint32_t i = 0; i < entry.positionCount; ++i)
+  {
+    uint32_t delta = 0;
+    if (!ReadVarU32(end, &cursor, &delta))
+      return false;
+    const uint32_t position = i == 0 ? delta : previous + delta;
+    previous = position;
+    out->pushBack(position);
+  }
+
+  return cursor == end;
+}
+
+bool ServingShardSource::DecodeTermPositions(const string& term, uint32_t docId,
+                                             ServingPositionField field,
+                                             vector<size_t>* out) const
+{
+  if (out)
+    out->clear();
+  if (!loaded_ || !out || !HasPositionData())
+    return false;
+
+  const ServingLexiconEntryV1* lex = FindLexiconEntry(term);
+  if (!lex || lex->termInfoIndex >= header_->termCount)
+    return false;
+
+  const ServingTermPositionInfoV1& termPosition = termPositions_[lex->termInfoIndex];
+  const uint32_t wantedField = static_cast<uint32_t>(field);
+  size_t left = termPosition.docPositionIndex;
+  size_t right = left + termPosition.docPositionCount;
+  if (right > positionHeader_->docPositionEntryCount)
+    return false;
+
+  while (left < right)
+  {
+    const size_t mid = left + ((right - left) / 2u);
+    const ServingDocPositionEntryV1& entry = docPositions_[mid];
+    if (entry.docId < docId || (entry.docId == docId && entry.fieldId < wantedField))
+      left = mid + 1u;
+    else
+      right = mid;
+  }
+
+  if (left >= termPosition.docPositionIndex + termPosition.docPositionCount)
+    return true;
+
+  const ServingDocPositionEntryV1& found = docPositions_[left];
+  if (found.docId != docId || found.fieldId != wantedField)
+    return true;
+
+  return DecodePositionsFromEntry(found, out);
+}
+
+bool ServingShardSource::HasPositionData() const
+{
+  return loaded_ && positionHeader_ && termPositions_ && docPositions_ && positionPayload_;
+}
+
 uint32_t ServingShardSource::GetDocLength(uint32_t docId) const
 {
   if (!loaded_ || !docLengths_ || static_cast<uint64_t>(docId) >= header_->documentCount)
     return 0;
   return docLengths_[docId];
+}
+
+ServingDocRankMetadataV1 ServingShardSource::GetDocumentRankMetadata(uint32_t docId) const
+{
+  if (!loaded_ || !rankMetadata_ || static_cast<uint64_t>(docId) >= header_->documentCount)
+    return ServingDocRankMetadataV1();
+  return rankMetadata_[docId];
 }
 
 string ServingShardSource::GetDocumentURL(uint32_t docId) const
@@ -350,7 +433,9 @@ bool ServingShardSource::Validate()
       !RangeInFile(header_->blockInfoOffset, header_->blockInfoLength, fileSize_) ||
       !RangeInFile(header_->postingsOffset, header_->postingsLength, fileSize_) ||
       !RangeInFile(header_->docLengthOffset, header_->docLengthLength, fileSize_) ||
-      !RangeInFile(header_->coldPayloadOffset, header_->coldPayloadLength, fileSize_))
+      !RangeInFile(header_->staticRankOffset, header_->staticRankLength, fileSize_) ||
+      !RangeInFile(header_->coldPayloadOffset, header_->coldPayloadLength, fileSize_) ||
+      !RangeInFile(header_->debugOffset, header_->debugLength, fileSize_))
   {
     SetError("serving shard section out of bounds");
     return false;
@@ -372,6 +457,12 @@ bool ServingShardSource::Validate()
     SetError("serving shard cold payload too small");
     return false;
   }
+  if ((header_->flags & kServingShardHasRankMetadata) != 0 &&
+      header_->staticRankLength != header_->documentCount * sizeof(ServingDocRankMetadataV1))
+  {
+    SetError("serving shard rank metadata size mismatch");
+    return false;
+  }
 
   lexicon_ = reinterpret_cast<const ServingLexiconEntryV1*>(data_ + header_->lexiconOffset);
   termBytes_ = data_ + header_->termBytesOffset;
@@ -380,9 +471,52 @@ bool ServingShardSource::Validate()
   blockInfos_ = reinterpret_cast<const ServingBlockInfoV1*>(data_ + header_->blockInfoOffset);
   postings_ = data_ + header_->postingsOffset;
   docLengths_ = reinterpret_cast<const uint32_t*>(data_ + header_->docLengthOffset);
+  rankMetadata_ = (header_->flags & kServingShardHasRankMetadata) != 0
+      ? reinterpret_cast<const ServingDocRankMetadataV1*>(data_ + header_->staticRankOffset)
+      : nullptr;
   coldDocs_ = (header_->flags & kServingShardHasColdPayload) != 0
       ? reinterpret_cast<const ServingDocMetadataEntryV1*>(data_ + header_->coldPayloadOffset)
       : nullptr;
+
+  if ((header_->flags & kServingShardHasPositions) != 0)
+  {
+    if (header_->debugLength < sizeof(ServingPositionSectionHeaderV1))
+    {
+      SetError("serving shard position section too small");
+      return false;
+    }
+
+    const uint8_t* positionBase = data_ + header_->debugOffset;
+    positionHeader_ = reinterpret_cast<const ServingPositionSectionHeaderV1*>(positionBase);
+    if (positionHeader_->magic != kServingPositionSectionMagic ||
+        positionHeader_->version != 1 ||
+        positionHeader_->termCount != header_->termCount)
+    {
+      SetError("invalid serving shard position section");
+      return false;
+    }
+
+    if (!RangeInFile(positionHeader_->termPositionOffset, positionHeader_->termPositionLength,
+                     static_cast<size_t>(header_->debugLength)) ||
+        !RangeInFile(positionHeader_->docPositionOffset, positionHeader_->docPositionLength,
+                     static_cast<size_t>(header_->debugLength)) ||
+        !RangeInFile(positionHeader_->payloadOffset, positionHeader_->payloadLength,
+                     static_cast<size_t>(header_->debugLength)) ||
+        positionHeader_->termPositionLength !=
+            positionHeader_->termCount * sizeof(ServingTermPositionInfoV1) ||
+        positionHeader_->docPositionLength !=
+            positionHeader_->docPositionEntryCount * sizeof(ServingDocPositionEntryV1))
+    {
+      SetError("serving shard position section bounds invalid");
+      return false;
+    }
+
+    termPositions_ = reinterpret_cast<const ServingTermPositionInfoV1*>(
+        positionBase + positionHeader_->termPositionOffset);
+    docPositions_ = reinterpret_cast<const ServingDocPositionEntryV1*>(
+        positionBase + positionHeader_->docPositionOffset);
+    positionPayload_ = positionBase + positionHeader_->payloadOffset;
+  }
 
   return true;
 }

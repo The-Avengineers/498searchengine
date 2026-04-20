@@ -11,9 +11,13 @@
 using avengine::search::ServingBlockInfoV1;
 using avengine::search::ServingDocMetadataView;
 using avengine::search::ServingDocMetadataEntryV1;
+using avengine::search::ServingDocPositionEntryV1;
+using avengine::search::ServingDocRankMetadataV1;
 using avengine::search::ServingLexiconEntryV1;
+using avengine::search::ServingPositionSectionHeaderV1;
 using avengine::search::ServingShardHeaderV1;
 using avengine::search::ServingTermInfoV1;
+using avengine::search::ServingTermPositionInfoV1;
 using avengine::search::ServingTierId;
 using avengine::search::ServingTierInfoV1;
 
@@ -31,6 +35,14 @@ TEST_CASE("serving index wire records keep fixed layout")
   CHECK(std::is_trivially_copyable<ServingBlockInfoV1>::value);
   CHECK(std::is_standard_layout<ServingDocMetadataEntryV1>::value);
   CHECK(std::is_trivially_copyable<ServingDocMetadataEntryV1>::value);
+  CHECK(std::is_standard_layout<ServingDocRankMetadataV1>::value);
+  CHECK(std::is_trivially_copyable<ServingDocRankMetadataV1>::value);
+  CHECK(std::is_standard_layout<ServingPositionSectionHeaderV1>::value);
+  CHECK(std::is_trivially_copyable<ServingPositionSectionHeaderV1>::value);
+  CHECK(std::is_standard_layout<ServingTermPositionInfoV1>::value);
+  CHECK(std::is_trivially_copyable<ServingTermPositionInfoV1>::value);
+  CHECK(std::is_standard_layout<ServingDocPositionEntryV1>::value);
+  CHECK(std::is_trivially_copyable<ServingDocPositionEntryV1>::value);
 
   CHECK(sizeof(ServingShardHeaderV1) == 256u);
   CHECK(sizeof(ServingLexiconEntryV1) == 24u);
@@ -38,6 +50,10 @@ TEST_CASE("serving index wire records keep fixed layout")
   CHECK(sizeof(ServingTierInfoV1) == 40u);
   CHECK(sizeof(ServingBlockInfoV1) == 48u);
   CHECK(sizeof(ServingDocMetadataEntryV1) == 24u);
+  CHECK(sizeof(ServingDocRankMetadataV1) == 16u);
+  CHECK(sizeof(ServingPositionSectionHeaderV1) == 72u);
+  CHECK(sizeof(ServingTermPositionInfoV1) == 8u);
+  CHECK(sizeof(ServingDocPositionEntryV1) == 24u);
 }
 
 TEST_CASE("serving index header offsets are stable")
@@ -82,6 +98,13 @@ TEST_CASE("serving index metadata offsets are stable")
   CHECK(offsetof(ServingDocMetadataEntryV1, urlOffset) == 0u);
   CHECK(offsetof(ServingDocMetadataEntryV1, titleOffset) == 8u);
   CHECK(offsetof(ServingDocMetadataEntryV1, descriptionOffset) == 16u);
+
+  CHECK(offsetof(ServingDocRankMetadataV1, depth) == 4u);
+  CHECK(offsetof(ServingDocRankMetadataV1, titleWordCount) == 10u);
+  CHECK(offsetof(ServingPositionSectionHeaderV1, termPositionOffset) == 24u);
+  CHECK(offsetof(ServingPositionSectionHeaderV1, payloadOffset) == 56u);
+  CHECK(offsetof(ServingDocPositionEntryV1, fieldId) == 4u);
+  CHECK(offsetof(ServingDocPositionEntryV1, payloadOffset) == 12u);
 }
 
 TEST_CASE("empty serving shard header is self-consistent")

@@ -3,6 +3,7 @@
 #include <avengine/avengine_lib/thread.h>
 #include <avengine/ranker/Strategy.h>
 #include <avengine/ranker/ranker.h>
+#include <avengine/ranker/ranking_detail.h>
 #include <avengine/search/coordinator_merge.h>
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_common.h>
@@ -249,6 +250,54 @@ struct ServingPooledHit
   uint32_t docId = 0;
 };
 
+struct ServingRankMetadata
+{
+  string url;
+  string title;
+  string description;
+};
+
+struct RankerStrategySet
+{
+  explicit RankerStrategySet(const vector<string>& queryTerms)
+      : queryOccurrenceStrategy(queryTerms), exactTitleMatchStrategy(queryTerms)
+  {
+  }
+
+  ExactPhraseMatch exactPhraseStrategy;
+  CorrectOrdering correctOrderingStrategy;
+  EarlyQueryTermMatch earlyQueryStrategy;
+  TermCoverage termCoverageStrategy;
+  QueryOccurrence queryOccurrenceStrategy;
+  TitleTermCoverage titleTermCoverageStrategy;
+  ExactTitleMatch exactTitleMatchStrategy;
+  SeedDomainDepth seedDomainDepthStrategy;
+  ShortTitleStrat shortTitleStrategy;
+  ShortURLStrat shortUrlStrategy;
+  DomainStrat domainStrategy;
+  UrlDepth urlDepthStrategy;
+  UrlPathDepth urlPathDepthStrategy;
+  QueryParamPenalty queryParamPenaltyStrategy;
+
+  void Attach(Ranker& ranker, const RankerWeights& w)
+  {
+    ranker.AddStrategy(&exactPhraseStrategy, w.exact_phrase);
+    ranker.AddStrategy(&correctOrderingStrategy, w.correct_ordering);
+    ranker.AddStrategy(&earlyQueryStrategy, w.early_query_term);
+    ranker.AddStrategy(&termCoverageStrategy, w.term_coverage);
+    ranker.AddStrategy(&queryOccurrenceStrategy, w.query_occurrence);
+    ranker.AddStrategy(&shortTitleStrategy, w.short_title);
+    ranker.AddStrategy(&shortUrlStrategy, w.short_url);
+    ranker.AddStrategy(&domainStrategy, w.domain);
+    ranker.AddStrategy(&urlDepthStrategy, w.url_depth);
+    ranker.AddStrategy(&urlPathDepthStrategy, w.url_path_depth);
+    ranker.AddStrategy(&titleTermCoverageStrategy, w.title_term_coverage);
+    ranker.AddStrategy(&seedDomainDepthStrategy, w.seed_domain_depth);
+    ranker.AddStrategy(&queryParamPenaltyStrategy, w.query_param_penalty);
+    ranker.AddStrategy(&exactTitleMatchStrategy, w.exact_title_match);
+  }
+};
+
 string ExtractDomain(const string& url)
 {
   size_t hostStart = 0;
@@ -374,6 +423,80 @@ size_t FindQueryTermIndex(const vector<string>& terms, const string& term)
   return static_cast<size_t>(-1);
 }
 
+bool QueryRequiresPositions(const constraint_solver::QueryNode* node)
+{
+  if (!node)
+    return false;
+
+  using constraint_solver::QueryNodeKind;
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Phrase:
+    return true;
+  case QueryNodeKind::Conjunction:
+    for (const constraint_solver::QueryNode* child : node->RequiredChildren)
+    {
+      if (QueryRequiresPositions(child))
+        return true;
+    }
+    for (const constraint_solver::QueryNode* child : node->ExcludedChildren)
+    {
+      if (QueryRequiresPositions(child))
+        return true;
+    }
+    return false;
+  case QueryNodeKind::Or:
+    for (const constraint_solver::QueryNode* child : node->Children)
+    {
+      if (QueryRequiresPositions(child))
+        return true;
+    }
+    return false;
+  default:
+    return false;
+  }
+}
+
+void InitializeSingleMatchPositions(size_t termCount, MatchPositions& positions)
+{
+  positions.termPositions.clear();
+  for (size_t t = 0; t < termCount; ++t)
+    positions.termPositions.pushBack(vector<size_t>());
+}
+
+void CollectServingCandidatePositions(const ServingShardSource& shard, uint32_t docId,
+                                      const vector<string>& queryTerms, MatchPositions& body,
+                                      MatchPositions& title, MatchPositions& anchor)
+{
+  InitializeSingleMatchPositions(queryTerms.size(), body);
+  InitializeSingleMatchPositions(queryTerms.size(), title);
+  InitializeSingleMatchPositions(queryTerms.size(), anchor);
+
+  for (size_t termIndex = 0; termIndex < queryTerms.size(); ++termIndex)
+  {
+    shard.DecodeTermPositions(queryTerms[termIndex], docId, ServingPositionField::Body,
+                              &body.termPositions[termIndex]);
+    shard.DecodeTermPositions(queryTerms[termIndex], docId, ServingPositionField::Title,
+                              &title.termPositions[termIndex]);
+    shard.DecodeTermPositions(queryTerms[termIndex], docId, ServingPositionField::Anchor,
+                              &anchor.termPositions[termIndex]);
+  }
+}
+
+bool PositionsContainPhrase(const vector<string>& queryTerms, const vector<string>& phraseTerms,
+                            const MatchPositions& fieldPositions)
+{
+  vector<vector<size_t>> phrasePositions;
+  for (const string& term : phraseTerms)
+  {
+    const size_t index = FindQueryTermIndex(queryTerms, term);
+    if (index == static_cast<size_t>(-1) || index >= fieldPositions.termPositions.size())
+      return false;
+    phrasePositions.pushBack(fieldPositions.termPositions[index]);
+  }
+  return ranking_strategy_detail::HasExactPhrase(phrasePositions);
+}
+
 ServingCandidate* FindOrAddServingCandidate(vector<ServingCandidate>& candidates,
                                             vector<uint32_t>& candidateIndexByDoc,
                                             uint32_t docId, size_t shardIndex)
@@ -491,6 +614,65 @@ bool ServingCandidateMatchesNode(const ServingCandidate& candidate, const vector
   }
 }
 
+bool ServingCandidateMatchesNodeExact(const ServingCandidate& candidate, const vector<string>& terms,
+                                      const constraint_solver::QueryNode* node,
+                                      const MatchPositions& bodyPositions,
+                                      const MatchPositions& titlePositions,
+                                      const MatchPositions& anchorPositions)
+{
+  if (!node)
+    return true;
+
+  using constraint_solver::QueryNodeKind;
+  switch (node->Kind)
+  {
+  case QueryNodeKind::Term:
+  {
+    const size_t index = FindQueryTermIndex(terms, node->Value);
+    const uint64_t bit = ServingTermBit(index);
+    return bit != 0 && (candidate.matchedTermBits & bit) != 0;
+  }
+  case QueryNodeKind::Phrase:
+    return PositionsContainPhrase(terms, node->PhraseTerms, bodyPositions) ||
+           PositionsContainPhrase(terms, node->PhraseTerms, titlePositions) ||
+           PositionsContainPhrase(terms, node->PhraseTerms, anchorPositions);
+  case QueryNodeKind::Conjunction:
+    for (const constraint_solver::QueryNode* child : node->RequiredChildren)
+    {
+      if (!ServingCandidateMatchesNodeExact(candidate, terms, child, bodyPositions,
+                                           titlePositions, anchorPositions))
+        return false;
+    }
+    for (const constraint_solver::QueryNode* child : node->ExcludedChildren)
+    {
+      if (ServingCandidateMatchesNodeExact(candidate, terms, child, bodyPositions,
+                                          titlePositions, anchorPositions))
+        return false;
+    }
+    return true;
+  case QueryNodeKind::Or:
+    for (const constraint_solver::QueryNode* child : node->Children)
+    {
+      if (ServingCandidateMatchesNodeExact(candidate, terms, child, bodyPositions,
+                                          titlePositions, anchorPositions))
+        return true;
+    }
+    return false;
+  default:
+    return false;
+  }
+}
+
+string FindServingDescription(const vector<ServingRankMetadata>& metadata, const string& url)
+{
+  for (const ServingRankMetadata& entry : metadata)
+  {
+    if (entry.url == url)
+      return entry.description;
+  }
+  return string();
+}
+
 SearchResponse SearchServingPage(const vector<ServingShardSource*>& shards,
                                  const constraint_solver::ConstraintSolver& solver,
                                  const string& query, size_t page, size_t limit)
@@ -520,9 +702,29 @@ SearchResponse SearchServingPage(const vector<ServingShardSource*>& shards,
   CollectQueryTerms(parsed.Root, queryTerms);
   response.ParseMs = DurationToMs(std::chrono::steady_clock::now() - parseStartedAt);
 
+  const bool needsPositions = QueryRequiresPositions(parsed.Root);
+  if (needsPositions)
+  {
+    for (const ServingShardSource* shard : shards)
+    {
+      if (shard && shard->IsLoaded() && !shard->HasPositionData())
+      {
+        response.Errors.pushBack(
+            {0, string("phrase queries require rebuilt v2 .ssi shards with positions")});
+        constraint_solver::DestroyQueryTree(parsed.Root);
+        response.TookMs = DurationToMs(std::chrono::steady_clock::now() - startedAt);
+        return response;
+      }
+    }
+  }
+
   const auto retrieveStartedAt = std::chrono::steady_clock::now();
   const size_t candidateLimit = ComputeOverfetchLimit(response.Page, response.Limit);
-  vector<ServingPooledHit> pooled;
+  const RankerWeights weights = LoadRankerWeights("ranker_weights.conf");
+  Ranker ranker(candidateLimit);
+  RankerStrategySet strategies(queryTerms);
+  strategies.Attach(ranker, weights);
+  vector<ServingRankMetadata> rankMetadata;
   for (size_t shardIndex = 0; shardIndex < shards.size(); ++shardIndex)
   {
     const ServingShardSource* shard = shards[shardIndex];
@@ -604,23 +806,49 @@ SearchResponse SearchServingPage(const vector<ServingShardSource*>& shards,
       if (candidate.score <= 0.0)
         continue;
 
-      pooled.pushBack({url, shard->GetDocumentTitle(candidate.docId),
-                        shard->GetDocumentDescription(candidate.docId), candidate.score,
-                        shardIndex, candidate.docId});
+      MatchPositions bodyPositions;
+      MatchPositions titlePositions;
+      MatchPositions anchorPositions;
+      CollectServingCandidatePositions(*shard, candidate.docId, queryTerms, bodyPositions,
+                                       titlePositions, anchorPositions);
+      if (!shard->HasPositionData())
+      {
+        for (size_t termIndex = 0; termIndex < queryTerms.size(); ++termIndex)
+        {
+          const uint64_t bit = ServingTermBit(termIndex);
+          if (bit != 0 && (candidate.matchedTermBits & bit) != 0)
+            bodyPositions.termPositions[termIndex].pushBack(termIndex + 1u);
+        }
+      }
+      if (needsPositions &&
+          !ServingCandidateMatchesNodeExact(candidate, queryTerms, parsed.Root, bodyPositions,
+                                           titlePositions, anchorPositions))
+      {
+        continue;
+      }
+
+      const string title = shard->GetDocumentTitle(candidate.docId);
+      ServingDocRankMetadataV1 docRank = shard->GetDocumentRankMetadata(candidate.docId);
+
+      urlEntry entry = {};
+      entry.url = url;
+      entry.domain = ExtractDomain(url);
+      entry.depth = static_cast<int>(docRank.depth);
+      entry.seedDomainDepth = static_cast<int>(docRank.domainDepth);
+
+      Ranker::RankSignals signals = {};
+      signals.title_word_count = docRank.titleWordCount;
+      signals.title_term_positions = &titlePositions.termPositions;
+      signals.anchor_term_positions = &anchorPositions.termPositions;
+
+      ranker.Consider(entry, title, bodyPositions.termPositions, signals, shardIndex);
+      rankMetadata.pushBack({url, title, shard->GetDocumentDescription(candidate.docId)});
     }
   }
   response.SolveMs = DurationToMs(std::chrono::steady_clock::now() - retrieveStartedAt);
 
   const auto rankStartedAt = std::chrono::steady_clock::now();
-  pooled.sort([](const ServingPooledHit& lhs, const ServingPooledHit& rhs) {
-    if (lhs.score != rhs.score)
-      return lhs.score > rhs.score;
-    if (lhs.shardOrdinal != rhs.shardOrdinal)
-      return lhs.shardOrdinal < rhs.shardOrdinal;
-    if (lhs.docId != rhs.docId)
-      return lhs.docId < rhs.docId;
-    return lhs.url < rhs.url;
-  });
+  const vector<Ranker::RankedResult> ranked = ranker.TopResults();
 
   static constexpr uint8_t kMaxResultsPerDomain = 5;
   unordered_map<uint8_t> seenUrls;
@@ -631,22 +859,25 @@ SearchResponse SearchServingPage(const vector<ServingShardSource*>& shards,
                              : pageStart + response.Limit;
 
   size_t uniqueIndex = 0;
-  for (const ServingPooledHit& hit : pooled)
+  for (const Ranker::RankedResult& hit : ranked)
   {
-    const uint8_t* seen = seenUrls.get(string_slice(hit.url.cstr()));
+    const uint8_t* seen = seenUrls.get(string_slice(hit.entry.url.cstr()));
     if (seen && *seen != 0)
       continue;
 
-    const string domain = ExtractRegisteredDomain(hit.url);
+    const string domain = ExtractRegisteredDomain(hit.entry.url);
     const uint8_t* dc = domainCounts.get(string_slice(domain.cstr()));
     const uint8_t count = dc ? *dc : 0;
     if (count >= kMaxResultsPerDomain)
       continue;
 
-    seenUrls.insert(hit.url, 1u);
+    seenUrls.insert(hit.entry.url, 1u);
     domainCounts.insert(domain, count + 1u);
     if (uniqueIndex >= pageStart && uniqueIndex < pageEnd)
-      response.Results.pushBack({hit.url, hit.title, hit.description, hit.score});
+    {
+      response.Results.pushBack({hit.entry.url, hit.title,
+                                 FindServingDescription(rankMetadata, hit.entry.url), hit.score});
+    }
     ++uniqueIndex;
     if (uniqueIndex >= kMaxVisibleSearchResults)
       break;
