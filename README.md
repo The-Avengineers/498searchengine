@@ -1,25 +1,60 @@
-# 498searchengine
+<p align="center">
+  <img src="frontend/media/logo-optimized-800.png" alt="AVEngine" width="640">
+</p>
+
+# AVEngine
+
+AVEngine is a web search engine with:
+
+- a C++ search server and ranking pipeline
+- a crawler and indexer that produce `.sfi` shard files
+- a browser frontend served by the search server
+- a Node CLI in [`search-cli/`](search-cli/README.md)
+
+Main public site:
+
+- `https://theavengine.com/`
 
 ## CLI
 
-A terminal UI for searching, crawler management, live stats, and remote deploy container access is available in [`search-cli/`](search-cli/README.md).
+A terminal UI for search, crawler management, status, profiling, and opening the live site is available in [`search-cli/`](search-cli/README.md).
 
 ```bash
-cd search-cli && npm install && npm install -g .
-avengine                                    # interactive TUI
-avengine query "spider man" --verbose       # one-shot search
-avengine stats                              # live crawler stats
-avengine open                               # start server + open browser
-AVENGINE_SSH_HOST=myhost avengine open      # tunnel to remote container
+cd search-cli
+npm install
+npm run build
+npm link
+
+avengine
+avengine query "spider man" --verbose
+avengine lucky "apple"
+avengine stats
+avengine status
+avengine open
 ```
 
-See [`search-cli/README.md`](search-cli/README.md) for the full reference.
+Notes:
 
----
+- `avengine open` opens the configured AVEngine site. It does not start a local search server.
+- `AVENGINE_SERVER_URL` defaults to `https://theavengine.com`.
 
-## How To Run
+## Quick checks
 
-### Local single-node search
+Public site:
+
+```bash
+curl -i 'https://theavengine.com/'
+curl -s 'https://theavengine.com/api/search?q=apple&limit=5' | python3 -m json.tool
+```
+
+Local server:
+
+```bash
+curl -i 'http://127.0.0.1:8080/'
+curl -s 'http://127.0.0.1:8080/api/search?q=apple&limit=5' | python3 -m json.tool
+```
+
+## Local single-node search
 
 Build the server:
 
@@ -28,40 +63,63 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target search_server -j 4
 ```
 
-Run the search engine against the sample indices:
+Run against a local shard directory, for example `example-indices` if you have it:
 
 ```bash
+unset SEARCH_ROLE NODE_ID NUM_PEERS INDEX_DIR
 ./build/search_server 8080 example-indices
 ```
 
-Open the frontend:
+Then open:
 
-```text
-http://127.0.0.1:8080/
-```
+- `http://127.0.0.1:8080/`
 
-The frontend and API are served from the same origin on current `master`.
-
-### Quick API checks
+Or query directly:
 
 ```bash
-curl -i 'http://127.0.0.1:8080/'
-curl -s 'http://127.0.0.1:8080/api/search?q=apple&limit=5' | python3 -m json.tool
-curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=1&limit=10'
-curl -i 'http://127.0.0.1:8080/api/search?q=apple&page=2&limit=10'
+curl -s 'http://127.0.0.1:8080/api/search?q=apple&limit=10' | python3 -m json.tool
 ```
 
-### Use a different index directory
-
-If you have your own `.sfi` shard directory, pass it as the second argument:
+If you want to use a different shard directory:
 
 ```bash
 ./build/search_server 8080 /path/to/index-dir
 ```
 
-### Distributed search
+## GCP VM setup
 
-Current `master` supports coordinator/worker search across multiple machines.
+The current repo includes a VM setup script:
+
+```bash
+./setup.sh
+```
+
+It builds `search_server`, writes `/etc/avengine/search.env`, installs the `avengine-search` systemd service, and can optionally configure nginx + TLS on the coordinator.
+
+Current roles:
+
+- `single` - standalone local serving, no peers
+- `coordinator` - serves HTTP and fans out search requests
+- `worker` - joins the peer mesh and answers coordinator requests
+
+Important operational notes:
+
+- Only the coordinator serves the browser frontend and `/api/search` over HTTP.
+- Workers do not expose the search UI on `:8080`; they serve the coordinator over the peer mesh.
+- The current setup script is pinned to the checked-in three-VM cluster defaults in `setup.sh`.
+
+For deployment details, see [`docs/deployment.md`](docs/deployment.md).
+
+## Distributed search
+
+`search_server` supports coordinator/worker search across multiple machines.
+
+Build once:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target search_server -j 4
+```
 
 Coordinator:
 
@@ -80,7 +138,7 @@ SEARCH_ROLE=worker \
 NODE_ID=1 \
 NUM_PEERS=3 \
 INDEX_DIR=/path/to/worker1-index \
-./build/search_server 8081 /path/to/worker1-index
+./build/search_server 8080 /path/to/worker1-index
 ```
 
 Worker 2:
@@ -90,30 +148,67 @@ SEARCH_ROLE=worker \
 NODE_ID=2 \
 NUM_PEERS=3 \
 INDEX_DIR=/path/to/worker2-index \
-./build/search_server 8082 /path/to/worker2-index
+./build/search_server 8080 /path/to/worker2-index
 ```
 
-Notes:
+All nodes must share the same `peer_list.txt` in the working directory. Each line is:
 
-- The coordinator is the only node you open in a browser.
-- Workers answer search requests over the node mesh.
-- Peers must be on the same LAN or on a VPN that supports the current broadcast-based discovery.
-- The current peer mesh uses fixed transport ports, so the distributed cluster is intended to run with one peer process per machine.
+```text
+<node-id> <ip-or-hostname>
+```
 
-### Query API
+Current peer transport details:
 
-`GET /api/search`
+- peer TCP port: `46857`
+- coordinator is the only node you open in a browser
+- workers answer search requests from the coordinator
+- `SEARCH_LOAD_TIMEOUT_SEC` can be used to bound startup shard loading; in distributed mode the server defaults to `30` seconds if unset
+
+## Search API
+
+Endpoint:
+
+- `GET /api/search`
 
 Parameters:
 
-- `q`: query text
-- `page`: 1-based page number, default `1`
-- `limit`: page size, clamped to `10`
+- `q` - query text
+- `page` - 1-based page number, default `1`
+- `limit` - page size, clamped to `1..10`
 
 Example:
 
 ```text
-http://127.0.0.1:8080/api/search?q=spider-man&page=1&limit=10
+https://theavengine.com/api/search?q=spider-man&page=1&limit=10
 ```
 
-For more detail, see [`docs/search_server.md`](docs/search_server.md).
+Response fields include:
+
+- `total_hits`
+- `took_ms`
+- `parse_ms`
+- `solve_ms`
+- `collect_ms`
+- `rank_ms`
+- `errors`
+- `results`
+
+For the full API and query syntax, see [`docs/search_server.md`](docs/search_server.md).
+
+## Query syntax
+
+Supported query forms:
+
+- single term: `apple`
+- implicit AND: `apple banana`
+- phrase: `"apple pie"`
+- OR: `apple | banana`
+- negation: `brown -fox`
+
+## Repo pointers
+
+- [`docs/search_server.md`](docs/search_server.md) - search server behavior, API, query syntax
+- [`docs/deployment.md`](docs/deployment.md) - cluster and site deployment
+- [`docs/crawler_usage.md`](docs/crawler_usage.md) - crawler runtime and corpus management
+- [`profiling/README.md`](profiling/README.md) - local and CI profiling
+- [`search-cli/README.md`](search-cli/README.md) - CLI usage
