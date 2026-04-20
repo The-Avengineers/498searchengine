@@ -16,11 +16,8 @@
 namespace
 {
 
-void removeShardAndCache(const char* path)
+void removeShard(const char* path)
 {
-  avengine::string cachePath(path);
-  cachePath += avengine::string(".loadcache");
-  (void)unlink(cachePath.cstr());
   CHECK(unlink(path) == 0);
 }
 
@@ -99,7 +96,7 @@ TEST_CASE("parsePostingBlobHeader matches the current writer format")
   CHECK(totalRead == fileSize);
 
   CHECK(close(readFd) == 0);
-  removeShardAndCache(pathTemplate);
+  removeShard(pathTemplate);
 
   avengine::Reader fileHeader(bytes, fileSize);
   auto magicVal = fileHeader.readU64();
@@ -173,7 +170,7 @@ TEST_CASE("IndexShardSource preserves ranking input")
   CHECK(info->rankingInput.titleWordCount == expected.titleWordCount);
   CHECK(info->rankingInput.seedSource == expected.seedSource);
 
-  removeShardAndCache(pathTemplate);
+  removeShard(pathTemplate);
 }
 
 TEST_CASE("ISRWordLazy seek and next match eager ISRWord")
@@ -267,7 +264,7 @@ TEST_CASE("ISRWordLazy seek and next match eager ISRWord")
     delete isr;
   }
 
-  removeShardAndCache(pathTemplate);
+  removeShard(pathTemplate);
 }
 
 TEST_CASE("IndexFieldStreamReader decodes v2 skip sections and position deltas")

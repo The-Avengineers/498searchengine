@@ -3,7 +3,6 @@
 #include <avengine/search/index_shard_source.h>
 #include <avengine/search/search_service.h>
 
-#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -120,13 +119,6 @@ string joinPath(const char* directory, const char* filename)
   return path;
 }
 
-string cachePathForShard(const string& shardPath)
-{
-  string path(shardPath);
-  path += string(".loadcache");
-  return path;
-}
-
 void writeBytes(const string& path, const char* bytes, size_t len)
 {
   const int fd = open(path.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -135,11 +127,8 @@ void writeBytes(const string& path, const char* bytes, size_t len)
   EXPECT(close(fd) == 0);
 }
 
-void removeShardAndCache(const string& shardPath)
+void removeShard(const string& shardPath)
 {
-  const string cachePath = cachePathForShard(shardPath);
-  if (unlink(cachePath.cstr()) != 0)
-    EXPECT(errno == ENOENT);
   EXPECT(unlink(shardPath.cstr()) == 0);
 }
 
@@ -184,117 +173,7 @@ void testRankingInputRoundTrip()
   EXPECT(info->rankingInput.titleWordCount == expected.titleWordCount);
   EXPECT(info->rankingInput.seedSource == expected.seedSource);
 
-  removeShardAndCache(shardPath);
-  EXPECT(rmdir(dir) == 0);
-}
-
-void testShardLoadCacheCreatedAndReused()
-{
-  char dirTemplate[] = "/tmp/search_service_load_cache_XXXXXX";
-  char* dir = mkdtemp(dirTemplate);
-  EXPECT(dir != nullptr);
-
-  const string shardPath = joinPath(dir, "00000.sfi");
-  const string cachePath = cachePathForShard(shardPath);
-  writeShard(shardPath.cstr(), {{"doc://cache-a", "Cache A", "alpha beta"}});
-
-  EXPECT(access(cachePath.cstr(), F_OK) != 0);
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Rebuilt);
-  }
-  EXPECT(access(cachePath.cstr(), F_OK) == 0);
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Hit);
-    EXPECT(shard.GetDocumentURL(0) == string("doc://cache-a"));
-    avengine::ISRWord* isr = shard.OpenTermIsr(string("alpha"));
-    EXPECT(isr != nullptr);
-    delete isr;
-  }
-
-  removeShardAndCache(shardPath);
-  EXPECT(rmdir(dir) == 0);
-}
-
-void testShardLoadCacheCorruptionFallsBackAndRewrites()
-{
-  char dirTemplate[] = "/tmp/search_service_bad_cache_XXXXXX";
-  char* dir = mkdtemp(dirTemplate);
-  EXPECT(dir != nullptr);
-
-  const string shardPath = joinPath(dir, "00000.sfi");
-  const string cachePath = cachePathForShard(shardPath);
-  writeShard(shardPath.cstr(), {{"doc://cache-b", "Cache B", "gamma delta"}});
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Rebuilt);
-  }
-
-  writeBytes(cachePath, "bad", 3);
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Rebuilt);
-    EXPECT(shard.GetDocumentTitle(0) == string("Cache B"));
-  }
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Hit);
-  }
-
-  removeShardAndCache(shardPath);
-  EXPECT(rmdir(dir) == 0);
-}
-
-void testShardLoadCacheStaleSourceFallsBackAndRewrites()
-{
-  char dirTemplate[] = "/tmp/search_service_stale_cache_XXXXXX";
-  char* dir = mkdtemp(dirTemplate);
-  EXPECT(dir != nullptr);
-
-  const string shardPath = joinPath(dir, "00000.sfi");
-  const string cachePath = cachePathForShard(shardPath);
-  writeShard(shardPath.cstr(), {{"doc://old", "Old", "alpha"}});
-
-  struct stat before = {};
-  EXPECT(stat(shardPath.cstr(), &before) == 0);
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Rebuilt);
-  }
-
-  writeShard(shardPath.cstr(),
-             {{"doc://new", "New", "beta beta beta beta beta beta beta beta beta beta"}});
-
-  struct stat after = {};
-  EXPECT(stat(shardPath.cstr(), &after) == 0);
-  EXPECT(before.st_size != after.st_size);
-
-  {
-    avengine::search::IndexShardSource shard(shardPath);
-    EXPECT(shard.IsLoaded());
-    EXPECT(shard.GetCacheStatus() == avengine::search::ShardLoadCacheStatus::Rebuilt);
-    EXPECT(shard.GetDocumentURL(0) == string("doc://new"));
-    avengine::ISRWord* oldIsr = shard.OpenTermIsr(string("alpha"));
-    EXPECT(oldIsr == nullptr);
-    avengine::ISRWord* newIsr = shard.OpenTermIsr(string("beta"));
-    EXPECT(newIsr != nullptr);
-    delete newIsr;
-  }
-
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -314,10 +193,10 @@ void testPrefixedShardNamesAreDiscoveredAndClassified()
   writeShard(anchorB.cstr(), {{"doc://anchor-b", "Anchor B", "anchor"}});
 
   const string indexGroup = joinPath(dir, "index_group_000.txt");
-  const string ignoredCache = joinPath(dir, "Z_99999.sfi.loadcache");
+  const string ignoredNonShard = joinPath(dir, "Z_99999.sfi.tmp");
   const string lostFound = joinPath(dir, "lost+found");
   writeBytes(indexGroup, "ignored", 7);
-  writeBytes(ignoredCache, "ignored", 7);
+  writeBytes(ignoredNonShard, "ignored", 7);
   EXPECT(mkdir(lostFound.cstr(), 0755) == 0);
 
   SearchService service(dir, false);
@@ -333,12 +212,12 @@ void testPrefixedShardNamesAreDiscoveredAndClassified()
   EXPECT(SearchService::IsAnchorShardPath(anchorA));
   EXPECT(SearchService::IsAnchorShardPath(anchorB));
 
-  removeShardAndCache(primaryA);
-  removeShardAndCache(primaryB);
-  removeShardAndCache(anchorA);
-  removeShardAndCache(anchorB);
+  removeShard(primaryA);
+  removeShard(primaryB);
+  removeShard(anchorA);
+  removeShard(anchorB);
   EXPECT(unlink(indexGroup.cstr()) == 0);
-  EXPECT(unlink(ignoredCache.cstr()) == 0);
+  EXPECT(unlink(ignoredNonShard.cstr()) == 0);
   EXPECT(rmdir(lostFound.cstr()) == 0);
   EXPECT(rmdir(dir) == 0);
 }
@@ -401,8 +280,8 @@ void testTieredShardSearchesHighTierFirst()
   EXPECT(fallback.Results.size() == 1u);
   EXPECT(fallback.Results[0].Url == string("doc://tier1-best"));
 
-  removeShardAndCache(tier0);
-  removeShardAndCache(tier1);
+  removeShard(tier0);
+  removeShard(tier1);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -464,8 +343,8 @@ void testSolverQueries()
   EXPECT(timedOut.TotalHits == 0u);
   EXPECT(timedOut.Results.empty());
 
-  removeShardAndCache(shard0);
-  removeShardAndCache(shard1);
+  removeShard(shard0);
+  removeShard(shard1);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -488,7 +367,7 @@ void testResultDescriptions()
   EXPECT(response.Results[0].Url == string("doc://description"));
   EXPECT(response.Results[0].Description == string("This description should reach the frontend."));
 
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -543,7 +422,7 @@ void testPaging()
   {
     char filename[16];
     std::snprintf(filename, sizeof(filename), "%05zu.sfi", i);
-    removeShardAndCache(joinPath(dir, filename));
+    removeShard(joinPath(dir, filename));
   }
   EXPECT(rmdir(dir) == 0);
 }
@@ -600,7 +479,7 @@ void testResultCap()
   EXPECT(page11.TotalHits == 100u);
   EXPECT(page11.Results.empty());
 
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -627,7 +506,7 @@ void testBlankMetadataResultsAreSkipped()
   EXPECT(response.Results[1].Url == string("https://allmusic.com/"));
   EXPECT(response.Results[1].Title == string("AllMusic"));
 
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -653,7 +532,7 @@ void testTitleIntentWins()
   EXPECT(response.Results[0].Url == string("doc://newsflash"));
   EXPECT(response.Results[0].Score > response.Results[1].Score);
 
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -684,7 +563,7 @@ void testCompoundTokenQueries()
   EXPECT(negated.Errors.empty());
   EXPECT(negated.Results.empty());
 
-  removeShardAndCache(shardPath);
+  removeShard(shardPath);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -726,10 +605,10 @@ void testParallelWorkersMatchSingleThreaded()
   }
 
   EXPECT(unsetenv("SEARCH_SHARD_WORKERS") == 0);
-  removeShardAndCache(shard0);
-  removeShardAndCache(shard1);
-  removeShardAndCache(shard2);
-  removeShardAndCache(shard3);
+  removeShard(shard0);
+  removeShard(shard1);
+  removeShard(shard2);
+  removeShard(shard3);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -755,8 +634,8 @@ void testDuplicateUrlsAcrossShards()
   expectUrls(response, {"doc://shared", "doc://unique-a", "doc://unique-b"});
 
   EXPECT(unsetenv("SEARCH_SHARD_WORKERS") == 0);
-  removeShardAndCache(shard0);
-  removeShardAndCache(shard1);
+  removeShard(shard0);
+  removeShard(shard1);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -785,8 +664,8 @@ void testShardLoadCutoffCanReturnPartialIndex()
   EXPECT(response.Results.empty());
 
   EXPECT(unsetenv("SEARCH_LOAD_TIMEOUT_SEC") == 0);
-  removeShardAndCache(shard0);
-  removeShardAndCache(shard1);
+  removeShard(shard0);
+  removeShard(shard1);
   EXPECT(rmdir(dir) == 0);
 }
 
@@ -795,9 +674,6 @@ void testShardLoadCutoffCanReturnPartialIndex()
 int main()
 {
   testRankingInputRoundTrip();
-  testShardLoadCacheCreatedAndReused();
-  testShardLoadCacheCorruptionFallsBackAndRewrites();
-  testShardLoadCacheStaleSourceFallsBackAndRewrites();
   testPrefixedShardNamesAreDiscoveredAndClassified();
   testTieredShardSearchesHighTierFirst();
   testSolverQueries();

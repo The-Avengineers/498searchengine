@@ -165,9 +165,6 @@ struct BackgroundShardLoadContext
   atomic_counter loadedPrimaryShards;
   atomic_counter loadedAnchorShards;
   atomic_counter failedShardLoads;
-  atomic_counter cacheHits;
-  atomic_counter cacheRebuilds;
-  atomic_counter cacheWriteFailures;
   atomic_counter finishedWorkers;
   atomic_counter cutoffReached;
   atomic_counter readyPublished;
@@ -178,32 +175,10 @@ void PrintLoaderProgress(const BackgroundShardLoadContext& ctx)
   const size_t completed = static_cast<size_t>(ctx.processedPaths.get_val());
   const size_t percent = ctx.paths.empty() ? 100u : (completed * 100u) / ctx.paths.size();
   std::fprintf(stderr,
-               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d "
-               "cache_hit=%d cache_rebuilt=%d cache_write_failed=%d%s\n",
+               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d%s\n",
                completed, ctx.paths.size(), percent, ctx.loadedPrimaryShards.get_val(),
                ctx.loadedAnchorShards.get_val(), ctx.failedShardLoads.get_val(),
-               ctx.cacheHits.get_val(), ctx.cacheRebuilds.get_val(),
-               ctx.cacheWriteFailures.get_val(),
                ctx.cutoffReached.load() ? " cutoff-reached" : "");
-}
-
-void RecordShardCacheStatus(BackgroundShardLoadContext& ctx, const search::IndexShardSource& shard)
-{
-  switch (shard.GetCacheStatus())
-  {
-  case search::ShardLoadCacheStatus::Hit:
-    ctx.cacheHits.fetch_add(1);
-    break;
-  case search::ShardLoadCacheStatus::Rebuilt:
-    ctx.cacheRebuilds.fetch_add(1);
-    break;
-  case search::ShardLoadCacheStatus::RebuiltWithoutWrite:
-    ctx.cacheRebuilds.fetch_add(1);
-    ctx.cacheWriteFailures.fetch_add(1);
-    break;
-  case search::ShardLoadCacheStatus::NotLoaded:
-    break;
-  }
 }
 
 void PublishReady(BackgroundShardLoadContext& ctx, bool cutoffReached)
@@ -220,9 +195,6 @@ void PublishReady(BackgroundShardLoadContext& ctx, bool cutoffReached)
             << ", anchor=" << ctx.loadedAnchorShards.get_val()
             << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
             << ", loaded_paths=" << ctx.processedPaths.get_val()
-            << ", cache_hit=" << ctx.cacheHits.get_val()
-            << ", cache_rebuilt=" << ctx.cacheRebuilds.get_val()
-            << ", cache_write_failed=" << ctx.cacheWriteFailures.get_val()
             << ", took_ms=" << tookMs;
   if (cutoffReached)
     std::cerr << ", load_cutoff_reached=true, background_load_continues=true";
@@ -251,7 +223,6 @@ void* RunIncrementalShardLoadWorker(void* rawArgs)
     else
     {
       const bool isAnchor = search::SearchService::IsAnchorShardPath(path);
-      RecordShardCacheStatus(*ctx, *shard);
       {
         avengine::lock_guard<SharedMutex> guard(ctx->state->ServiceMutex);
         ctx->state->Service.AppendLoadedShard(shard, isAnchor);
@@ -1146,9 +1117,6 @@ static void* serviceLoaderThread(void* arg)
               << ", anchor=" << ctx.loadedAnchorShards.get_val()
               << ", failed=" << ctx.failedShardLoads.get_val() << ", total=" << ctx.paths.size()
               << ", loaded_paths=" << ctx.processedPaths.get_val()
-              << ", cache_hit=" << ctx.cacheHits.get_val()
-              << ", cache_rebuilt=" << ctx.cacheRebuilds.get_val()
-              << ", cache_write_failed=" << ctx.cacheWriteFailures.get_val()
               << ", took_ms=" << tookMs
               << ")\n";
   }

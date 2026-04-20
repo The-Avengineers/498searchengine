@@ -19,6 +19,7 @@ constexpr size_t kTierCount = 3;
 constexpr size_t kDefaultMaxThreads = 2;
 constexpr size_t kMaxRankThreads = 2;
 constexpr size_t kMaxRewriteThreads = 1;
+constexpr size_t kRewriteDocsPerChunk = 1024;
 
 struct Options
 {
@@ -601,7 +602,6 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
     return false;
 
   avengine::vector<avengine::string> sfiFiles;
-  avengine::vector<avengine::string> cacheFiles;
   avengine::vector<avengine::string> tempFiles;
   while (dirent* ent = readdir(dir))
   {
@@ -609,9 +609,6 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
     if (HasSfiSuffix(name))
     {
       sfiFiles.pushBack(JoinPath(path, name));
-      avengine::string cacheName(name);
-      cacheName += avengine::string(".loadcache");
-      cacheFiles.pushBack(JoinPath(path, cacheName));
     }
     else if (EndsWithLiteral(name, ".sfi.tmp"))
     {
@@ -627,8 +624,6 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
   }
 
   for (const avengine::string& file : sfiFiles)
-    unlink(file.cstr());
-  for (const avengine::string& file : cacheFiles)
     unlink(file.cstr());
   for (const avengine::string& file : tempFiles)
     unlink(file.cstr());
@@ -913,56 +908,70 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
                   double tier0Min, double tier1Min, TierShardWriter& writer,
                   ProgressState* progress)
 {
-  avengine::vector<avengine::vector<TokenAtPosition>> tokensByDoc(shard.docs.size());
   avengine::vector<uint32_t> positions;
 
-  for (size_t termIndex = 0; termIndex < shard.terms.size(); ++termIndex)
+  for (size_t chunkBegin = 0; chunkBegin < shard.docs.size(); chunkBegin += kRewriteDocsPerChunk)
   {
-    const TermEntry& term = shard.terms[termIndex];
-    if (term.term == DOCEND_TOKEN)
-      continue;
-    if (!DecodePositions(shard, term, positions))
-      return false;
+    size_t chunkEnd = chunkBegin + kRewriteDocsPerChunk;
+    if (chunkEnd > shard.docs.size())
+      chunkEnd = shard.docs.size();
 
-    for (uint32_t pos : positions)
+    avengine::vector<avengine::vector<TokenAtPosition>> tokensByDoc(chunkEnd - chunkBegin);
+    const uint32_t chunkStartPosition =
+        chunkBegin == 0 ? 0u : static_cast<uint32_t>(shard.docEndPositions[chunkBegin - 1] + 1u);
+
+    for (size_t termIndex = 0; termIndex < shard.terms.size(); ++termIndex)
     {
-      size_t docIndex = 0;
-      size_t hi = shard.docEndPositions.size();
-      while (docIndex < hi)
-      {
-        const size_t mid = docIndex + ((hi - docIndex) / 2);
-        if (shard.docEndPositions[mid] < pos)
-          docIndex = mid + 1;
-        else
-          hi = mid;
-      }
-      if (docIndex >= shard.docEndPositions.size())
+      const TermEntry& term = shard.terms[termIndex];
+      if (term.term == DOCEND_TOKEN)
         continue;
-      if (docIndex < tokensByDoc.size())
-        tokensByDoc[docIndex].pushBack({pos, static_cast<uint32_t>(termIndex)});
+      if (!DecodePositions(shard, term, positions))
+        return false;
+
+      size_t posIndex = 0;
+      size_t posHi = positions.size();
+      while (posIndex < posHi)
+      {
+        const size_t mid = posIndex + ((posHi - posIndex) / 2);
+        if (positions[mid] < chunkStartPosition)
+          posIndex = mid + 1;
+        else
+          posHi = mid;
+      }
+
+      size_t docIndex = chunkBegin;
+      for (; posIndex < positions.size(); ++posIndex)
+      {
+        const uint32_t pos = positions[posIndex];
+        while (docIndex < chunkEnd && shard.docEndPositions[docIndex] < pos)
+          ++docIndex;
+        if (docIndex >= chunkEnd)
+          break;
+        tokensByDoc[docIndex - chunkBegin].pushBack({pos, static_cast<uint32_t>(termIndex)});
+      }
     }
-  }
 
-  for (size_t docIndex = 0; docIndex < shard.docs.size(); ++docIndex)
-  {
-    avengine::vector<TokenAtPosition>& tokens = tokensByDoc[docIndex];
-    tokens.sort([](const TokenAtPosition& lhs, const TokenAtPosition& rhs) {
-      if (lhs.position != rhs.position)
-        return lhs.position < rhs.position;
-      return lhs.termIndex < rhs.termIndex;
-    });
+    for (size_t docIndex = chunkBegin; docIndex < chunkEnd; ++docIndex)
+    {
+      avengine::vector<TokenAtPosition>& tokens = tokensByDoc[docIndex - chunkBegin];
+      tokens.sort([](const TokenAtPosition& lhs, const TokenAtPosition& rhs) {
+        if (lhs.position != rhs.position)
+          return lhs.position < rhs.position;
+        return lhs.termIndex < rhs.termIndex;
+      });
 
-    int tier = 2;
-    const int* found = tierByUrl.get(avengine::string_slice(shard.docs[docIndex].url.cstr()));
-    if (found)
-      tier = *found;
-    else
-      tier = TierForScore(StaticRankScore(shard.docs[docIndex]), tier0Min, tier1Min);
+      int tier = 2;
+      const int* found = tierByUrl.get(avengine::string_slice(shard.docs[docIndex].url.cstr()));
+      if (found)
+        tier = *found;
+      else
+        tier = TierForScore(StaticRankScore(shard.docs[docIndex]), tier0Min, tier1Min);
 
-    if (!writer.AddDocument(tier, shard.docs[docIndex], tokens, shard.terms))
-      return false;
-    if (progress)
-      progress->documents.fetch_add(1);
+      if (!writer.AddDocument(tier, shard.docs[docIndex], tokens, shard.terms))
+        return false;
+      if (progress)
+        progress->documents.fetch_add(1);
+    }
   }
 
   return true;

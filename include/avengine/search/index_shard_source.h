@@ -9,14 +9,6 @@ namespace avengine
 namespace search
 {
 
-enum class ShardLoadCacheStatus
-{
-  NotLoaded,
-  Hit,
-  Rebuilt,
-  RebuiltWithoutWrite,
-};
-
 class IndexShardSource : public constraint_solver::IsrSource
 {
 public:
@@ -29,7 +21,6 @@ public:
 
   bool Load(const string& path);
   bool IsLoaded() const;
-  ShardLoadCacheStatus GetCacheStatus() const;
 
   string GetPath() const;
   string GetDocumentURL(uint32_t docId) const override;
@@ -60,21 +51,8 @@ private:
     size_t endOffset = 0;     // posting data end offset in file
   };
 
-  struct SourceFingerprint
-  {
-    uint64_t fileSize = 0;
-    uint64_t mtimeSec = 0;
-    uint64_t mtimeNsec = 0;
-    uint64_t documentCount = 0;
-    uint64_t uniqueWords = 0;
-    uint64_t tokenOffset = 0;
-    uint64_t rankingInputSize = 0;
-  };
-
   bool ParseDictionary(uint64_t uniqueWords);
   bool ParseDocumentMetadata();
-  bool LoadDerivedCache(const SourceFingerprint& fingerprint);
-  bool WriteDerivedCache(const SourceFingerprint& fingerprint) const;
   bool FindPostingBounds(const string& term, const uint8_t** begin, const uint8_t** end,
                          uint64_t* documentFrequency) const;
   void Reset();
@@ -84,12 +62,8 @@ private:
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
 
-  // Persistent owned copy of the .loadcache file (cache hit path). Null on cache miss.
-  uint8_t* cacheMapData_ = nullptr;
-  size_t cacheMapSize_ = 0;
-
-  // Active read views — point into cacheMapData_ on cache hit, or into the
-  // *Storage_ vectors below on cache miss. Always valid after a successful Load().
+  // Active read views point into the storage vectors below. Always valid after
+  // a successful Load().
   const TermIndex* termIndexData_ = nullptr;
   size_t termIndexSize_ = 0;
   const DocumentInfo* documentsData_ = nullptr;
@@ -98,14 +72,11 @@ private:
   const DocSlice* docDescriptionsData_ = nullptr;
   size_t documentSize_ = 0;
 
-  // Heap storage used only on the cache miss path (empty on cache hit).
   vector<TermIndex> termIndexStorage_;
   vector<DocumentInfo> documentsStorage_;
   vector<DocSlice> docUrlsStorage_;
   vector<DocSlice> docTitlesStorage_;
   vector<DocSlice> docDescriptionsStorage_;
-
-  ShardLoadCacheStatus cacheStatus_ = ShardLoadCacheStatus::NotLoaded;
 
   // Per-query cache: populated lazily by OpenTermIsr, cleared via ClearTermCache()
   // after each shard's work is done. Declared mutable so const OpenTermIsr can write it.
