@@ -24,6 +24,7 @@ __pycache__/
 data
 # Local index shards from smoke runs / manual search tests.
 *.sfi
+*.loadcache
 /build/
 .cache/
 build/
