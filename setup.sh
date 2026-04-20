@@ -186,7 +186,12 @@ echo "are ignored."
 echo ""
 prompt OLD_INDEX_DIR "Path to old index shard directory" "$DEFAULT_OLD_INDEX"
 prompt INDEX_DIR "Path for tiered serving index directory" "$DEFAULT_TIERED_INDEX"
-PREPROCESS_THREADS_DEFAULT="$(nproc 2>/dev/null || echo 1)"
+PREPROCESS_CPUS="$(nproc 2>/dev/null || echo 1)"
+if [[ "$PREPROCESS_CPUS" -gt 2 ]]; then
+  PREPROCESS_THREADS_DEFAULT="2"
+else
+  PREPROCESS_THREADS_DEFAULT="$PREPROCESS_CPUS"
+fi
 prompt PREPROCESS_THREADS "Tiered preprocessor worker threads" "$PREPROCESS_THREADS_DEFAULT"
 validate_integer "$PREPROCESS_THREADS"
 [[ "$PREPROCESS_THREADS" -eq 0 ]] && fatal "Tiered preprocessor worker threads must be greater than zero."

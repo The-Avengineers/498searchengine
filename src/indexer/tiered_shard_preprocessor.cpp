@@ -16,6 +16,9 @@ namespace
 
 constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
 constexpr size_t kTierCount = 3;
+constexpr size_t kDefaultMaxThreads = 2;
+constexpr size_t kMaxRankThreads = 4;
+constexpr size_t kMaxRewriteThreads = 2;
 
 struct Options
 {
@@ -59,8 +62,6 @@ struct RankedDoc
 {
   avengine::string url;
   double score = 0.0;
-  avengine::string sourcePath;
-  size_t sourceDocId = 0;
 };
 
 struct TokenAtPosition
@@ -136,7 +137,8 @@ size_t DefaultThreadCount()
   const long configured = sysconf(_SC_NPROCESSORS_ONLN);
   if (configured <= 0)
     return 1;
-  return static_cast<size_t>(configured);
+  const size_t cpuCount = static_cast<size_t>(configured);
+  return cpuCount < kDefaultMaxThreads ? cpuCount : kDefaultMaxThreads;
 }
 
 size_t ClampThreadCount(size_t requested, size_t workItems)
@@ -151,11 +153,35 @@ size_t ClampThreadCount(size_t requested, size_t workItems)
   return count;
 }
 
+size_t ClampPhaseThreadCount(size_t requested, size_t workItems, size_t phaseMax)
+{
+  size_t count = ClampThreadCount(requested, workItems);
+  if (count > phaseMax)
+    count = phaseMax;
+  return count;
+}
+
 bool HasSfiSuffix(const avengine::string& name)
 {
   const size_t n = name.size();
   return n >= 4 && name[n - 4] == '.' && name[n - 3] == 's' && name[n - 2] == 'f' &&
          name[n - 1] == 'i';
+}
+
+bool EndsWithLiteral(const avengine::string& name, const char* suffix)
+{
+  size_t suffixLen = 0;
+  while (suffix[suffixLen] != '\0')
+    ++suffixLen;
+  if (name.size() < suffixLen)
+    return false;
+  const size_t start = name.size() - suffixLen;
+  for (size_t i = 0; i < suffixLen; ++i)
+  {
+    if (name[start + i] != suffix[i])
+      return false;
+  }
+  return true;
 }
 
 avengine::string Basename(const avengine::string& path)
@@ -576,6 +602,7 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
 
   avengine::vector<avengine::string> sfiFiles;
   avengine::vector<avengine::string> cacheFiles;
+  avengine::vector<avengine::string> tempFiles;
   while (dirent* ent = readdir(dir))
   {
     const avengine::string name(ent->d_name);
@@ -585,6 +612,10 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
       avengine::string cacheName(name);
       cacheName += avengine::string(".loadcache");
       cacheFiles.pushBack(JoinPath(path, cacheName));
+    }
+    else if (EndsWithLiteral(name, ".sfi.tmp"))
+    {
+      tempFiles.pushBack(JoinPath(path, name));
     }
   }
   closedir(dir);
@@ -598,6 +629,8 @@ bool PrepareOutputDirectory(const avengine::string& path, bool force)
   for (const avengine::string& file : sfiFiles)
     unlink(file.cstr());
   for (const avengine::string& file : cacheFiles)
+    unlink(file.cstr());
+  for (const avengine::string& file : tempFiles)
     unlink(file.cstr());
   return true;
 }
@@ -773,18 +806,19 @@ void* RankWorkerMain(void* raw)
     for (size_t i = 0; i < shard.docs.size(); ++i)
     {
       const DocMeta& doc = shard.docs[i];
-      localDocs.pushBack({doc.url, StaticRankScore(doc), path, i});
+      localDocs.pushBack({doc.url, StaticRankScore(doc)});
+    }
+
+    if (!localDocs.empty())
+    {
+      args->docsMutex->lock();
+      for (size_t i = 0; i < localDocs.size(); ++i)
+        args->docs->pushBack(localDocs[i]);
+      args->docsMutex->unlock();
+      localDocs.clear();
     }
     args->progress->documents.fetch_add(static_cast<int>(shard.docs.size()));
     args->progress->processedShards.fetch_add(1);
-  }
-
-  if (!localDocs.empty())
-  {
-    args->docsMutex->lock();
-    for (size_t i = 0; i < localDocs.size(); ++i)
-      args->docs->pushBack(localDocs[i]);
-    args->docsMutex->unlock();
   }
   return nullptr;
 }
@@ -807,7 +841,8 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
 
   avengine::atomic_counter nextFile(0);
   avengine::mutex docsMutex;
-  const size_t workerCount = ClampThreadCount(threadCount, files.size());
+  const size_t workerCount = ClampPhaseThreadCount(threadCount, files.size(), kMaxRankThreads);
+  printf("[tiered_shard_preprocessor] ranking with %zu worker thread(s)\n", workerCount);
   avengine::thread* workers = new avengine::thread[workerCount];
   RankWorkerArgs* args = new RankWorkerArgs[workerCount];
 
@@ -849,11 +884,7 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
   docs.sort([](const RankedDoc& lhs, const RankedDoc& rhs) {
     if (lhs.score != rhs.score)
       return lhs.score > rhs.score;
-    if (lhs.url != rhs.url)
-      return lhs.url < rhs.url;
-    if (lhs.sourcePath != rhs.sourcePath)
-      return lhs.sourcePath < rhs.sourcePath;
-    return lhs.sourceDocId < rhs.sourceDocId;
+    return lhs.url < rhs.url;
   });
 
   tier0Min = docs.front().score;
@@ -867,7 +898,7 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
       tier1Min = docs[i].score;
 
     if (!tierByUrl.get(avengine::string_slice(docs[i].url.cstr())))
-      tierByUrl.insert(docs[i].url, tier);
+      tierByUrl.insert(static_cast<avengine::string&&>(docs[i].url), tier);
   }
 
   printf("[tiered_shard_preprocessor] ranked %zu primary document(s)\n", docs.size());
@@ -1003,7 +1034,8 @@ bool RewriteAll(const avengine::vector<avengine::string>& files,
 
   avengine::atomic_counter nextFile(0);
   avengine::atomic_counter fatalFailure(0);
-  const size_t workerCount = ClampThreadCount(threadCount, files.size());
+  const size_t workerCount = ClampPhaseThreadCount(threadCount, files.size(), kMaxRewriteThreads);
+  printf("[tiered_shard_preprocessor] rewriting with %zu worker thread(s)\n", workerCount);
   avengine::thread* workers = new avengine::thread[workerCount];
   RewriteWorkerArgs* args = new RewriteWorkerArgs[workerCount];
   const bool partitionedOutput = workerCount > 1;
@@ -1114,7 +1146,7 @@ int main(int argc, char** argv)
     return 1;
 
   const size_t threadCount = ClampThreadCount(options.threads, files.size());
-  printf("[tiered_shard_preprocessor] found %zu shard(s), using %zu worker thread(s)\n",
+  printf("[tiered_shard_preprocessor] found %zu shard(s), max worker thread(s) %zu\n",
          files.size(), threadCount);
 
   avengine::unordered_map<int> tierByUrl;
