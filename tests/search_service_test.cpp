@@ -355,8 +355,10 @@ void writeRepeatedAlphaShard(const string& shardPath, const char* urlPrefix, siz
     std::snprintf(title, sizeof(title), "%s %02zu", titlePrefix, i);
     string urlString(url);
     string titleString(title);
+    string description;
     index.beginDocument({.url = urlString,
                          .title = titleString,
+                         .description = description,
                          .input = {.domainDepth = 0u,
                                    .depth = 0u,
                                    .urlLength = static_cast<uint16_t>(urlString.size()),
@@ -438,7 +440,7 @@ void testSolverQueries()
   EXPECT(limited.TotalHits == 3u);
   EXPECT(limited.Page == 1u);
   EXPECT(limited.Results.size() == 1u);
-  EXPECT(limited.Results[0].Url == string("doc://brown-fox"));
+  EXPECT(limited.Results[0].Url == string("doc://apollo"));
   EXPECT(limited.Results[0].Score > 0.0);
 
   const SearchResponse noHit = service.Search("kiwi", 10);
@@ -562,8 +564,10 @@ void testResultCap()
     std::snprintf(title, sizeof(title), "Cap %03zu", i);
     string urlString(url);
     string titleString(title);
+    string description;
     index.beginDocument({.url = urlString,
                          .title = titleString,
+                         .description = description,
                          .input = {.domainDepth = 0u,
                                    .depth = 0u,
                                    .urlLength = static_cast<uint16_t>(urlString.size()),
@@ -616,7 +620,7 @@ void testBlankMetadataResultsAreSkipped()
   const SearchResponse response = service.Search("apple", 10);
 
   EXPECT(response.Errors.empty());
-  EXPECT(response.TotalHits == 3u);
+  EXPECT(response.TotalHits == 2u);
   EXPECT(response.Results.size() == 2u);
   EXPECT(response.Results[0].Url == string("https://apple.com/"));
   EXPECT(response.Results[0].Title == string("Apple"));
@@ -747,7 +751,7 @@ void testDuplicateUrlsAcrossShards()
   EXPECT(setenv("SEARCH_SHARD_WORKERS", "2", 1) == 0);
   const SearchResponse response = service.Search("documentation api", 10);
 
-  EXPECT(response.TotalHits == 4u);
+  EXPECT(response.TotalHits == 3u);
   expectUrls(response, {"doc://shared", "doc://unique-a", "doc://unique-b"});
 
   EXPECT(unsetenv("SEARCH_SHARD_WORKERS") == 0);

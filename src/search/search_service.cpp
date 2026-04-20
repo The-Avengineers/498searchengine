@@ -1263,6 +1263,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   const size_t thresholdMs = solver_.GetExecutionTimeThresholdMs();
   const SteadyTimePoint deadline = startedAt + std::chrono::milliseconds(thresholdMs);
   const size_t candidateLimit = ComputeOverfetchLimit(response.Page, response.Limit);
+  const size_t rankCandidateLimit = kMaxVisibleSearchResults;
 
   const auto parseStartedAt = std::chrono::steady_clock::now();
   constraint_solver::ParseResult parsed = solver_.ParseQuery(query);
@@ -1347,7 +1348,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
 
     const auto rankStartedAt = std::chrono::steady_clock::now();
     vector<vector<PooledRankedHit>> workerOutputs;
-    LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit,
+    LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, rankCandidateLimit,
                     postCollectDeadline, timedOut, workerOutputs, weights);
     response.RankMs += DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
 

@@ -53,13 +53,17 @@ void Ranker::Consider(const urlEntry& entry, const string& title,
   if (retained && *retained != 0)
     return;
 
-  // Quality pre-filter: skip documents that have no query terms in their title
-  // and no exact phrase match in the body
+  // Quality pre-filter: skip unusable candidates with no query-term evidence in
+  // the body, title, or anchor text. OR queries can validly match only one query
+  // branch, so requiring a full exact phrase here drops correct results.
   {
     using namespace ranking_strategy_detail;
+    const bool body_covered = CoverageScore(term_positions) > 0.0;
     const bool title_covered = signals.title_term_positions != nullptr &&
                                CoverageScore(*signals.title_term_positions) > 0.0;
-    if (!title_covered && !HasExactPhrase(term_positions))
+    const bool anchor_covered = signals.anchor_term_positions != nullptr &&
+                                CoverageScore(*signals.anchor_term_positions) > 0.0;
+    if (!body_covered && !title_covered && !anchor_covered)
       return;
   }
 
