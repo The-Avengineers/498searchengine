@@ -17,8 +17,8 @@ namespace
 constexpr uint64_t kIndexMagic = 0x008FB8EF84979FF0ULL;
 constexpr size_t kTierCount = 3;
 constexpr size_t kDefaultMaxThreads = 2;
-constexpr size_t kMaxRankThreads = 4;
-constexpr size_t kMaxRewriteThreads = 2;
+constexpr size_t kMaxRankThreads = 2;
+constexpr size_t kMaxRewriteThreads = 1;
 
 struct Options
 {
@@ -67,7 +67,7 @@ struct RankedDoc
 struct TokenAtPosition
 {
   uint32_t position = 0;
-  avengine::string term;
+  uint32_t termIndex = 0;
 };
 
 struct ProgressState
@@ -671,7 +671,8 @@ public:
       delete index;
   }
 
-  bool AddDocument(int tier, const DocMeta& doc, const avengine::vector<TokenAtPosition>& tokens)
+  bool AddDocument(int tier, const DocMeta& doc, const avengine::vector<TokenAtPosition>& tokens,
+                   const avengine::vector<TermEntry>& terms)
   {
     if (tier < 0 || tier >= static_cast<int>(kTierCount))
       tier = 2;
@@ -685,7 +686,10 @@ public:
 
     index->beginDocument(metadata);
     for (const TokenAtPosition& token : tokens)
-      index->ingest(avengine::string_slice(token.term.cstr()));
+    {
+      if (token.termIndex < terms.size())
+        index->ingest(avengine::string_slice(terms[token.termIndex].term.cstr()));
+    }
     index->endDocument();
 
     if (index->offset >= OFFSET_THRESHOLD)
@@ -912,8 +916,9 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
   avengine::vector<avengine::vector<TokenAtPosition>> tokensByDoc(shard.docs.size());
   avengine::vector<uint32_t> positions;
 
-  for (const TermEntry& term : shard.terms)
+  for (size_t termIndex = 0; termIndex < shard.terms.size(); ++termIndex)
   {
+    const TermEntry& term = shard.terms[termIndex];
     if (term.term == DOCEND_TOKEN)
       continue;
     if (!DecodePositions(shard, term, positions))
@@ -934,7 +939,7 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
       if (docIndex >= shard.docEndPositions.size())
         continue;
       if (docIndex < tokensByDoc.size())
-        tokensByDoc[docIndex].pushBack({pos, term.term});
+        tokensByDoc[docIndex].pushBack({pos, static_cast<uint32_t>(termIndex)});
     }
   }
 
@@ -944,7 +949,7 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
     tokens.sort([](const TokenAtPosition& lhs, const TokenAtPosition& rhs) {
       if (lhs.position != rhs.position)
         return lhs.position < rhs.position;
-      return lhs.term < rhs.term;
+      return lhs.termIndex < rhs.termIndex;
     });
 
     int tier = 2;
@@ -954,7 +959,7 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
     else
       tier = TierForScore(StaticRankScore(shard.docs[docIndex]), tier0Min, tier1Min);
 
-    if (!writer.AddDocument(tier, shard.docs[docIndex], tokens))
+    if (!writer.AddDocument(tier, shard.docs[docIndex], tokens, shard.terms))
       return false;
     if (progress)
       progress->documents.fetch_add(1);
