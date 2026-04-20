@@ -83,9 +83,9 @@ int main(int argc, char** argv)
   }
 
   std::printf("[rebuild_serving_index] input=%s output=%s primary=%zu anchor=%zu serving=%zu "
-              "block_size=%u\n",
+              "skipped_primary=%zu skipped_anchor=%zu block_size=%u\n",
               options.inputDirectory.cstr(), options.outputDirectory.cstr(),
               stats.primaryShardCount, stats.anchorShardCount, stats.servingShardCount,
-              options.blockSize);
+              stats.skippedPrimaryShardCount, stats.skippedAnchorShardCount, options.blockSize);
   return 0;
 }

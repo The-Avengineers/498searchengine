@@ -22,6 +22,8 @@ struct ServingRebuildStats
 {
   size_t primaryShardCount = 0;
   size_t anchorShardCount = 0;
+  size_t skippedPrimaryShardCount = 0;
+  size_t skippedAnchorShardCount = 0;
   size_t servingShardCount = 0;
   string error;
 };

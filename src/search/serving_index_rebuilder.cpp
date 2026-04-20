@@ -1,6 +1,8 @@
 #include <avengine/search/serving_index_format.h>
 #include <avengine/search/serving_index_rebuilder.h>
 #include <avengine/search/legacy_shard_reader.h>
+#include <avengine/avengine_lib/atomic.h>
+#include <avengine/avengine_lib/thread.h>
 #include <avengine/codec.h>
 #include <avengine/unordered_map.h>
 
@@ -183,6 +185,22 @@ struct OutputShardState
   LegacyShardReader* reader = nullptr;
   vector<TermBuildState> terms;
   vector<uint32_t> docLengths;
+};
+
+struct OutputWriteJob
+{
+  const OutputShardState* shard = nullptr;
+  string outputPath;
+  bool ok = false;
+  string error;
+};
+
+struct OutputWriteArgs
+{
+  vector<OutputWriteJob>* jobs = nullptr;
+  uint32_t blockSize = 0;
+  atomic_counter* nextJob = nullptr;
+  atomic_counter* completed = nullptr;
 };
 
 void DestroyOutputShards(vector<OutputShardState>& shards)
@@ -506,9 +524,55 @@ bool WriteServingShardBytes(const string& outputPath, const vector<uint8_t>& byt
   return true;
 }
 
+void* RunOutputWriteWorker(void* rawArgs)
+{
+  OutputWriteArgs* args = static_cast<OutputWriteArgs*>(rawArgs);
+  if (!args || !args->jobs || !args->nextJob || !args->completed)
+    return nullptr;
+
+  for (;;)
+  {
+    const size_t jobIndex = static_cast<size_t>(args->nextJob->fetch_add(1));
+    if (jobIndex >= args->jobs->size())
+      break;
+
+    OutputWriteJob& job = (*args->jobs)[jobIndex];
+    std::fprintf(stderr, "[rebuild_serving_index] write %zu/%zu %s\n", jobIndex + 1u,
+                 args->jobs->size(), job.outputPath.cstr());
+    vector<uint8_t> bytes;
+    job.ok = BuildServingShardBytes(*job.shard, args->blockSize, &bytes, &job.error) &&
+             WriteServingShardBytes(job.outputPath, bytes, &job.error);
+    args->completed->fetch_add(1);
+  }
+
+  return nullptr;
+}
+
+size_t ResolveRebuildWorkerCount(size_t jobCount)
+{
+  if (jobCount <= 1)
+    return jobCount == 0 ? 1u : jobCount;
+
+  const char* configured = std::getenv("SERVING_REBUILD_WORKERS");
+  if (configured && *configured != '\0')
+  {
+    char* end = nullptr;
+    const unsigned long requested = std::strtoul(configured, &end, 10);
+    if (end && *end == '\0' && requested > 0)
+      return requested > jobCount ? jobCount : static_cast<size_t>(requested);
+  }
+
+  long cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
+  size_t workers = cpuCount > 0 ? static_cast<size_t>(cpuCount) : 1u;
+  if (workers > 8u)
+    workers = 8u;
+  return workers > jobCount ? jobCount : workers;
+}
+
 bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
                        vector<OutputShardState>* shards,
-                       unordered_map<DocRef>* urlToDoc, string* error)
+                       unordered_map<DocRef>* urlToDoc, ServingRebuildStats* stats,
+                       string* error)
 {
   if (!shards || !urlToDoc)
     return false;
@@ -516,50 +580,69 @@ bool LoadPrimaryShards(const vector<ServingShardFile>& primary,
 
   for (size_t i = 0; i < primary.size(); ++i)
   {
+    std::fprintf(stderr, "[rebuild_serving_index] load primary %zu/%zu %s\n", i + 1u,
+                 primary.size(), primary[i].inputPath.cstr());
     OutputShardState state;
     state.file = &primary[i];
     state.reader = new LegacyShardReader(primary[i].inputPath);
     if (!state.reader->IsLoaded())
     {
-      if (error)
-      {
-        *error = string("failed to read primary shard ");
-        *error += primary[i].inputPath;
-        *error += string(": ");
-        *error += state.reader->GetError();
-      }
+      std::fprintf(stderr, "[rebuild_serving_index] skip primary %s: %s\n",
+                   primary[i].inputPath.cstr(), state.reader->GetError().cstr());
+      if (stats)
+        ++stats->skippedPrimaryShardCount;
       delete state.reader;
-      return false;
+      continue;
     }
 
     state.docLengths.reserve(state.reader->DocumentCount());
+    const size_t shardIndex = shards->size();
     for (size_t doc = 0; doc < state.reader->DocumentCount(); ++doc)
     {
       const LegacyDocumentMetadata* meta = state.reader->GetDocument(static_cast<uint32_t>(doc));
       if (!meta)
       {
-        if (error)
-          *error = string("primary shard document metadata missing");
+        std::fprintf(stderr, "[rebuild_serving_index] skip primary %s: document metadata missing\n",
+                     primary[i].inputPath.cstr());
+        if (stats)
+          ++stats->skippedPrimaryShardCount;
         delete state.reader;
-        return false;
+        state.reader = nullptr;
+        break;
       }
       state.docLengths.pushBack(meta->docLength);
-      urlToDoc->insert(meta->url, {i, meta->docId});
+      urlToDoc->insert(meta->url, {shardIndex, meta->docId});
     }
 
-    shards->pushBack(state);
+    if (state.reader)
+      shards->pushBack(state);
   }
 
+  if (shards->empty())
+  {
+    if (error)
+      *error = string("no readable primary shards");
+    return false;
+  }
   return true;
 }
 
-bool AddPrimaryEvidence(OutputShardState* shard, string* error)
+bool AddPrimaryEvidence(OutputShardState* shard)
 {
   if (!shard || !shard->reader)
     return false;
 
+  std::fprintf(stderr, "[rebuild_serving_index] decode primary postings %s terms=%zu docs=%zu\n",
+               shard->file ? shard->file->inputPath.cstr() : "(unknown)",
+               shard->reader->TermCount(), shard->reader->DocumentCount());
   for (size_t termIndex = 0; termIndex < shard->reader->TermCount(); ++termIndex)
   {
+    if ((termIndex % 10000u) == 0 && termIndex != 0)
+    {
+      std::fprintf(stderr, "[rebuild_serving_index] primary %s term %zu/%zu\n",
+                   shard->file ? shard->file->inputPath.cstr() : "(unknown)", termIndex,
+                   shard->reader->TermCount());
+    }
     const LegacyTermInfo* info = shard->reader->GetTerm(termIndex);
     if (!info || info->term == string(DOCEND_TOKEN))
       continue;
@@ -588,12 +671,9 @@ bool AddPrimaryEvidence(OutputShardState* shard, string* error)
     vector<LegacyDocTermStats> stats;
     if (!shard->reader->DecodeTermDocumentStats(info->term, &stats))
     {
-      if (error)
-      {
-        *error = string("failed to decode term ");
-        *error += info->term;
-      }
-      return false;
+      std::fprintf(stderr, "[rebuild_serving_index] skip primary term %s in %s: decode failed\n",
+                   info->term.cstr(), shard->file ? shard->file->inputPath.cstr() : "(unknown)");
+      continue;
     }
 
     for (const LegacyDocTermStats& stat : stats)
@@ -609,28 +689,35 @@ bool AddPrimaryEvidence(OutputShardState* shard, string* error)
 }
 
 bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* shards,
-                       const unordered_map<DocRef>& urlToDoc, string* error)
+                       const unordered_map<DocRef>& urlToDoc, ServingRebuildStats* rebuildStats,
+                       string* error)
 {
+  (void)error;
   if (!shards)
     return false;
 
-  for (const string& path : anchors)
+  for (size_t anchorIndex = 0; anchorIndex < anchors.size(); ++anchorIndex)
   {
+    const string& path = anchors[anchorIndex];
+    std::fprintf(stderr, "[rebuild_serving_index] load anchor %zu/%zu %s\n", anchorIndex + 1u,
+                 anchors.size(), path.cstr());
     LegacyShardReader anchor(path);
     if (!anchor.IsLoaded())
     {
-      if (error)
-      {
-        *error = string("failed to read anchor shard ");
-        *error += path;
-        *error += string(": ");
-        *error += anchor.GetError();
-      }
-      return false;
+      std::fprintf(stderr, "[rebuild_serving_index] skip anchor %s: %s\n", path.cstr(),
+                   anchor.GetError().cstr());
+      if (rebuildStats)
+        ++rebuildStats->skippedAnchorShardCount;
+      continue;
     }
 
     for (size_t termIndex = 0; termIndex < anchor.TermCount(); ++termIndex)
     {
+      if ((termIndex % 10000u) == 0 && termIndex != 0)
+      {
+        std::fprintf(stderr, "[rebuild_serving_index] anchor %s term %zu/%zu\n",
+                     path.cstr(), termIndex, anchor.TermCount());
+      }
       const LegacyTermInfo* info = anchor.GetTerm(termIndex);
       if (!info || info->term == string(DOCEND_TOKEN))
         continue;
@@ -639,18 +726,17 @@ bool AddAnchorEvidence(const vector<string>& anchors, vector<OutputShardState>* 
       if (rawTerm.size() == 0 || rawTerm[0] == '#' || rawTerm[0] == '/')
         continue;
 
-      vector<LegacyDocTermStats> stats;
-      if (!anchor.DecodeTermDocumentStats(info->term, &stats))
+      vector<LegacyDocTermStats> termStats;
+      if (!anchor.DecodeTermDocumentStats(info->term, &termStats))
       {
-        if (error)
-        {
-          *error = string("failed to decode anchor term ");
-          *error += info->term;
-        }
-        return false;
+        std::fprintf(stderr, "[rebuild_serving_index] skip anchor %s: failed to decode term %s\n",
+                     path.cstr(), info->term.cstr());
+        if (rebuildStats)
+          ++rebuildStats->skippedAnchorShardCount;
+        break;
       }
 
-      for (const LegacyDocTermStats& stat : stats)
+      for (const LegacyDocTermStats& stat : termStats)
       {
         const LegacyDocumentMetadata* meta = anchor.GetDocument(stat.docId);
         if (!meta)
@@ -799,43 +885,83 @@ bool RebuildServingIndex(const ServingRebuildOptions& options, ServingRebuildSta
 
   vector<OutputShardState> shards;
   unordered_map<DocRef> urlToDoc;
-  if (!LoadPrimaryShards(primary, &shards, &urlToDoc, &stats->error))
+  std::fprintf(stderr, "[rebuild_serving_index] discovered primary=%zu anchor=%zu\n",
+               primary.size(), anchors.size());
+  if (!LoadPrimaryShards(primary, &shards, &urlToDoc, stats, &stats->error))
   {
     DestroyOutputShards(shards);
     return false;
   }
+  std::fprintf(stderr, "[rebuild_serving_index] loaded primary=%zu skipped_primary=%zu\n",
+               shards.size(), stats->skippedPrimaryShardCount);
 
-  for (OutputShardState& shard : shards)
+  for (size_t i = 0; i < shards.size(); ++i)
   {
-    if (!AddPrimaryEvidence(&shard, &stats->error))
-    {
-      DestroyOutputShards(shards);
-      return false;
-    }
+    std::fprintf(stderr, "[rebuild_serving_index] primary evidence %zu/%zu\n", i + 1u,
+                 shards.size());
+    AddPrimaryEvidence(&shards[i]);
   }
 
-  if (!AddAnchorEvidence(anchors, &shards, urlToDoc, &stats->error))
+  if (!AddAnchorEvidence(anchors, &shards, urlToDoc, stats, &stats->error))
   {
     DestroyOutputShards(shards);
     return false;
   }
+  std::fprintf(stderr, "[rebuild_serving_index] anchor merge complete skipped_anchor=%zu\n",
+               stats->skippedAnchorShardCount);
 
-  for (const OutputShardState& shard : shards)
+  vector<OutputWriteJob> jobs;
+  jobs.reserve(shards.size());
+  for (size_t i = 0; i < shards.size(); ++i)
   {
-    vector<uint8_t> bytes;
-    if (!BuildServingShardBytes(shard, options.blockSize, &bytes, &stats->error))
-    {
-      DestroyOutputShards(shards);
-      return false;
-    }
+    OutputWriteJob job;
+    job.shard = &shards[i];
+    job.outputPath = JoinPath(options.outputDirectory, shards[i].file->outputName);
+    jobs.pushBack(job);
+  }
 
-    const string outputPath = JoinPath(options.outputDirectory, shard.file->outputName);
-    if (!WriteServingShardBytes(outputPath, bytes, &stats->error))
+  const size_t workerCount = ResolveRebuildWorkerCount(jobs.size());
+  std::fprintf(stderr, "[rebuild_serving_index] writing %zu serving shard(s) with %zu worker(s)\n",
+               jobs.size(), workerCount);
+  atomic_counter nextJob(0);
+  atomic_counter completed(0);
+  OutputWriteArgs writeArgs = {
+      .jobs = &jobs,
+      .blockSize = options.blockSize,
+      .nextJob = &nextJob,
+      .completed = &completed,
+  };
+
+  thread* workers = workerCount > 1 ? new thread[workerCount - 1u] : nullptr;
+  for (size_t i = 1; i < workerCount; ++i)
+  {
+    if (!workers[i - 1u].start(RunOutputWriteWorker, &writeArgs))
+      RunOutputWriteWorker(&writeArgs);
+  }
+  RunOutputWriteWorker(&writeArgs);
+  for (size_t i = 0; i + 1u < workerCount; ++i)
+  {
+    if (workers[i].joinable())
+      workers[i].join();
+  }
+  delete[] workers;
+
+  for (size_t i = 0; i < jobs.size(); ++i)
+  {
+    if (jobs[i].ok)
     {
-      DestroyOutputShards(shards);
-      return false;
+      ++stats->servingShardCount;
+      continue;
     }
-    ++stats->servingShardCount;
+    std::fprintf(stderr, "[rebuild_serving_index] skip output %s: %s\n",
+                 jobs[i].outputPath.cstr(), jobs[i].error.cstr());
+  }
+
+  if (stats->servingShardCount == 0)
+  {
+    stats->error = string("no serving shards written");
+    DestroyOutputShards(shards);
+    return false;
   }
 
   DestroyOutputShards(shards);
