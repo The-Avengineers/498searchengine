@@ -502,6 +502,12 @@ fi
 STAGING="\${INDEX_DIR}.staging"
 PREVIOUS="\${INDEX_DIR}.previous"
 CHECKPOINT="\${STAGING}/.tiered_preprocess.checkpoint"
+RAW_GENERATIONS="\${INDEX_DIR}.raw-generations"
+SERVING_GENERATIONS="\${INDEX_DIR}.generations"
+GENERATION_ID="\$(date -u +%Y%m%d%H%M%S)-\$\$"
+RAW_GENERATION="\${RAW_GENERATIONS}/\${GENERATION_ID}"
+SERVING_GENERATION="\${SERVING_GENERATIONS}/\${GENERATION_ID}"
+TMP_LINK="\${INDEX_DIR}.next"
 PARENT_DIR="\$(dirname "\$INDEX_DIR")"
 
 echo "[tiered-preprocess] input=\$OLD_INDEX_DIR output=\$INDEX_DIR staging=\$STAGING shards=\$OLD_SFI_COUNT threads=\$PREPROCESS_THREADS checkpoint=\$CHECKPOINT"
@@ -524,14 +530,67 @@ if [[ "\$TIERED_SFI_COUNT" == "0" ]]; then
   exit 1
 fi
 
+rm -rf "\$RAW_GENERATION" "\$SERVING_GENERATION" "\$TMP_LINK"
+mkdir -p "\$RAW_GENERATIONS" "\$SERVING_GENERATIONS"
+mv "\$STAGING" "\$RAW_GENERATION"
+mkdir -p "\$SERVING_GENERATION"
+
+link_group() {
+  local tier="\$1"
+  local anchor="\$2"
+  local counter=0
+  local shard base shard_name
+  while IFS= read -r shard; do
+    [[ -n "\$shard" ]] || continue
+    base="\$(basename "\$shard")"
+    if [[ "\$anchor" == "yes" ]]; then
+      [[ "\$base" == "tier\${tier}_anchor_"* ]] || continue
+      printf -v shard_name "tier%d_anchor_%05d.sfi" "\$tier" "\$counter"
+    else
+      [[ "\$base" == "tier\${tier}_"* ]] || continue
+      [[ "\$base" != "tier\${tier}_anchor_"* ]] || continue
+      printf -v shard_name "tier%d_%05d.sfi" "\$tier" "\$counter"
+    fi
+    ln -s "\$shard" "\$SERVING_GENERATION/\$shard_name"
+    counter=\$((counter + 1))
+  done < <(find "\$RAW_GENERATION" -maxdepth 1 -type f -name "tier\${tier}_*.sfi" | sort)
+}
+
+for tier in 0 1 2; do
+  link_group "\$tier" "no"
+  link_group "\$tier" "yes"
+done
+
+SERVING_SFI_COUNT="\$(find -L "\$SERVING_GENERATION" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "\$SERVING_SFI_COUNT" != "\$TIERED_SFI_COUNT" ]]; then
+  echo "[tiered-preprocess] serving symlink count \$SERVING_SFI_COUNT does not match raw shard count \$TIERED_SFI_COUNT" >&2
+  exit 1
+fi
+
 rm -rf "\$PREVIOUS"
-if [[ -d "\$INDEX_DIR" ]]; then
+if [[ -L "\$INDEX_DIR" ]]; then
+  unlink "\$INDEX_DIR"
+elif [[ -e "\$INDEX_DIR" ]]; then
   mv "\$INDEX_DIR" "\$PREVIOUS"
 fi
-mv "\$STAGING" "\$INDEX_DIR"
-chown -R "\$RUN_AS_USER:\$RUN_AS_GROUP" "\$INDEX_DIR" 2>/dev/null || true
+ln -sfn "\$SERVING_GENERATION" "\$TMP_LINK"
+mv -Tf "\$TMP_LINK" "\$INDEX_DIR"
+chown -R "\$RUN_AS_USER:\$RUN_AS_GROUP" "\$RAW_GENERATION" "\$SERVING_GENERATION" 2>/dev/null || true
 
-echo "[tiered-preprocess] swapped \$TIERED_SFI_COUNT tiered shard(s) into \$INDEX_DIR"
+mapfile -t OLD_SERVING_GENERATIONS < <(find "\$SERVING_GENERATIONS" -mindepth 1 -maxdepth 1 -type d | sort)
+if (( \${#OLD_SERVING_GENERATIONS[@]} > 3 )); then
+  for old in "\${OLD_SERVING_GENERATIONS[@]:0:\${#OLD_SERVING_GENERATIONS[@]}-3}"; do
+    rm -rf "\$old"
+  done
+fi
+mapfile -t OLD_RAW_GENERATIONS < <(find "\$RAW_GENERATIONS" -mindepth 1 -maxdepth 1 -type d | sort)
+if (( \${#OLD_RAW_GENERATIONS[@]} > 3 )); then
+  for old in "\${OLD_RAW_GENERATIONS[@]:0:\${#OLD_RAW_GENERATIONS[@]}-3}"; do
+    rm -rf "\$old"
+  done
+fi
+
+echo "[tiered-preprocess] swapped \$SERVING_SFI_COUNT tiered shard symlink(s) into \$INDEX_DIR"
 systemctl try-restart "\$SERVICE_NAME"
 rm -rf "\$PREVIOUS"
 echo "[tiered-preprocess] done"
