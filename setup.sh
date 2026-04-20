@@ -186,6 +186,10 @@ echo "are ignored."
 echo ""
 prompt OLD_INDEX_DIR "Path to old index shard directory" "$DEFAULT_OLD_INDEX"
 prompt INDEX_DIR "Path for tiered serving index directory" "$DEFAULT_TIERED_INDEX"
+PREPROCESS_THREADS_DEFAULT="$(nproc 2>/dev/null || echo 1)"
+prompt PREPROCESS_THREADS "Tiered preprocessor worker threads" "$PREPROCESS_THREADS_DEFAULT"
+validate_integer "$PREPROCESS_THREADS"
+[[ "$PREPROCESS_THREADS" -eq 0 ]] && fatal "Tiered preprocessor worker threads must be greater than zero."
 
 # Warn if either path looks like a mount point rather than an index directory.
 if [[ "$OLD_INDEX_DIR" == "/mnt" || "$INDEX_DIR" == "/mnt" ]]; then
@@ -373,6 +377,7 @@ else
   "${REPO_DIR}/build/tiered_shard_preprocessor" \
     --input "$OLD_INDEX_DIR" \
     --output "$INDEX_DIR" \
+    --threads "$PREPROCESS_THREADS" \
     --force
   info "Tiered index ready at ${INDEX_DIR}."
 fi
@@ -550,6 +555,7 @@ echo ""
 echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=${NUM_PEERS})"
 echo -e "  Old shards:   ${OLD_INDEX_DIR}"
 echo -e "  Tiered index: ${INDEX_DIR}"
+echo -e "  Preprocess:   ${PREPROCESS_THREADS} thread(s)"
 echo -e "  Config:       ${ENV_FILE}"
 echo -e "  Binary:       ${REPO_DIR}/build/search_server"
 if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then

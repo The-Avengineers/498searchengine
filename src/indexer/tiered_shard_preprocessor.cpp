@@ -1,4 +1,7 @@
 #include <avengine/codec.h>
+#include <avengine/avengine_lib/atomic.h>
+#include <avengine/avengine_lib/mutex.h>
+#include <avengine/avengine_lib/thread.h>
 #include <avengine/indexer/indexer.h>
 #include <avengine/unordered_map.h>
 
@@ -18,7 +21,9 @@ struct Options
 {
   avengine::string inputDir = avengine::string(".");
   avengine::string outputDir = avengine::string("tiered-index");
+  size_t threads = 0;
   bool force = false;
+  bool help = false;
 };
 
 struct TermEntry
@@ -63,6 +68,88 @@ struct TokenAtPosition
   uint32_t position = 0;
   avengine::string term;
 };
+
+struct ProgressState
+{
+  const char* phase = "";
+  size_t totalShards = 0;
+  avengine::atomic_counter processedShards;
+  avengine::atomic_counter documents;
+  avengine::atomic_counter failedShards;
+  avengine::atomic_counter done;
+};
+
+void PrintProgress(const ProgressState& state, bool final)
+{
+  printf("[tiered_shard_preprocessor] %s progress: %d/%zu shard(s), docs=%d, failed=%d%s\n",
+         state.phase, state.processedShards.get_val(), state.totalShards,
+         state.documents.get_val(), state.failedShards.get_val(), final ? " done" : "");
+  fflush(stdout);
+}
+
+void* ProgressThread(void* raw)
+{
+  ProgressState* state = static_cast<ProgressState*>(raw);
+  int lastProcessed = -1;
+  int lastDocs = -1;
+  int lastFailed = -1;
+
+  while (!state->done.load())
+  {
+    usleep(250000);
+    const int processed = state->processedShards.get_val();
+    const int docs = state->documents.get_val();
+    const int failed = state->failedShards.get_val();
+    if (processed != lastProcessed || docs != lastDocs || failed != lastFailed)
+    {
+      PrintProgress(*state, false);
+      lastProcessed = processed;
+      lastDocs = docs;
+      lastFailed = failed;
+    }
+  }
+
+  PrintProgress(*state, true);
+  return nullptr;
+}
+
+bool ParseSize(const char* text, size_t& out)
+{
+  if (!text || text[0] == '\0')
+    return false;
+  size_t value = 0;
+  for (size_t i = 0; text[i] != '\0'; ++i)
+  {
+    if (text[i] < '0' || text[i] > '9')
+      return false;
+    const size_t digit = static_cast<size_t>(text[i] - '0');
+    if (value > (static_cast<size_t>(-1) - digit) / 10u)
+      return false;
+    value = (value * 10u) + digit;
+  }
+  out = value;
+  return true;
+}
+
+size_t DefaultThreadCount()
+{
+  const long configured = sysconf(_SC_NPROCESSORS_ONLN);
+  if (configured <= 0)
+    return 1;
+  return static_cast<size_t>(configured);
+}
+
+size_t ClampThreadCount(size_t requested, size_t workItems)
+{
+  if (workItems == 0)
+    return 1;
+  size_t count = requested == 0 ? DefaultThreadCount() : requested;
+  if (count == 0)
+    count = 1;
+  if (count > workItems)
+    count = workItems;
+  return count;
+}
 
 bool HasSfiSuffix(const avengine::string& name)
 {
@@ -538,8 +625,8 @@ avengine::vector<avengine::string> DiscoverSfiFiles(const avengine::string& dirP
 class TierShardWriter
 {
 public:
-  TierShardWriter(avengine::string outputDir, bool anchor)
-      : outputDir_(outputDir), anchor_(anchor)
+  TierShardWriter(avengine::string outputDir, bool anchor, size_t partition, bool partitioned)
+      : outputDir_(outputDir), anchor_(anchor), partition_(partition), partitioned_(partitioned)
   {
     for (size_t i = 0; i < kTierCount; ++i)
       indexes_[i] = new Index();
@@ -588,12 +675,17 @@ private:
   avengine::string OutputPath(size_t tier, size_t ordinal, bool temp) const
   {
     char name[64];
-    if (anchor_)
+    if (partitioned_ && anchor_)
+      snprintf(name, sizeof(name), "tier%zu_anchor_part%02zu_%05zu.sfi%s", tier, partition_,
+               ordinal, temp ? ".tmp" : "");
+    else if (partitioned_)
+      snprintf(name, sizeof(name), "tier%zu_part%02zu_%05zu.sfi%s", tier, partition_, ordinal,
+               temp ? ".tmp" : "");
+    else if (anchor_)
       snprintf(name, sizeof(name), "tier%zu_anchor_%05zu.sfi%s", tier, ordinal,
-                    temp ? ".tmp" : "");
+               temp ? ".tmp" : "");
     else
-      snprintf(name, sizeof(name), "tier%zu_%05zu.sfi%s", tier, ordinal,
-                    temp ? ".tmp" : "");
+      snprintf(name, sizeof(name), "tier%zu_%05zu.sfi%s", tier, ordinal, temp ? ".tmp" : "");
     return JoinPath(outputDir_, name);
   }
 
@@ -628,17 +720,44 @@ private:
 
   avengine::string outputDir_;
   bool anchor_ = false;
+  size_t partition_ = 0;
+  bool partitioned_ = false;
   Index* indexes_[kTierCount] = {};
   size_t counters_[kTierCount] = {};
 };
 
-bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
-                     avengine::unordered_map<int>& tierByUrl, double& tier0Min,
-                     double& tier1Min)
+size_t CountPrimaryFiles(const avengine::vector<avengine::string>& files)
 {
-  avengine::vector<RankedDoc> docs;
+  size_t count = 0;
   for (const avengine::string& path : files)
   {
+    if (!IsAnchorShardName(path))
+      ++count;
+  }
+  return count;
+}
+
+struct RankWorkerArgs
+{
+  const avengine::vector<avengine::string>* files = nullptr;
+  avengine::atomic_counter* nextFile = nullptr;
+  avengine::vector<RankedDoc>* docs = nullptr;
+  avengine::mutex* docsMutex = nullptr;
+  ProgressState* progress = nullptr;
+};
+
+void* RankWorkerMain(void* raw)
+{
+  RankWorkerArgs* args = static_cast<RankWorkerArgs*>(raw);
+  avengine::vector<RankedDoc> localDocs;
+
+  for (;;)
+  {
+    const int next = args->nextFile->fetch_add(1);
+    if (next < 0 || static_cast<size_t>(next) >= args->files->size())
+      break;
+
+    const avengine::string& path = (*args->files)[static_cast<size_t>(next)];
     if (IsAnchorShardName(path))
       continue;
 
@@ -646,14 +765,82 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
     if (!ParseShard(path, false, shard))
     {
       fprintf(stderr, "warning: failed to parse primary shard %s\n", path.cstr());
+      args->progress->failedShards.fetch_add(1);
+      args->progress->processedShards.fetch_add(1);
       continue;
     }
 
     for (size_t i = 0; i < shard.docs.size(); ++i)
     {
       const DocMeta& doc = shard.docs[i];
-      docs.pushBack({doc.url, StaticRankScore(doc), path, i});
+      localDocs.pushBack({doc.url, StaticRankScore(doc), path, i});
     }
+    args->progress->documents.fetch_add(static_cast<int>(shard.docs.size()));
+    args->progress->processedShards.fetch_add(1);
+  }
+
+  if (!localDocs.empty())
+  {
+    args->docsMutex->lock();
+    for (size_t i = 0; i < localDocs.size(); ++i)
+      args->docs->pushBack(localDocs[i]);
+    args->docsMutex->unlock();
+  }
+  return nullptr;
+}
+
+bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
+                     avengine::unordered_map<int>& tierByUrl, double& tier0Min,
+                     double& tier1Min, size_t threadCount)
+{
+  avengine::vector<RankedDoc> docs;
+  const size_t primaryCount = CountPrimaryFiles(files);
+  if (primaryCount == 0)
+    return false;
+
+  ProgressState progress;
+  progress.phase = "ranking";
+  progress.totalShards = primaryCount;
+
+  avengine::thread progressThread;
+  progressThread.start(ProgressThread, &progress);
+
+  avengine::atomic_counter nextFile(0);
+  avengine::mutex docsMutex;
+  const size_t workerCount = ClampThreadCount(threadCount, files.size());
+  avengine::thread* workers = new avengine::thread[workerCount];
+  RankWorkerArgs* args = new RankWorkerArgs[workerCount];
+
+  bool started = true;
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    args[i].files = &files;
+    args[i].nextFile = &nextFile;
+    args[i].docs = &docs;
+    args[i].docsMutex = &docsMutex;
+    args[i].progress = &progress;
+    if (!workers[i].start(RankWorkerMain, &args[i]))
+    {
+      started = false;
+      break;
+    }
+  }
+
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    if (workers[i].joinable())
+      workers[i].join();
+  }
+  progress.done.store(1);
+  progressThread.join();
+
+  delete[] args;
+  delete[] workers;
+
+  if (!started)
+  {
+    fprintf(stderr, "failed to start rank worker thread\n");
+    return false;
   }
 
   if (docs.empty())
@@ -688,7 +875,8 @@ bool BuildUrlTierMap(const avengine::vector<avengine::string>& files,
 }
 
 bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& tierByUrl,
-                  double tier0Min, double tier1Min, TierShardWriter& writer)
+                  double tier0Min, double tier1Min, TierShardWriter& writer,
+                  ProgressState* progress)
 {
   avengine::vector<avengine::vector<TokenAtPosition>> tokensByDoc(shard.docs.size());
   avengine::vector<uint32_t> positions;
@@ -737,45 +925,132 @@ bool RewriteShard(const ParsedShard& shard, const avengine::unordered_map<int>& 
 
     if (!writer.AddDocument(tier, shard.docs[docIndex], tokens))
       return false;
+    if (progress)
+      progress->documents.fetch_add(1);
   }
 
   return true;
 }
 
-bool RewriteAll(const avengine::vector<avengine::string>& files,
-                const avengine::unordered_map<int>& tierByUrl, double tier0Min,
-                double tier1Min, const avengine::string& outputDir)
+struct RewriteWorkerArgs
 {
-  TierShardWriter primaryWriter(outputDir, false);
-  TierShardWriter anchorWriter(outputDir, true);
+  const avengine::vector<avengine::string>* files = nullptr;
+  const avengine::unordered_map<int>* tierByUrl = nullptr;
+  avengine::atomic_counter* nextFile = nullptr;
+  ProgressState* progress = nullptr;
+  const avengine::string* outputDir = nullptr;
+  double tier0Min = 0.0;
+  double tier1Min = 0.0;
+  size_t workerIndex = 0;
+  bool partitionedOutput = false;
+  avengine::atomic_counter* fatalFailure = nullptr;
+};
 
-  for (const avengine::string& path : files)
+void* RewriteWorkerMain(void* raw)
+{
+  RewriteWorkerArgs* args = static_cast<RewriteWorkerArgs*>(raw);
+  TierShardWriter primaryWriter(*args->outputDir, false, args->workerIndex, args->partitionedOutput);
+  TierShardWriter anchorWriter(*args->outputDir, true, args->workerIndex, args->partitionedOutput);
+
+  for (;;)
   {
+    if (args->fatalFailure->load())
+      break;
+
+    const int next = args->nextFile->fetch_add(1);
+    if (next < 0 || static_cast<size_t>(next) >= args->files->size())
+      break;
+
+    const avengine::string& path = (*args->files)[static_cast<size_t>(next)];
     const bool isAnchor = IsAnchorShardName(path);
     ParsedShard shard;
     if (!ParseShard(path, isAnchor, shard))
     {
       fprintf(stderr, "warning: failed to parse shard %s\n", path.cstr());
+      args->progress->failedShards.fetch_add(1);
+      args->progress->processedShards.fetch_add(1);
       continue;
     }
 
     TierShardWriter& writer = isAnchor ? anchorWriter : primaryWriter;
-    if (!RewriteShard(shard, tierByUrl, tier0Min, tier1Min, writer))
+    if (!RewriteShard(shard, *args->tierByUrl, args->tier0Min, args->tier1Min, writer,
+                      args->progress))
     {
       fprintf(stderr, "failed while rewriting shard %s\n", path.cstr());
-      return false;
+      args->progress->failedShards.fetch_add(1);
+      args->progress->processedShards.fetch_add(1);
+      args->fatalFailure->store(1);
+      break;
+    }
+    args->progress->processedShards.fetch_add(1);
+  }
+
+  if (!primaryWriter.Finish() || !anchorWriter.Finish())
+    args->fatalFailure->store(1);
+  return nullptr;
+}
+
+bool RewriteAll(const avengine::vector<avengine::string>& files,
+                const avengine::unordered_map<int>& tierByUrl, double tier0Min,
+                double tier1Min, const avengine::string& outputDir, size_t threadCount)
+{
+  ProgressState progress;
+  progress.phase = "rewrite";
+  progress.totalShards = files.size();
+
+  avengine::thread progressThread;
+  progressThread.start(ProgressThread, &progress);
+
+  avengine::atomic_counter nextFile(0);
+  avengine::atomic_counter fatalFailure(0);
+  const size_t workerCount = ClampThreadCount(threadCount, files.size());
+  avengine::thread* workers = new avengine::thread[workerCount];
+  RewriteWorkerArgs* args = new RewriteWorkerArgs[workerCount];
+  const bool partitionedOutput = workerCount > 1;
+
+  bool started = true;
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    args[i].files = &files;
+    args[i].tierByUrl = &tierByUrl;
+    args[i].nextFile = &nextFile;
+    args[i].progress = &progress;
+    args[i].outputDir = &outputDir;
+    args[i].tier0Min = tier0Min;
+    args[i].tier1Min = tier1Min;
+    args[i].workerIndex = i;
+    args[i].partitionedOutput = partitionedOutput;
+    args[i].fatalFailure = &fatalFailure;
+    if (!workers[i].start(RewriteWorkerMain, &args[i]))
+    {
+      started = false;
+      fatalFailure.store(1);
+      break;
     }
   }
 
-  return primaryWriter.Finish() && anchorWriter.Finish();
+  for (size_t i = 0; i < workerCount; ++i)
+  {
+    if (workers[i].joinable())
+      workers[i].join();
+  }
+  progress.done.store(1);
+  progressThread.join();
+
+  delete[] args;
+  delete[] workers;
+
+  if (!started)
+    fprintf(stderr, "failed to start rewrite worker thread\n");
+  return started && !fatalFailure.load();
 }
 
 void Usage(const char* prog)
 {
   fprintf(stderr,
-               "Usage: %s [--input DIR] [--output DIR] [--force]\n"
-               "Rewrites existing primary and anchor .sfi shards into tiered .sfi shards.\n",
-               prog);
+          "Usage: %s [--input DIR] [--output DIR] [--threads N] [--force]\n"
+          "Rewrites existing primary and anchor .sfi shards into tiered .sfi shards.\n",
+          prog);
 }
 
 bool ParseOptions(int argc, char** argv, Options& options)
@@ -787,12 +1062,21 @@ bool ParseOptions(int argc, char** argv, Options& options)
       options.inputDir = argv[++i];
     else if (arg == "--output" && i + 1 < argc)
       options.outputDir = argv[++i];
+    else if (arg == "--threads" && i + 1 < argc)
+    {
+      if (!ParseSize(argv[++i], options.threads) || options.threads == 0)
+      {
+        fprintf(stderr, "--threads must be a positive integer\n");
+        return false;
+      }
+    }
     else if (arg == "--force")
       options.force = true;
     else if (arg == "--help" || arg == "-h")
     {
       Usage(argv[0]);
-      return false;
+      options.help = true;
+      return true;
     }
     else
     {
@@ -810,6 +1094,8 @@ int main(int argc, char** argv)
   Options options;
   if (!ParseOptions(argc, argv, options))
     return 1;
+  if (options.help)
+    return 0;
   if (options.inputDir == options.outputDir)
   {
     fprintf(stderr, "[tiered_shard_preprocessor] input and output directories must differ\n");
@@ -827,16 +1113,20 @@ int main(int argc, char** argv)
   if (!PrepareOutputDirectory(options.outputDir, options.force))
     return 1;
 
+  const size_t threadCount = ClampThreadCount(options.threads, files.size());
+  printf("[tiered_shard_preprocessor] found %zu shard(s), using %zu worker thread(s)\n",
+         files.size(), threadCount);
+
   avengine::unordered_map<int> tierByUrl;
   double tier0Min = 0.0;
   double tier1Min = 0.0;
-  if (!BuildUrlTierMap(files, tierByUrl, tier0Min, tier1Min))
+  if (!BuildUrlTierMap(files, tierByUrl, tier0Min, tier1Min, threadCount))
   {
     fprintf(stderr, "[tiered_shard_preprocessor] no primary documents found\n");
     return 1;
   }
 
-  if (!RewriteAll(files, tierByUrl, tier0Min, tier1Min, options.outputDir))
+  if (!RewriteAll(files, tierByUrl, tier0Min, tier1Min, options.outputDir, threadCount))
     return 1;
 
   printf("[tiered_shard_preprocessor] wrote tiered shards to %s\n", options.outputDir.cstr());
