@@ -76,12 +76,20 @@ echo ""
 echo "Builds the search server from source and installs it as a systemd"
 echo "service that auto-restarts on failure and survives reboots."
 echo ""
+echo "This setup is pinned to the current three-VM cluster:"
+echo "  node 0 / coordinator: new0  internal 10.128.0.3  external 34.55.231.113"
+echo "  node 1 / worker:      new1  internal 10.128.0.4  external 104.197.43.60"
+echo "  node 2 / worker:      new2  internal 10.128.0.7  external 35.226.21.73"
+echo ""
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="avengine-search"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+PREPROCESS_SERVICE_NAME="avengine-tiered-preprocess"
+PREPROCESS_SERVICE_FILE="/etc/systemd/system/${PREPROCESS_SERVICE_NAME}.service"
+PREPROCESS_RUNNER="/usr/local/bin/avengine-tiered-preprocess"
 ENV_FILE="/etc/avengine/search.env"
 NGINX_CONF_SRC="${REPO_DIR}/deploy/nginx.conf"
 NGINX_CONF_DST="/etc/nginx/conf.d/avengine.conf"
@@ -93,11 +101,30 @@ CERT_PATH="/etc/letsencrypt/live/theavengine.com/fullchain.pem"
 # ── step 1: role ──────────────────────────────────────────────────────────────
 
 echo -e "${BOLD}Step 1: Node Role${RESET}"
-echo "  coordinator  — node 0; runs nginx + search server; fans queries to workers"
-echo "  worker       — node 1, 2, ...; serves a local index shard"
+echo "  coordinator  — new0 / node 0; runs nginx + search server; fans queries to workers"
+echo "  worker       — new1 or new2; serves a local tiered index shard set"
 echo "  single       — standalone, no peers; good for local testing"
 echo ""
-prompt ROLE "Node role (coordinator / worker / single)" "single"
+
+HOST_SHORT="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+DEFAULT_ROLE="single"
+DEFAULT_NODE_ID=0
+case "$HOST_SHORT" in
+  new0)
+    DEFAULT_ROLE="coordinator"
+    DEFAULT_NODE_ID=0
+    ;;
+  new1)
+    DEFAULT_ROLE="worker"
+    DEFAULT_NODE_ID=1
+    ;;
+  new2)
+    DEFAULT_ROLE="worker"
+    DEFAULT_NODE_ID=2
+    ;;
+esac
+
+prompt ROLE "Node role (coordinator / worker / single)" "$DEFAULT_ROLE"
 
 case "$ROLE" in
   coordinator|worker|single) ;;
@@ -115,14 +142,17 @@ declare -a PEER_IPS=()
 if [[ "$ROLE" != "single" ]]; then
   echo -e "${BOLD}Step 2: Cluster Configuration${RESET}"
 
-  # ── hardcoded cluster (5 nodes) ───────────────────────────────────────────
-  NUM_PEERS=5
+  # ── hardcoded cluster (3 nodes) ───────────────────────────────────────────
+  # Peer traffic stays on the GCP VPC internal addresses.
+  # External addresses:
+  #   new0: 34.55.231.113
+  #   new1: 104.197.43.60
+  #   new2: 35.226.21.73
+  NUM_PEERS=3
   PEER_IPS=(
-    "34.24.66.46"    # node 0 — Josh (coordinator)
-    "34.139.184.22"  # node 1 — Tony
-    "35.185.106.57"  # node 2 — Mick
-    "34.74.173.254"  # node 3 — Jason
-    "35.196.97.246"  # node 4 — Mateo
+    "10.128.0.3"  # node 0 — new0 coordinator
+    "10.128.0.4"  # node 1 — new1 worker
+    "10.128.0.7"  # node 2 — new2 worker
   )
 
   if [[ "$ROLE" == "coordinator" ]]; then
@@ -134,7 +164,7 @@ if [[ "$ROLE" != "single" ]]; then
       echo "    node ${i} → ${PEER_IPS[$i]}"
     done
     echo ""
-    prompt NODE_ID_STR "This node's ID (1–4)" ""
+    prompt NODE_ID_STR "This node's ID (1–2)" "$DEFAULT_NODE_ID"
     validate_integer "$NODE_ID_STR"
     NODE_ID="$NODE_ID_STR"
     [[ "$NODE_ID" -eq 0 ]]           && fatal "NODE_ID 0 is reserved for the coordinator."
@@ -146,23 +176,38 @@ else
   echo ""
 fi
 
-# ── step 3: index directory ───────────────────────────────────────────────────
+# ── step 3: index directories ─────────────────────────────────────────────────
 
 echo -e "${BOLD}Step 3: Index Shards${RESET}"
-DEFAULT_INDEX="/mnt/data"
-echo "Where are your pre-built .sfi index shard files?"
-echo "(Copy them here with:  scp /path/on/crawler/*.sfi user@this-vm:${DEFAULT_INDEX}/)"
+DEFAULT_OLD_INDEX="/mnt/data/oldcrawl"
+DEFAULT_TIERED_INDEX="/mnt/data/tiered-index"
+echo "Where are your existing post-crawl .sfi shards?"
+echo "The setup will preprocess that directory into a tiered serving directory."
+echo "Old shard names like A_00000.sfi, B_00000.sfi, A_anchor_00000.sfi,"
+echo "B_anchor_00000.sfi are supported. Non-.sfi files such as index_group_000.txt"
+echo "are ignored."
 echo ""
-prompt INDEX_DIR "Path to index shard directory" "$DEFAULT_INDEX"
+prompt OLD_INDEX_DIR "Path to old index shard directory" "$DEFAULT_OLD_INDEX"
+prompt INDEX_DIR "Path for tiered serving index directory" "$DEFAULT_TIERED_INDEX"
+PREPROCESS_THREADS_DEFAULT="1"
+prompt PREPROCESS_THREADS "Tiered preprocessor worker threads" "$PREPROCESS_THREADS_DEFAULT"
+validate_integer "$PREPROCESS_THREADS"
+[[ "$PREPROCESS_THREADS" -eq 0 ]] && fatal "Tiered preprocessor worker threads must be greater than zero."
+prompt_yn PREPROCESS_BACKGROUND "Run tiered preprocessing in the background after service start?" "y"
 
-# Warn if the path looks like a mount point rather than an index directory.
-if [[ "$INDEX_DIR" == "/mnt" ]]; then
+# Warn if either path looks like a mount point rather than an index directory.
+if [[ "$OLD_INDEX_DIR" == "/mnt" || "$INDEX_DIR" == "/mnt" ]]; then
   warn "That looks like a mount point, not an index directory."
-  warn "Did you mean ${DEFAULT_INDEX}?"
-  prompt_yn FIX_INDEX_DIR "Use ${DEFAULT_INDEX} instead?" "y"
+  warn "Did you mean ${DEFAULT_OLD_INDEX} for old shards and ${DEFAULT_TIERED_INDEX} for serving?"
+  prompt_yn FIX_INDEX_DIR "Use those defaults instead?" "y"
   if [[ "$FIX_INDEX_DIR" == "y" ]]; then
-    INDEX_DIR="$DEFAULT_INDEX"
+    OLD_INDEX_DIR="$DEFAULT_OLD_INDEX"
+    INDEX_DIR="$DEFAULT_TIERED_INDEX"
   fi
+fi
+
+if [[ "$OLD_INDEX_DIR" == "$INDEX_DIR" ]]; then
+  fatal "Old index directory and tiered serving directory must be different."
 fi
 echo ""
 
@@ -206,9 +251,8 @@ else
   sudo tee "$SYSCTL_CONF" > /dev/null <<'EOF'
 # AVEngine search cluster — m4-highmem-16 / m4-hypermem-16 tuning
 
-# Allow the kernel to reclaim file-backed index pages when RAM is low.
-# The index is mmap'd lazily so pages fault in on demand and can be
-# evicted and re-read from SSD as needed. Default (60) is fine here.
+# The search process loads index bytes into memory. Keep default-ish reclaim
+# behavior for non-index file cache and general host stability.
 vm.swappiness = 60
 
 # More file handles — needed for large numbers of .sfi index shards.
@@ -280,10 +324,15 @@ else
 fi
 echo ""
 
-# Create index dir if it doesn't exist
+# Validate old shard dir and create output dir if needed.
+if [[ ! -d "$OLD_INDEX_DIR" ]]; then
+  warn "Creating empty old index directory at ${OLD_INDEX_DIR}"
+  warn "Copy your existing .sfi shards there before preprocessing will produce results."
+  mkdir -p "$OLD_INDEX_DIR"
+fi
+
 if [[ ! -d "$INDEX_DIR" ]]; then
-  warn "Creating empty index directory at ${INDEX_DIR}"
-  warn "Copy your .sfi shards there before the search server will return results."
+  info "Creating tiered serving index directory at ${INDEX_DIR}"
   mkdir -p "$INDEX_DIR"
 fi
 
@@ -307,15 +356,34 @@ if [[ "$USE_NGINX" == "y" ]]; then
 fi
 echo ""
 
-# ── build search_server ───────────────────────────────────────────────────────
+# ── build search_server + preprocessor ────────────────────────────────────────
 
-info "Building search_server (this takes a few minutes)..."
+info "Building search_server and tiered_shard_preprocessor (this takes a few minutes)..."
 cmake -S "${REPO_DIR}" -B "${REPO_DIR}/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   > /dev/null
-cmake --build "${REPO_DIR}/build" --target search_server -j"$(nproc)"
-info "Build complete: ${REPO_DIR}/build/search_server"
+cmake --build "${REPO_DIR}/build" --target search_server tiered_shard_preprocessor -j"$(nproc)"
+info "Build complete:"
+echo "    ${REPO_DIR}/build/search_server"
+echo "    ${REPO_DIR}/build/tiered_shard_preprocessor"
+echo ""
+
+# ── inspect old shards ────────────────────────────────────────────────────────
+
+echo -e "${BOLD}Preprocess Tiered Index${RESET}"
+OLD_SFI_COUNT="$(find "$OLD_INDEX_DIR" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$OLD_SFI_COUNT" == "0" ]]; then
+  warn "No .sfi shards found in ${OLD_INDEX_DIR}."
+  warn "The server will start, but ${INDEX_DIR} may be empty and return no results."
+else
+  info "Found ${OLD_SFI_COUNT} old shard(s) in ${OLD_INDEX_DIR}."
+  if [[ "$PREPROCESS_BACKGROUND" == "y" ]]; then
+    info "Tiered preprocessing will run in the background after the search service starts."
+  else
+    info "Tiered preprocessing will run in the foreground through systemd."
+  fi
+fi
 echo ""
 
 # ── write environment config ──────────────────────────────────────────────────
@@ -326,6 +394,11 @@ sudo mkdir -p "$(dirname "$ENV_FILE")"
 {
   echo "# AVEngine search server environment — auto-generated by setup.sh"
   echo "# Edit as needed, then: sudo systemctl restart ${SERVICE_NAME}"
+  echo ""
+  echo "OLD_INDEX_DIR=${OLD_INDEX_DIR}"
+  echo "INDEX_DIR=${INDEX_DIR}"
+  echo "PREPROCESS_THREADS=${PREPROCESS_THREADS}"
+  echo "PREPROCESS_TMPDIR=/mnt/data/tmp"
   echo ""
 
   if [[ "$ROLE" == "single" ]]; then
@@ -382,6 +455,176 @@ if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
 fi
 echo ""
 
+# ── install tiered preprocessor service ───────────────────────────────────────
+
+info "Installing tiered preprocessor runner: ${PREPROCESS_RUNNER}..."
+
+sudo tee "$PREPROCESS_RUNNER" > /dev/null <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_NAME="${SERVICE_NAME}"
+REPO_DIR="${REPO_DIR}"
+ENV_FILE="${ENV_FILE}"
+RUN_AS_USER="${USER}"
+RUN_AS_GROUP="${USER}"
+
+if [[ -f "\$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "\$ENV_FILE"
+  set +a
+fi
+
+: "\${OLD_INDEX_DIR:?OLD_INDEX_DIR is not set}"
+: "\${INDEX_DIR:?INDEX_DIR is not set}"
+: "\${PREPROCESS_THREADS:=1}"
+: "\${PREPROCESS_TMPDIR:=/mnt/data/tmp}"
+
+LOCK_DIR="/tmp/avengine-tiered-preprocess.lock"
+if ! mkdir "\$LOCK_DIR" 2>/dev/null; then
+  echo "[tiered-preprocess] another preprocess job is already running"
+  exit 0
+fi
+trap 'rmdir "\$LOCK_DIR" 2>/dev/null || true' EXIT
+
+if [[ ! -d "\$OLD_INDEX_DIR" ]]; then
+  echo "[tiered-preprocess] old index directory does not exist: \$OLD_INDEX_DIR" >&2
+  exit 1
+fi
+
+OLD_SFI_COUNT="\$(find "\$OLD_INDEX_DIR" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "\$OLD_SFI_COUNT" == "0" ]]; then
+  echo "[tiered-preprocess] no .sfi shards found in \$OLD_INDEX_DIR; nothing to do"
+  exit 0
+fi
+
+STAGING="\${INDEX_DIR}.staging"
+PREVIOUS="\${INDEX_DIR}.previous"
+CHECKPOINT="\${STAGING}/.tiered_preprocess.checkpoint"
+RAW_GENERATIONS="\${INDEX_DIR}.raw-generations"
+SERVING_GENERATIONS="\${INDEX_DIR}.generations"
+GENERATION_ID="\$(date -u +%Y%m%d%H%M%S)-\$\$"
+RAW_GENERATION="\${RAW_GENERATIONS}/\${GENERATION_ID}"
+SERVING_GENERATION="\${SERVING_GENERATIONS}/\${GENERATION_ID}"
+TMP_LINK="\${INDEX_DIR}.next"
+PARENT_DIR="\$(dirname "\$INDEX_DIR")"
+
+echo "[tiered-preprocess] input=\$OLD_INDEX_DIR output=\$INDEX_DIR staging=\$STAGING shards=\$OLD_SFI_COUNT threads=\$PREPROCESS_THREADS checkpoint=\$CHECKPOINT"
+
+mkdir -p "\$PARENT_DIR" "\$PREPROCESS_TMPDIR"
+chown "\$RUN_AS_USER:\$RUN_AS_GROUP" "\$PARENT_DIR" "\$PREPROCESS_TMPDIR" 2>/dev/null || true
+install -d -o "\$RUN_AS_USER" -g "\$RUN_AS_GROUP" "\$STAGING"
+
+runuser -u "\$RUN_AS_USER" -- env TMPDIR="\$PREPROCESS_TMPDIR" \\
+  "\$REPO_DIR/build/tiered_shard_preprocessor" \\
+  --input "\$OLD_INDEX_DIR" \\
+  --output "\$STAGING" \\
+  --checkpoint "\$CHECKPOINT" \\
+  --threads "\$PREPROCESS_THREADS" \\
+  --force
+
+TIERED_SFI_COUNT="\$(find "\$STAGING" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "\$TIERED_SFI_COUNT" == "0" ]]; then
+  echo "[tiered-preprocess] preprocessor produced no .sfi shards; leaving existing index untouched" >&2
+  exit 1
+fi
+
+rm -rf "\$RAW_GENERATION" "\$SERVING_GENERATION" "\$TMP_LINK"
+mkdir -p "\$RAW_GENERATIONS" "\$SERVING_GENERATIONS"
+mv "\$STAGING" "\$RAW_GENERATION"
+mkdir -p "\$SERVING_GENERATION"
+
+link_group() {
+  local tier="\$1"
+  local anchor="\$2"
+  local counter=0
+  local shard base shard_name
+  while IFS= read -r shard; do
+    [[ -n "\$shard" ]] || continue
+    base="\$(basename "\$shard")"
+    if [[ "\$anchor" == "yes" ]]; then
+      [[ "\$base" == "tier\${tier}_anchor_"* ]] || continue
+      printf -v shard_name "tier%d_anchor_%05d.sfi" "\$tier" "\$counter"
+    else
+      [[ "\$base" == "tier\${tier}_"* ]] || continue
+      [[ "\$base" != "tier\${tier}_anchor_"* ]] || continue
+      printf -v shard_name "tier%d_%05d.sfi" "\$tier" "\$counter"
+    fi
+    ln -s "\$shard" "\$SERVING_GENERATION/\$shard_name"
+    counter=\$((counter + 1))
+  done < <(find "\$RAW_GENERATION" -maxdepth 1 -type f -name "tier\${tier}_*.sfi" | sort)
+}
+
+for tier in 0 1 2; do
+  link_group "\$tier" "no"
+  link_group "\$tier" "yes"
+done
+
+SERVING_SFI_COUNT="\$(find -L "\$SERVING_GENERATION" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "\$SERVING_SFI_COUNT" != "\$TIERED_SFI_COUNT" ]]; then
+  echo "[tiered-preprocess] serving symlink count \$SERVING_SFI_COUNT does not match raw shard count \$TIERED_SFI_COUNT" >&2
+  exit 1
+fi
+
+rm -rf "\$PREVIOUS"
+if [[ -L "\$INDEX_DIR" ]]; then
+  unlink "\$INDEX_DIR"
+elif [[ -e "\$INDEX_DIR" ]]; then
+  mv "\$INDEX_DIR" "\$PREVIOUS"
+fi
+ln -sfn "\$SERVING_GENERATION" "\$TMP_LINK"
+mv -Tf "\$TMP_LINK" "\$INDEX_DIR"
+chown -R "\$RUN_AS_USER:\$RUN_AS_GROUP" "\$RAW_GENERATION" "\$SERVING_GENERATION" 2>/dev/null || true
+
+mapfile -t OLD_SERVING_GENERATIONS < <(find "\$SERVING_GENERATIONS" -mindepth 1 -maxdepth 1 -type d | sort)
+if (( \${#OLD_SERVING_GENERATIONS[@]} > 3 )); then
+  for old in "\${OLD_SERVING_GENERATIONS[@]:0:\${#OLD_SERVING_GENERATIONS[@]}-3}"; do
+    rm -rf "\$old"
+  done
+fi
+mapfile -t OLD_RAW_GENERATIONS < <(find "\$RAW_GENERATIONS" -mindepth 1 -maxdepth 1 -type d | sort)
+if (( \${#OLD_RAW_GENERATIONS[@]} > 3 )); then
+  for old in "\${OLD_RAW_GENERATIONS[@]:0:\${#OLD_RAW_GENERATIONS[@]}-3}"; do
+    rm -rf "\$old"
+  done
+fi
+
+echo "[tiered-preprocess] swapped \$SERVING_SFI_COUNT tiered shard symlink(s) into \$INDEX_DIR"
+systemctl try-restart "\$SERVICE_NAME"
+rm -rf "\$PREVIOUS"
+echo "[tiered-preprocess] done"
+EOF
+
+sudo chmod 755 "$PREPROCESS_RUNNER"
+
+info "Installing systemd service: ${PREPROCESS_SERVICE_NAME}..."
+
+sudo tee "$PREPROCESS_SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=AVEngine Tiered Shard Preprocessor
+Documentation=file://${REPO_DIR}/deploysetup.md
+After=${SERVICE_NAME}.service
+Wants=${SERVICE_NAME}.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=${ENV_FILE}
+ExecStart=${PREPROCESS_RUNNER}
+TimeoutStartSec=infinity
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=avengine-tiered-preprocess
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo ""
+
 # ── install systemd service ───────────────────────────────────────────────────
 
 info "Installing systemd service: ${SERVICE_NAME}..."
@@ -417,12 +660,12 @@ RestartSec=5s
 LimitNOFILE=1048576
 
 # ── memory cap ────────────────────────────────────────────────────────────────
-# The index is mmap'd from SSD — these limits tell the kernel to evict index
-# pages back to disk when RAM gets tight, rather than OOM-killing everything.
+# The search server loads tiered index bytes into owned process memory.
+# These limits bound the server if the loaded index is larger than expected.
 #
-# MemoryHigh: soft limit — kernel starts reclaiming pages aggressively here.
+# MemoryHigh: soft limit — systemd starts applying memory pressure here.
 # MemoryMax:  hard limit — kernel will OOM-kill only this process (not the
-#             whole machine) if reclaim isn't enough. Systemd restarts it.
+#             whole machine) if the process exceeds the cap. Systemd restarts it.
 #
 # Adjust these two values based on how much RAM your VM actually has.
 # Leave ~1 GB headroom for the OS. Example for an 8 GB VM: High=6G, Max=7G.
@@ -443,7 +686,19 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
-info "Service started and enabled (auto-starts on reboot)."
+info "Search service started and enabled (auto-starts on reboot)."
+
+if [[ "$OLD_SFI_COUNT" != "0" ]]; then
+  if [[ "$PREPROCESS_BACKGROUND" == "y" ]]; then
+    sudo systemctl start --no-block "${PREPROCESS_SERVICE_NAME}"
+    info "Tiered preprocessing started in the background."
+  else
+    sudo systemctl start "${PREPROCESS_SERVICE_NAME}"
+    info "Tiered preprocessing completed."
+  fi
+else
+  warn "Skipping tiered preprocessing because no old shards were found."
+fi
 echo ""
 
 # ── nginx + TLS (coordinator only) ────────────────────────────────────────────
@@ -488,7 +743,9 @@ echo -e "${BOLD}║                    Setup Complete                    ║${RE
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
 echo ""
 echo -e "  Role:         ${BOLD}${ROLE}${RESET} (NODE_ID=${NODE_ID}, NUM_PEERS=${NUM_PEERS})"
-echo -e "  Index dir:    ${INDEX_DIR}"
+echo -e "  Old shards:   ${OLD_INDEX_DIR}"
+echo -e "  Tiered index: ${INDEX_DIR}"
+echo -e "  Preprocess:   ${PREPROCESS_THREADS} thread(s), background=${PREPROCESS_BACKGROUND}"
 echo -e "  Config:       ${ENV_FILE}"
 echo -e "  Binary:       ${REPO_DIR}/build/search_server"
 if [[ -n "$SHARD_LOAD_TIMEOUT_SEC" ]]; then
@@ -499,6 +756,8 @@ echo "  Service commands:"
 echo "    sudo systemctl status ${SERVICE_NAME}    # check status"
 echo "    sudo systemctl restart ${SERVICE_NAME}   # restart manually"
 echo "    sudo journalctl -fu ${SERVICE_NAME}      # stream logs"
+echo "    sudo systemctl status ${PREPROCESS_SERVICE_NAME}    # check retiering"
+echo "    sudo journalctl -fu ${PREPROCESS_SERVICE_NAME}      # stream retiering logs"
 echo ""
 echo "  Test the search API:"
 if [[ "$USE_NGINX" == "y" ]]; then
@@ -517,9 +776,10 @@ if [[ "${#PEER_IPS[@]}" -gt 0 ]]; then
   echo ""
 fi
 
-if [[ -z "$(ls -A "$INDEX_DIR" 2>/dev/null)" ]]; then
-  warn "Index directory is empty — the server will start but return no results."
-  warn "Copy your .sfi shards to ${INDEX_DIR} then:"
+TIERED_SFI_COUNT="$(find "$INDEX_DIR" -maxdepth 1 -type f -name '*.sfi' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$TIERED_SFI_COUNT" == "0" ]]; then
+  warn "Tiered serving index has no .sfi shards — the server will start but return no results."
+  warn "Copy your old .sfi shards to ${OLD_INDEX_DIR}, rerun ./setup.sh, then restart:"
   warn "  sudo systemctl restart ${SERVICE_NAME}"
   echo ""
 fi

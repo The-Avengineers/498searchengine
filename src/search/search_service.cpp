@@ -81,6 +81,36 @@ bool IsAnchorShard(const string& path)
   return false;
 }
 
+size_t ShardTierFromPath(const string& path)
+{
+  size_t nameStart = 0;
+  for (size_t i = path.size(); i > 0; --i)
+  {
+    if (path[i - 1] == '/')
+    {
+      nameStart = i;
+      break;
+    }
+  }
+
+  const char prefix[] = "tier";
+  const size_t prefixLen = 4;
+  if (path.size() < nameStart + prefixLen + 2)
+    return 0;
+  for (size_t i = 0; i < prefixLen; ++i)
+  {
+    if (path[nameStart + i] != prefix[i])
+      return 0;
+  }
+
+  const char digit = path[nameStart + prefixLen];
+  if (digit < '0' || digit > '2')
+    return 0;
+  if (path[nameStart + prefixLen + 1] != '_')
+    return 0;
+  return static_cast<size_t>(digit - '0');
+}
+
 // Returns the registered domain from a URL.
 // https://maps.google.com/path -> "google.com"
 
@@ -451,6 +481,35 @@ void MarkTimeout(SearchResponse& response, size_t thresholdMs)
   response.Errors.pushBack({0, message});
 }
 
+size_t CountVisibleCandidates(const vector<PooledRankedHit>& pooledHits)
+{
+  static constexpr uint8_t kMaxResultsPerDomain = 5;
+
+  unordered_map<uint8_t> seenUrls;
+  unordered_map<uint8_t> domainCounts;
+  size_t uniqueIndex = 0;
+  for (size_t i = 0; i < pooledHits.size(); ++i)
+  {
+    const string& url = pooledHits[i].ranked.entry.url;
+    const uint8_t* seen = seenUrls.get(string_slice(url.cstr()));
+    if (seen && *seen != 0)
+      continue;
+
+    const string domain = ExtractRegisteredDomain(url);
+    const uint8_t* dc = domainCounts.get(string_slice(domain.cstr()));
+    const uint8_t count = dc ? *dc : 0;
+    if (count >= kMaxResultsPerDomain)
+      continue;
+
+    seenUrls.insert(url, 1u);
+    domainCounts.insert(domain, count + 1);
+    ++uniqueIndex;
+    if (uniqueIndex >= kMaxVisibleSearchResults)
+      break;
+  }
+  return uniqueIndex;
+}
+
 size_t ComputeWindowStart(size_t page, size_t limit)
 {
   if (page <= 1 || limit == 0)
@@ -535,9 +594,6 @@ struct LoadProgressState
   atomic_counter loadedPrimaryShards;
   atomic_counter loadedAnchorShards;
   atomic_counter failedShardLoads;
-  atomic_counter cacheHits;
-  atomic_counter cacheRebuilds;
-  atomic_counter cacheWriteFailures;
   atomic_counter timedOut;
   atomic_counter loadingComplete;
 };
@@ -546,35 +602,10 @@ void LogLoadProgress(const LoadProgressState& progress, size_t completed)
 {
   const size_t percent = progress.totalPaths == 0 ? 100u : (completed * 100u) / progress.totalPaths;
   std::fprintf(stderr,
-               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d "
-               "cache_hit=%d cache_rebuilt=%d cache_write_failed=%d%s\n",
+               "[search] shard load progress: %zu/%zu (%zu%%) primary=%d anchor=%d failed=%d%s\n",
                completed, progress.totalPaths, percent, progress.loadedPrimaryShards.get_val(),
                progress.loadedAnchorShards.get_val(), progress.failedShardLoads.get_val(),
-               progress.cacheHits.get_val(), progress.cacheRebuilds.get_val(),
-               progress.cacheWriteFailures.get_val(),
                progress.timedOut.load() ? " cutoff-reached" : "");
-}
-
-void RecordShardCacheStatus(LoadProgressState* progress, const IndexShardSource& shard)
-{
-  if (!progress)
-    return;
-
-  switch (shard.GetCacheStatus())
-  {
-  case ShardLoadCacheStatus::Hit:
-    progress->cacheHits.fetch_add(1);
-    break;
-  case ShardLoadCacheStatus::Rebuilt:
-    progress->cacheRebuilds.fetch_add(1);
-    break;
-  case ShardLoadCacheStatus::RebuiltWithoutWrite:
-    progress->cacheRebuilds.fetch_add(1);
-    progress->cacheWriteFailures.fetch_add(1);
-    break;
-  case ShardLoadCacheStatus::NotLoaded:
-    break;
-  }
 }
 
 void* RunLoadProgressReporter(void* rawArgs)
@@ -742,14 +773,12 @@ void* RunLoadShardRange(void* rawArgs)
     }
     else if (IsAnchorShard(path))
     {
-      RecordShardCacheStatus(args->progress, *shard);
       args->anchorShards.pushBack(shard);
       if (args->progress)
         args->progress->loadedAnchorShards.fetch_add(1);
     }
     else
     {
-      RecordShardCacheStatus(args->progress, *shard);
       args->shards.pushBack(shard);
       if (args->progress)
         args->progress->loadedPrimaryShards.fetch_add(1);
@@ -1027,10 +1056,7 @@ SearchService::SearchService(const string& indexDirectory, bool loadShards)
 
 SearchService::~SearchService()
 {
-  for (IndexShardSource* shard : shards_)
-    delete shard;
-  for (IndexShardSource* shard : anchorShards_)
-    delete shard;
+  ResetLoadedShards();
 }
 
 void SearchService::SetQueryExecutionTimeThresholdMs(size_t thresholdMs)
@@ -1055,12 +1081,15 @@ bool SearchService::IsAnchorShardPath(const string& path)
 
 void SearchService::ResetLoadedShards()
 {
-  for (IndexShardSource* shard : shards_)
-    delete shard;
-  for (IndexShardSource* shard : anchorShards_)
-    delete shard;
-  shards_.clear();
-  anchorShards_.clear();
+  for (size_t tier = 0; tier < kSearchTierCount; ++tier)
+  {
+    for (IndexShardSource* shard : shardsByTier_[tier])
+      delete shard;
+    for (IndexShardSource* shard : anchorShardsByTier_[tier])
+      delete shard;
+    shardsByTier_[tier].clear();
+    anchorShardsByTier_[tier].clear();
+  }
 }
 
 void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShard)
@@ -1068,20 +1097,27 @@ void SearchService::AppendLoadedShard(IndexShardSource* shard, bool isAnchorShar
   if (!shard)
     return;
 
+  const size_t tier = ShardTierFromPath(shard->GetPath());
   if (isAnchorShard)
-    anchorShards_.pushBack(shard);
+    anchorShardsByTier_[tier].pushBack(shard);
   else
-    shards_.pushBack(shard);
+    shardsByTier_[tier].pushBack(shard);
 }
 
 size_t SearchService::PrimaryShardCount() const
 {
-  return shards_.size();
+  size_t total = 0;
+  for (size_t tier = 0; tier < kSearchTierCount; ++tier)
+    total += shardsByTier_[tier].size();
+  return total;
 }
 
 size_t SearchService::AnchorShardCount() const
 {
-  return anchorShards_.size();
+  size_t total = 0;
+  for (size_t tier = 0; tier < kSearchTierCount; ++tier)
+    total += anchorShardsByTier_[tier].size();
+  return total;
 }
 
 LoadShardsResult SearchService::LoadShards()
@@ -1159,9 +1195,9 @@ LoadShardsResult SearchService::LoadShards()
   for (size_t workerIndex = 0; workerIndex < loadWorkers; ++workerIndex)
   {
     for (size_t i = 0; i < args[workerIndex].shards.size(); ++i)
-      shards_.pushBack(args[workerIndex].shards[i]);
+      AppendLoadedShard(args[workerIndex].shards[i], false);
     for (size_t i = 0; i < args[workerIndex].anchorShards.size(); ++i)
-      anchorShards_.pushBack(args[workerIndex].anchorShards[i]);
+      AppendLoadedShard(args[workerIndex].anchorShards[i], true);
   }
 
   delete[] workers;
@@ -1197,6 +1233,7 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
   const size_t thresholdMs = solver_.GetExecutionTimeThresholdMs();
   const SteadyTimePoint deadline = startedAt + std::chrono::milliseconds(thresholdMs);
   const size_t candidateLimit = ComputeOverfetchLimit(response.Page, response.Limit);
+  const size_t rankCandidateLimit = kMaxVisibleSearchResults;
 
   const auto parseStartedAt = std::chrono::steady_clock::now();
   constraint_solver::ParseResult parsed = solver_.ParseQuery(query);
@@ -1222,66 +1259,78 @@ SearchResponse SearchService::SearchPage(const string& query, size_t page, size_
     return response;
   }
 
-  vector<ShardQueryContext> contexts;
-  contexts.reserve(shards_.size());
-  for (size_t i = 0; i < shards_.size(); ++i)
-    contexts.emplaceBack(shards_[i], i);
-
-  const size_t shardWorkerCount = ResolveShardWorkerCount(shards_.size());
   atomic_counter timedOut(0);
 
-  const auto solveStartedAt = std::chrono::steady_clock::now();
-  LaunchSolvePhase(contexts, solver_, parsed.Root, shardWorkerCount, deadline, timedOut);
-  response.SolveMs = DurationToMs(std::chrono::steady_clock::now() - solveStartedAt);
-
-  const bool solveTimedOut = timedOut.load();
-  timedOut.store(0);
-
-  // If solve timed out give rest of pipelineive a
-  // new window so they can finish processing the partial results
-  const SteadyTimePoint postSolveDeadline =
-      solveTimedOut
-          ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
-          : deadline;
-
-  vector<size_t> matchedIndices;
-  matchedIndices.reserve(contexts.size());
-  for (size_t i = 0; i < contexts.size(); ++i)
-  {
-    if (!contexts[i].solved.Matches.empty())
-      matchedIndices.pushBack(i);
-    response.TotalHits += contexts[i].solved.Matches.size();
-  }
-
-  const unordered_map<MatchPositions> anchorByUrl =
-      (!matchedIndices.empty() && !anchorShards_.empty())
-          ? BuildAnchorPositionMap(anchorShards_, queryTerms)
-          : unordered_map<MatchPositions>();
-
-  const auto collectStartedAt = std::chrono::steady_clock::now();
-  LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount,
-                     postSolveDeadline, timedOut);
-  response.CollectMs = DurationToMs(std::chrono::steady_clock::now() - collectStartedAt);
-
-  const bool collectTimedOut = timedOut.load();
-  timedOut.store(0);
-
-  const SteadyTimePoint postCollectDeadline =
-      collectTimedOut
-          ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
-          : postSolveDeadline;
-
-  const auto rankStartedAt = std::chrono::steady_clock::now();
-  vector<vector<PooledRankedHit>> workerOutputs;
-  LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, candidateLimit,
-                  postCollectDeadline, timedOut, workerOutputs, weights);
-  response.RankMs = DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
-
   vector<PooledRankedHit> pooledHits;
-  for (size_t workerIndex = 0; workerIndex < workerOutputs.size(); ++workerIndex)
+  size_t shardOrdinalBase = 0;
+  for (size_t tier = 0; tier < kSearchTierCount; ++tier)
   {
-    for (size_t i = 0; i < workerOutputs[workerIndex].size(); ++i)
-      pooledHits.pushBack(workerOutputs[workerIndex][i]);
+    const vector<IndexShardSource*>& tierShards = shardsByTier_[tier];
+    if (tierShards.empty())
+      continue;
+
+    vector<ShardQueryContext> contexts;
+    contexts.reserve(tierShards.size());
+    for (size_t i = 0; i < tierShards.size(); ++i)
+      contexts.emplaceBack(tierShards[i], shardOrdinalBase + i);
+
+    const size_t shardWorkerCount = ResolveShardWorkerCount(tierShards.size());
+
+    const auto solveStartedAt = std::chrono::steady_clock::now();
+    LaunchSolvePhase(contexts, solver_, parsed.Root, shardWorkerCount, deadline, timedOut);
+    response.SolveMs += DurationToMs(std::chrono::steady_clock::now() - solveStartedAt);
+
+    const bool solveTimedOut = timedOut.load();
+    timedOut.store(0);
+
+    // If solve timed out give rest of pipeline a new window so it can finish
+    // processing partial results from the searched tier.
+    const SteadyTimePoint postSolveDeadline =
+        solveTimedOut
+            ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
+            : deadline;
+
+    vector<size_t> matchedIndices;
+    matchedIndices.reserve(contexts.size());
+    for (size_t i = 0; i < contexts.size(); ++i)
+    {
+      if (!contexts[i].solved.Matches.empty())
+        matchedIndices.pushBack(i);
+    }
+
+    const unordered_map<MatchPositions> anchorByUrl =
+        (!matchedIndices.empty() && !anchorShardsByTier_[tier].empty())
+            ? BuildAnchorPositionMap(anchorShardsByTier_[tier], queryTerms)
+            : unordered_map<MatchPositions>();
+
+    const auto collectStartedAt = std::chrono::steady_clock::now();
+    LaunchCollectPhase(contexts, matchedIndices, queryTerms, &anchorByUrl, shardWorkerCount,
+                       postSolveDeadline, timedOut);
+    response.CollectMs += DurationToMs(std::chrono::steady_clock::now() - collectStartedAt);
+
+    const bool collectTimedOut = timedOut.load();
+    timedOut.store(0);
+
+    const SteadyTimePoint postCollectDeadline =
+        collectTimedOut
+            ? std::chrono::steady_clock::now() + std::chrono::milliseconds(thresholdMs)
+            : postSolveDeadline;
+
+    const auto rankStartedAt = std::chrono::steady_clock::now();
+    vector<vector<PooledRankedHit>> workerOutputs;
+    LaunchRankPhase(contexts, matchedIndices, queryTerms, shardWorkerCount, rankCandidateLimit,
+                    postCollectDeadline, timedOut, workerOutputs, weights);
+    response.RankMs += DurationToMs(std::chrono::steady_clock::now() - rankStartedAt);
+
+    for (size_t workerIndex = 0; workerIndex < workerOutputs.size(); ++workerIndex)
+    {
+      for (size_t i = 0; i < workerOutputs[workerIndex].size(); ++i)
+        pooledHits.pushBack(workerOutputs[workerIndex][i]);
+    }
+
+    shardOrdinalBase += tierShards.size();
+    if (CountVisibleCandidates(pooledHits) >= candidateLimit)
+      break;
   }
 
   pooledHits.sort(

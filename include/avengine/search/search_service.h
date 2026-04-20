@@ -12,6 +12,8 @@ namespace avengine
 namespace search
 {
 
+static constexpr size_t kSearchTierCount = 3;
+
 struct SearchError
 {
   size_t Offset = 0;
@@ -78,8 +80,8 @@ public:
 private:
   string indexDirectory_;
   constraint_solver::ConstraintSolver solver_;
-  vector<IndexShardSource*> shards_;
-  vector<IndexShardSource*> anchorShards_;
+  vector<IndexShardSource*> shardsByTier_[kSearchTierCount];
+  vector<IndexShardSource*> anchorShardsByTier_[kSearchTierCount];
 };
 
 } // namespace search

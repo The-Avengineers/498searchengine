@@ -124,6 +124,7 @@ public:
   virtual Post* Seek(Location target) = 0;
   virtual Location GetStartLocation() const;
   virtual Location GetEndLocation() const;
+  virtual unsigned GetDocumentCount() const;
 
 protected:
   void ClearCurrent();
@@ -142,7 +143,7 @@ public:
 
   Post* Next() override;
   Post* Seek(Location target) override;
-  unsigned GetDocumentCount() const;
+  unsigned GetDocumentCount() const override;
 
 protected:
   Post* SetCurrentFromIndex(size_t index);
@@ -157,7 +158,8 @@ protected:
 };
 
 // Lazy ISR: navigates a delta-compressed position stream using skip pointers.
-// Holds raw const pointers into the mmap'd index file — must not outlive IndexShardSource.
+// Holds raw const pointers into IndexShardSource's owned index bytes and must
+// not outlive that source.
 class ISRWordLazy : public ISRWord
 {
 public:

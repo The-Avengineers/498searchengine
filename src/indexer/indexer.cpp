@@ -142,6 +142,19 @@ static void encodePostingList(const PostingList& pl,
   out = outWriter.release();
 }
 
+static bool writeAll(int fd, const uint8_t* data, size_t size)
+{
+  size_t written = 0;
+  while (written < size)
+  {
+    const ssize_t n = write(fd, data + written, size - written);
+    if (n <= 0)
+      return false;
+    written += static_cast<size_t>(n);
+  }
+  return true;
+}
+
 size_t Index::headerSize()
 {
   size_t stringsSize = 0;
@@ -188,7 +201,7 @@ bool Index::serialize(int fd)
 
         encodePostingList(pl, documentMetadata, postingBuffer);
 
-        if (write(fd, postingBuffer.begin(), postingBuffer.size()) < 0)
+        if (!writeAll(fd, postingBuffer.begin(), postingBuffer.size()))
         {
           ioError = true;
           return;
@@ -202,7 +215,7 @@ bool Index::serialize(int fd)
   if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
     return true;
 
-  if (write(fd, header.data(), header.size()) < 0)
+  if (!writeAll(fd, header.data(), header.size()))
     return true;
 
   return false;
