@@ -7,7 +7,6 @@
 
 #include <fcntl.h>
 #include <cstdio>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -116,6 +115,23 @@ bool WriteAll(int fd, const uint8_t* data, size_t size)
   return true;
 }
 
+uint8_t* ReadAllToOwnedBuffer(int fd, size_t size)
+{
+  uint8_t* data = new uint8_t[size];
+  size_t totalRead = 0;
+  while (totalRead < size)
+  {
+    const ssize_t n = read(fd, data + totalRead, size - totalRead);
+    if (n <= 0)
+    {
+      delete[] data;
+      return nullptr;
+    }
+    totalRead += static_cast<size_t>(n);
+  }
+  return data;
+}
+
 } // namespace
 
 IndexShardSource::IndexShardSource(const string& path)
@@ -144,20 +160,12 @@ bool IndexShardSource::Load(const string& path)
     return false;
   }
 
-  data_ = static_cast<uint8_t*>(
-      mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0));
+  data_ = ReadAllToOwnedBuffer(fd, static_cast<size_t>(st.st_size));
   close(fd);
-  if (data_ == MAP_FAILED)
-  {
-    data_ = nullptr;
+  if (!data_)
     return false;
-  }
 
   fileSize_ = static_cast<size_t>(st.st_size);
-
-  // Tell the kernel not to prefetch sequential pages — index access patterns
-  // are random (only query terms are touched), so read-ahead wastes RAM.
-  madvise(data_, fileSize_, MADV_RANDOM);
 
   Reader headerReader(data_, fileSize_);
   const uint64_t magic = headerReader.readU64();
@@ -496,10 +504,9 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
   }
 
   const size_t mappedSize = static_cast<size_t>(st.st_size);
-  uint8_t* mapped = static_cast<uint8_t*>(
-      mmap(nullptr, mappedSize, PROT_READ, MAP_PRIVATE, fd, 0));
+  uint8_t* mapped = ReadAllToOwnedBuffer(fd, mappedSize);
   close(fd);
-  if (mapped == MAP_FAILED)
+  if (!mapped)
     return false;
 
   // Parse header — 18 uint64 fields.
@@ -535,7 +542,7 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
 
   if (!ok)
   {
-    munmap(mapped, mappedSize);
+    delete[] mapped;
     return false;
   }
 
@@ -552,7 +559,7 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
 
   if (mappedSize < totalRequired)
   {
-    munmap(mapped, mappedSize);
+    delete[] mapped;
     return false;
   }
 
@@ -564,7 +571,7 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
         terms[i].startOffset > terms[i].endOffset ||
         terms[i].endOffset > fingerprint.fileSize)
     {
-      munmap(mapped, mappedSize);
+      delete[] mapped;
       return false;
     }
   }
@@ -579,7 +586,7 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
         !RangeInFile(titles[i].offset, titles[i].len, fingerprint.fileSize) ||
         !RangeInFile(descs[i].offset, descs[i].len, fingerprint.fileSize))
     {
-      munmap(mapped, mappedSize);
+      delete[] mapped;
       return false;
     }
   }
@@ -587,15 +594,11 @@ bool IndexShardSource::LoadDerivedCache(const SourceFingerprint& fingerprint)
   size_t postingsStart = 0;
   if (!ToSize(cachedPostingsStart, &postingsStart))
   {
-    munmap(mapped, mappedSize);
+    delete[] mapped;
     return false;
   }
 
-  // Cache pages are accessed randomly at query time (only the terms and docs
-  // actually touched by a query are ever faulted in).
-  madvise(mapped, mappedSize, MADV_RANDOM);
-
-  // Keep the mmap alive — all data pointers point directly into it.
+  // Keep the owned cache buffer alive — all data pointers point directly into it.
   cacheMapData_ = mapped;
   cacheMapSize_ = mappedSize;
 
@@ -693,10 +696,10 @@ bool IndexShardSource::FindPostingBounds(const string& term, const uint8_t** beg
 
 void IndexShardSource::Reset()
 {
-  // Release the persistent .loadcache mmap (cache hit path).
+  // Release the persistent .loadcache buffer (cache hit path).
   if (cacheMapData_)
   {
-    munmap(cacheMapData_, cacheMapSize_);
+    delete[] cacheMapData_;
     cacheMapData_ = nullptr;
     cacheMapSize_ = 0;
   }
@@ -720,11 +723,10 @@ void IndexShardSource::Reset()
   cacheStatus_ = ShardLoadCacheStatus::NotLoaded;
   postingsStart_ = 0;
 
-  const size_t mappedSize = fileSize_;
   fileSize_ = 0;
   if (data_)
   {
-    munmap(data_, mappedSize);
+    delete[] data_;
     data_ = nullptr;
   }
 }

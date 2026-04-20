@@ -87,6 +87,11 @@ Location ISR::GetEndLocation() const
   return hasCurrentPost_ ? currentPost_.GetEndLocation() : 0;
 }
 
+unsigned ISR::GetDocumentCount() const
+{
+  return std::numeric_limits<unsigned>::max();
+}
+
 void ISR::ClearCurrent()
 {
   hasCurrentPost_ = false;

@@ -43,7 +43,7 @@ public:
   ISREndDoc* OpenEndDocIsr() const override;
 
 private:
-  // Points into the mmap'd data_ region — no heap copy of the string bytes.
+  // Points into the owned data_ region — no per-string heap copy.
   struct DocSlice
   {
     uint32_t offset = 0;
@@ -84,7 +84,7 @@ private:
   size_t fileSize_ = 0;
   size_t postingsStart_ = 0;
 
-  // Persistent mmap of the .loadcache file (cache hit path). Null on cache miss.
+  // Persistent owned copy of the .loadcache file (cache hit path). Null on cache miss.
   uint8_t* cacheMapData_ = nullptr;
   size_t cacheMapSize_ = 0;
 

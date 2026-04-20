@@ -343,6 +343,67 @@ void testPrefixedShardNamesAreDiscoveredAndClassified()
   EXPECT(rmdir(dir) == 0);
 }
 
+void writeRepeatedAlphaShard(const string& shardPath, const char* urlPrefix, size_t count,
+                             const char* titlePrefix)
+{
+  ::Index index;
+  for (size_t i = 0; i < count; ++i)
+  {
+    char url[64];
+    std::snprintf(url, sizeof(url), "%s-%02zu", urlPrefix, i);
+    char title[64];
+    std::snprintf(title, sizeof(title), "%s %02zu", titlePrefix, i);
+    string urlString(url);
+    string titleString(title);
+    index.beginDocument({.url = urlString,
+                         .title = titleString,
+                         .input = {.domainDepth = 0u,
+                                   .depth = 0u,
+                                   .urlLength = static_cast<uint16_t>(urlString.size()),
+                                   .titleWordCount = countWords(titleString),
+                                   .seedSource = 0u}});
+    index.ingest("alpha");
+    index.ingest("tierzero");
+    index.endDocument();
+  }
+
+  const int fd = open(shardPath.cstr(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  EXPECT(fd >= 0);
+  EXPECT(index.serialize(fd) == false);
+  EXPECT(close(fd) == 0);
+}
+
+void testTieredShardSearchesHighTierFirst()
+{
+  char dirTemplate[] = "/tmp/search_service_tiers_XXXXXX";
+  char* dir = mkdtemp(dirTemplate);
+  EXPECT(dir != nullptr);
+
+  const string tier0 = joinPath(dir, "tier0_00000.sfi");
+  const string tier1 = joinPath(dir, "tier1_00000.sfi");
+  writeRepeatedAlphaShard(tier0, "doc://tier0-alpha", 35, "Tier Zero");
+  writeShard(tier1.cstr(), {{"doc://tier1-best", "Alpha", "alpha"}});
+
+  SearchService service(dir);
+  EXPECT(service.PrimaryShardCount() == 2u);
+  EXPECT(service.AnchorShardCount() == 0u);
+
+  const SearchResponse highEnough = service.Search("alpha", 10);
+  EXPECT(highEnough.Errors.empty());
+  EXPECT(highEnough.Results.size() == 10u);
+  for (size_t i = 0; i < highEnough.Results.size(); ++i)
+    EXPECT(highEnough.Results[i].Url != string("doc://tier1-best"));
+
+  const SearchResponse fallback = service.Search("alpha -tierzero", 10);
+  EXPECT(fallback.Errors.empty());
+  EXPECT(fallback.Results.size() == 1u);
+  EXPECT(fallback.Results[0].Url == string("doc://tier1-best"));
+
+  removeShardAndCache(tier0);
+  removeShardAndCache(tier1);
+  EXPECT(rmdir(dir) == 0);
+}
+
 void testSolverQueries()
 {
   char dirTemplate[] = "/tmp/search_service_test_XXXXXX";
@@ -360,11 +421,11 @@ void testSolverQueries()
 
   SearchService service(dir);
 
-  expectUrls(service.Search("apple", 10), {"doc://brown-fox", "doc://apollo", "doc://fruit-a"});
+  expectUrls(service.Search("apple", 10), {"doc://apollo", "doc://brown-fox", "doc://fruit-a"});
   const SearchResponse page2 = service.SearchPage("apple", 2, 1);
   EXPECT(page2.Page == 2u);
   EXPECT(page2.Limit == 1u);
-  expectUrls(page2, {"doc://apollo"});
+  expectUrls(page2, {"doc://brown-fox"});
 
   expectUrls(service.Search("\"apollo moon landing\"", 10), {"doc://apollo"});
   expectUrls(service.Search("banana cherry", 10), {"doc://fruit-b", "doc://fruit-a"});
@@ -734,6 +795,7 @@ int main()
   testShardLoadCacheCorruptionFallsBackAndRewrites();
   testShardLoadCacheStaleSourceFallsBackAndRewrites();
   testPrefixedShardNamesAreDiscoveredAndClassified();
+  testTieredShardSearchesHighTierFirst();
   testSolverQueries();
   testResultDescriptions();
   testPaging();

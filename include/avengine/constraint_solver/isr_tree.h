@@ -17,6 +17,7 @@ public:
   Post* Seek(Location target) override;
   Post* Next() override;
   Post* NextDocument();
+  unsigned GetDocumentCount() const override;
 
   vector<ISR*> Terms;
 
@@ -36,6 +37,7 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
+  unsigned GetDocumentCount() const override;
 
   vector<ISR*> Terms;
   ISREndDoc* DocumentEnd = nullptr;
@@ -56,6 +58,7 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
+  unsigned GetDocumentCount() const override;
 
   vector<ISR*> Terms;
   ISREndDoc* DocumentEnd = nullptr;
@@ -69,6 +72,7 @@ public:
 
   Post* Seek(Location target) override;
   Post* Next() override;
+  unsigned GetDocumentCount() const override;
 
   vector<ISR*> Required;
   vector<ISR*> Excluded;

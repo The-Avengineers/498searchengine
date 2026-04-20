@@ -143,6 +143,11 @@ add_executable(anchor_processor src/indexer/anchor_processor.cpp)
 target_link_libraries(anchor_processor PRIVATE avengine)
 target_include_directories(anchor_processor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Offline post-crawl tiered shard rewriter.
+add_executable(tiered_shard_preprocessor src/indexer/tiered_shard_preprocessor.cpp)
+target_link_libraries(tiered_shard_preprocessor PRIVATE avengine)
+target_include_directories(tiered_shard_preprocessor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Helper tool for comparing probing strategies at different load factors.
 add_executable(probing_benchmark src/probing_benchmark.cpp)
 target_include_directories(probing_benchmark
@@ -182,6 +187,7 @@ foreach(avengine_target
         index_builder
         index_reader
         anchor_processor
+        tiered_shard_preprocessor
         probing_benchmark
         crawler_index_profile
         crawler_main
@@ -199,6 +205,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(avengine PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(index_reader PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(anchor_processor PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(tiered_shard_preprocessor PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(probing_benchmark PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_index_profile PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(crawler_main PRIVATE -Wall -Wextra -Wpedantic)
