@@ -363,6 +363,47 @@ void testInvalidQueryErrorsPassThrough()
   EXPECT(result.Matches.size() == 0);
 }
 
+DictionarySource makeStopWordSource()
+{
+  DictionarySource source;
+  source.AddOccurrence("the", 1);
+  source.AddOccurrence("best", 2);
+  source.AddOccurrence("pizza", 3);
+  source.AddDocument("doc-1", 3);
+
+  source.AddOccurrence("the", 6);
+  source.AddOccurrence("is", 7);
+  source.AddDocument("doc-2", 7);
+  return source;
+}
+
+void testAllStopWordQueryNotStripped()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeStopWordSource();
+  auto result = solver.SolveQuery("the is", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-2"});
+}
+
+void testStopWordsKeptInsidePhrase()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeStopWordSource();
+  auto result = solver.SolveQuery("\"the best pizza\"", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-1"});
+}
+
+void testMultipleStopWordsStripped()
+{
+  ConstraintSolver solver;
+  DictionarySource source = makeStopWordSource();
+  auto result = solver.SolveQuery("the is best pizza", source);
+  EXPECT(result.Errors.size() == 0);
+  expectMatches(result.Matches, {"doc-1"});
+}
+
 void testEmptySourceReturnsNoMatches()
 {
   ConstraintSolver solver;
@@ -410,5 +451,8 @@ int main()
   testInvalidQueryErrorsPassThrough();
   testEmptySourceReturnsNoMatches();
   testSolveTimesOut();
+  testAllStopWordQueryNotStripped();
+  testStopWordsKeptInsidePhrase();
+  testMultipleStopWordsStripped();
   return 0;
 }
