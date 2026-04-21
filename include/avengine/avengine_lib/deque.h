@@ -20,9 +20,6 @@ public:
     }
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: *this
-  // EFFECTS: Adds x to the front of the deque
   void pushFront(const T& x)
   {
     if (count == data.capacity())
@@ -34,9 +31,6 @@ public:
     count++;
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: *this
-  // EFFECTS: Adds x to the back of the Deque
   void pushBack(const T& x)
   {
     if (count == data.capacity())
@@ -48,9 +42,7 @@ public:
     count++;
   }
 
-  // REQUIRES: !empty()
-  // MODIFIES: *this
-  // EFFECTS: Removes the front element from the Deque, returns true on success, false if empty
+  // Removes the front element from the Deque, returns true on success, false if empty
   bool popFront()
   {
     if (count == 0)
@@ -62,9 +54,7 @@ public:
     return true;
   }
 
-  // REQUIRES: !empty()
-  // MODIFIES: *this
-  // EFFECTS: Removes the back element from the Deque, returns true on success, false if empty
+  //  Removes the back element from the Deque, returns true on success, false if empty
   bool popBack()
   {
     if (count == 0)
@@ -75,25 +65,20 @@ public:
     count--;
     return true;
   }
-  // REQUIRES: !empty()
-  // MODIFIES: Nothing
-  // EFFECTS: Returns a reference to the front element of the Deque
+ 
+  // Returns a reference to the front element of the Deque
   T& front()
   {
     return data[fr];
   }
 
-  // REQUIRES: !empty()
-  // MODIFIES: Nothing
-  // EFFECTS: Returns a const reference to the front element of the Deque
+  // Returns a const reference to the front element of the Deque
   const T& front() const
   {
     return data[fr];
   }
 
-  // REQUIRES: !empty()
-  // MODIFIES: Nothing
-  // EFFECTS: Returns a reference to the back element of the Deque
+  // Returns a reference to the back element of the Deque
   T& back()
   {
     if (bck == 0)
@@ -104,9 +89,7 @@ public:
     return data[bck - 1];
   }
 
-  // REQUIRES: !empty()
-  // MODIFIES: Nothing
-  // EFFECTS: Returns a const reference to the back element of the Deque
+  //  Returns a const reference to the back element of the Deque
   const T& back() const
   {
     if (bck == 0)
@@ -117,25 +100,18 @@ public:
     return data[bck - 1];
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns true if the Deque is empty, false otherwise
+  //Returns true if the Deque is empty, false otherwise
   bool empty() const
   {
     return count == 0;
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns the number of elements in the Deque
+  // Returns the number of elements in the Deque
   size_t size() const
   {
     return count;
   }
-
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns true if *this and other contain the same elements
+  // Returns true if *this and other contain the same elements
   //          in the same order, false otherwise
   bool operator==(const deque& other) const
   {
@@ -154,9 +130,7 @@ public:
     return true;
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns true if *this and other are not equal, false otherwise
+  // Returns true if *this and other are not equal, false otherwise
   bool operator!=(const deque& other) const
   {
     return !(*this == other);
@@ -166,9 +140,7 @@ private:
   vector<T> data;
   size_t fr, bck, count;
 
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns (inc + 1) % capacity for circular buffer wrapping
+  //  Returns (inc + 1) % capacity for circular buffer wrapping
   size_t increment(const size_t inc) const
   {
     if (data.capacity() == 0)
@@ -178,9 +150,7 @@ private:
     return (inc + 1) % data.capacity();
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: Nothing
-  // EFFECTS: Returns (inc - 1) % capacity for circular buffer wrapping
+  //  Returns (inc - 1) % capacity for circular buffer wrapping
   size_t decrement(const size_t dec) const
   {
     if (data.capacity() == 0)
@@ -191,9 +161,7 @@ private:
     return (dec == 0) ? data.capacity() - 1 : (dec - 1);
   }
 
-  // REQUIRES: Nothing
-  // MODIFIES: *this
-  // EFFECTS: Doubles the capacity of the Deque and reorganizes elements
+  // Doubles the capacity of the Deque and reorganizes elements
   void grow()
   {
     size_t oldCapacity = data.capacity();

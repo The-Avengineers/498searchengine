@@ -314,45 +314,5 @@ string URLNormalizer::toLower(const string& str)
   }
   return result;
 }
-
-// helper functions for port conversion, not used right now -> port is now a string
-// string to int function for the port, returns -1 if not valid
-int URLNormalizer::stringToInt(const string& str)
-{
-  int result = 0;
-  for (size_t i = 0; i < str.size(); ++i)
-  {
-    char c = str[i];
-    if (c >= '0' && c <= '9')
-    {
-      result = result * 10 + (c - '0');
-    }
-    else
-    {
-      // handle non-digit characters, could throw an error or return -1
-      return -1;
-    }
-  }
-  return result;
-}
-
-// int to string function for the port
-string URLNormalizer::intToString(int num)
-{
-  if (num == 0)
-    return string("0");
-  char buf[12];
-  int len = 0;
-  while (num > 0)
-  {
-    buf[len++] = '0' + (num % 10);
-    num /= 10;
-  }
-  string result;
-  for (int i = len - 1; i >= 0; --i)
-    result.pushBack(buf[i]);
-  return result;
-}
-
 } // namespace crawler
 } // namespace avengine

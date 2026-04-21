@@ -10,7 +10,7 @@
     nbsp: " ",
   };
 
-  // core defaults + dom hooks for the results page
+  // core defaults
   const DEFAULT_PAGE_SIZE = 10;
   const MAX_PAGE_SIZE = 10;
   const RESULTS_PAGE_FILENAME = "results.html";
@@ -26,7 +26,6 @@
   const queryInputEl = document.getElementById("results-query");
   const paginationEl = document.getElementById("results-pagination");
 
-  // if the expected dom isn't here, just bail quietly
   if (!listEl || !countEl || !timingEl || !feedbackEl || !queryInputEl) {
     return;
   }
@@ -37,7 +36,6 @@
   let activeLimit = initialState.limit;
   let requestToken = 0;
 
-  // keep the search input in sync with what we are showing
   queryInputEl.value = activeQuery;
 
   bindSearchForm();
@@ -132,7 +130,6 @@
 
     const currentToken = ++requestToken;
 
-    // no query means no fetch, just show a helpful nudge
     if (normalizedQuery.length === 0) {
       setCount("Enter a query to search.");
       clearList();
@@ -142,7 +139,6 @@
       return;
     }
 
-    // show immediate status so the page feels responsive
     setCount(`Searching for "${normalizedQuery}"...`);
     clearList();
     hideElapsedTime();
@@ -214,7 +210,6 @@
     try {
       window.history.pushState(null, "", nextUrl);
     } catch (error) {
-      // ignore history writes in restricted environments
     }
   }
 
@@ -279,7 +274,6 @@
       sessionStorage.setItem(key, JSON.stringify(results));
       touchCacheEntry(key);
     } catch (e) {
-      // storage quota exceeded — just skip caching
     }
   }
 
@@ -306,7 +300,6 @@
         try {
           sessionStorage.removeItem(staleKey);
         } catch (error) {
-          // ignore storage remove failures
         }
       }
     }
@@ -348,7 +341,6 @@
     try {
       sessionStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(entries));
     } catch (error) {
-      // ignore storage write failures
     }
   }
 
@@ -409,7 +401,7 @@
   }
 
   function createResultCard(result) {
-    // build each result card using only safe text/hrefs
+    // build each result card 
     const item = document.createElement("li");
     item.className = "result-card";
 
@@ -454,7 +446,6 @@
   }
 
   function normalizeResults(rawResults) {
-    // accept a few common key variants so frontend isn't brittle
     if (!Array.isArray(rawResults)) {
       return [];
     }
@@ -519,7 +510,6 @@
   }
 
   function normalizeErrors(rawErrors) {
-    // keep only non-empty message strings
     if (!Array.isArray(rawErrors)) {
       return [];
     }
@@ -537,13 +527,11 @@
   }
 
   function firstErrorMessage(payload) {
-    // grab the first user-facing api error if present
     const errors = normalizeErrors(payload && payload.errors);
     return errors.length > 0 ? errors[0] : "";
   }
 
   function compactUrl(url) {
-    // trim protocol to keep the result url line cleaner
     try {
       const parsed = new URL(url);
       const path = parsed.pathname === "/" ? "" : parsed.pathname;
@@ -554,7 +542,6 @@
   }
 
   function sanitizeUrl(url) {
-    // only allow http/https links into the dom
     if (typeof url !== "string" || url.trim().length === 0) {
       return "";
     }
@@ -571,7 +558,6 @@
   }
 
   function pickString(source, keys) {
-    // return the first non-empty string in priority order
     for (const key of keys) {
       if (typeof source[key] === "string") {
         const trimmed = source[key].trim();
@@ -584,7 +570,6 @@
   }
 
   function clampLimit(value) {
-    // backend pages in groups of 10, so keep the UI honest
     if (!Number.isInteger(value) || value <= 0) {
       return DEFAULT_PAGE_SIZE;
     }
@@ -602,13 +587,11 @@
   }
 
   function parseInteger(value) {
-    // parse loosely, return null when not usable
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : null;
   }
 
   function formatScore(rawScore) {
-    // normalize score display to a consistent precision
     if (typeof rawScore === "number" && Number.isFinite(rawScore)) {
       return rawScore.toFixed(3);
     }
@@ -616,7 +599,6 @@
   }
 
   function buildApiUrl(queryText, pageNumber, limitValue) {
-    // same-origin path; deployment routes /api/* to backend
     const queryParams = new URLSearchParams();
     queryParams.set("q", queryText);
     queryParams.set("page", String(pageNumber));
@@ -738,7 +720,6 @@
   }
 
   function readErrorMessage(error) {
-    // unwrap thrown errors into something user-facing
     if (error && typeof error.message === "string" && error.message.trim().length > 0) {
       return error.message;
     }
